@@ -348,7 +348,7 @@ public class TimeSlotMergeWithDiscard {
             List<TimeSlot> discarded = result.getDiscardedParts(originalId);
 
             if (!remaining.isEmpty() || !discarded.isEmpty()) {
-                System.out.println("\n原始时间段 " + originalId.substring(0, 8) + ":");
+                System.out.println("\n原始时间段 " + originalId + ":");
                 System.out.println("  剩余部分: " + remaining.size() + "段");
                 remaining.forEach(s -> System.out.println("    " + s));
                 System.out.println("  舍弃部分: " + discarded.size() + "段");

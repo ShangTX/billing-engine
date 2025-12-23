@@ -38,8 +38,9 @@ public class BillingContext {
         LocalDateTime endTime; // 结束时间
         Long schemaId; // 方案id
         Long ruleId; // 规则id
-        Integer version; // 版本号
+        Integer ruleVersion; // 版本号
         List<Period> periods; // 时间段
+        Integer status; // 计费分段状态
     }
 
     @Data
