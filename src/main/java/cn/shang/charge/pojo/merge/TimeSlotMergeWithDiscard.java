@@ -30,15 +30,13 @@ public class TimeSlotMergeWithDiscard {
         }
 
         // 2. 按优先级排序（优先级高的在前）
-        processedSlots.sort(Comparator
-                .comparingInt(TimeSlot::getPriority)
+        processedSlots.sort(Comparator.comparingInt(TimeSlot::getPriority)
                 .thenComparing(TimeSlot::getStart));
 
         // 3. 按优先级分组处理
         Map<Integer, List<TimeSlot>> slotsByPriority = new TreeMap<>();
         for (TimeSlot slot : processedSlots) {
-            slotsByPriority.computeIfAbsent(slot.getPriority(), k -> new ArrayList<>())
-                    .add(slot);
+            slotsByPriority.computeIfAbsent(slot.getPriority(), k -> new ArrayList<>()).add(slot);
         }
 
         // 4. 从最高优先级（数字最小）开始处理
@@ -93,17 +91,7 @@ public class TimeSlotMergeWithDiscard {
                 continue;
             }
 
-            // 时间段部分在区间外，记录被舍弃的部分
-            if (originalSlot.getStart().isBefore(overallStart)) {
-                TimeSlot discarded = new TimeSlot(
-                        originalSlot.getId(),
-                        originalSlot.getStart(),
-                        overallStart,
-                        originalSlot.getPriority()
-                );
-                result.addDiscardedSlot(discarded);
-            }
-
+            // 仅记录在有效区间之后被舍弃的部分
             if (originalSlot.getEnd().isAfter(overallEnd)) {
                 TimeSlot discarded = new TimeSlot(
                         originalSlot.getId(),
@@ -138,8 +126,7 @@ public class TimeSlotMergeWithDiscard {
     /**
      * 处理同优先级时间段之间的覆盖（开始早的覆盖开始晚的）
      */
-    private List<TimeSlot> handleSamePriorityCoverage(List<TimeSlot> slots,
-                                                      MergeResult result) {
+    private List<TimeSlot> handleSamePriorityCoverage(List<TimeSlot> slots, MergeResult result) {
         if (slots.size() <= 1) {
             return new ArrayList<>(slots);
         }
