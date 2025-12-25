@@ -1,3 +1,17 @@
 spring:
   application:
     name: charge
+  datasource:
+    url: jdbc:mysql://123.56.12.75:51726/charge?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: artisan_root
+    driver-class-name: com.mysql.cj.jdbc.Driver  # Spring Boot 会自动检测，通常可以省略
+
+  jpa:
+    hibernate:
+      ddl-auto: update  # 常见选项：create、create-drop、update、validate、none
+    show-sql: true      # 是否在控制台打印 SQL
+    database-platform: org.hibernate.dialect.MySQLDialect
+    properties:
+      hibernate:
+        format_sql: true  # 美化输出的 SQL（可选）

@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class BillingResult {
@@ -17,7 +18,13 @@ public class BillingResult {
     // 停车分钟数
     Integer duration;
 
-    BillingContext context;
+    List<Object> details; // 计费细节
+
+    List<Object> promotionUsages; // 已使用的优惠
+
+    List<Object> unusedPromotions; // 未使用的优惠
+
+
 
     public static BillingResult createZeroMinutesResult() {
         var chargeResult = new BillingResult();
