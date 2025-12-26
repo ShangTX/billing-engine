@@ -1,4 +1,4 @@
-package cn.shang.promotion;
+package cn.shang.promotion.pojo;
 
 /**
  * 优惠计算
