@@ -1,6 +1,9 @@
 package cn.shang.billing.pojo;
 
+import cn.shang.billing.BillingSegment;
 import cn.shang.billing.RuleResolver;
+import cn.shang.promotion.pojo.ExternalPromotionInput;
+import cn.shang.promotion.pojo.PromotionContribution;
 import cn.shang.promotion.pojo.PromotionRule;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -25,17 +28,18 @@ public class BillingContext {
     /**
      * 三种模式：STATELESS / CACHE / PERSIST
      */
-    private BConstants.BillingMode mode;
+    private BConstants.BillingMode billingMode;
 
     /**
-     * 方案变更时间轴（只在方案切换时产生）
+     * 分段
      */
-    private List<SchemeChange> schemeChanges;
+    private BillingSegment segment;
 
     /**
-     * 规则解析器（核心）
+     * 计算窗口
      */
-    private RuleResolver ruleResolver;
+    private CalculationWindow window;
+
 
     /**
      * 已计算进度（仅缓存 / 持久化模式使用）
@@ -43,13 +47,21 @@ public class BillingContext {
     private BillingProgress progress;
 
     /**
-     * 外部优惠
+     * 优惠规则
      */
-    private List<PromotionRule> promotionRules;
+    private List<PromotionRuleSnapshot> promotionRules;
 
     /**
-     * 优惠使用统计
+     * 计费规则
      */
-    private PromotionUsageTracker promotionTracker;
+    private RuleSnapshot chargingRule;
+
+    /**
+     * 外部优惠
+     */
+    private List<PromotionContribution> externalPromotions;
+
+
+
 
 }

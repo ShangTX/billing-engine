@@ -1,5 +1,6 @@
 package cn.shang.billing;
 
+import cn.shang.billing.pojo.PromotionRuleSnapshot;
 import cn.shang.billing.pojo.RuleSnapshot;
 
 import java.time.LocalDateTime;
@@ -14,7 +15,7 @@ public interface RuleResolver {
                          LocalDateTime segmentStart,
                          LocalDateTime segmentEnd);
 
-    List<RuleSnapshot> resolvePromotionRules(String schemeId,
-                                            LocalDateTime segmentStart,
-                                            LocalDateTime segmentEnd);
+    List<PromotionRuleSnapshot> resolvePromotionRules(String schemeId,
+                                                      LocalDateTime segmentStart,
+                                                      LocalDateTime segmentEnd);
 }

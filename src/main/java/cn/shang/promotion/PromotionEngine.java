@@ -1,10 +1,10 @@
 package cn.shang.promotion;
 
-import cn.shang.billing.pojo.BillingContext;
-import cn.shang.promotion.pojo.PromotionAggregate;
-import cn.shang.promotion.pojo.PromotionContext;
-import cn.shang.promotion.pojo.PromotionContribution;
-import cn.shang.promotion.pojo.PromotionRule;
+import cn.shang.billing.RuleResolver;
+import cn.shang.billing.pojo.*;
+import cn.shang.promotion.pojo.*;
+import lombok.Data;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -17,50 +17,80 @@ import java.util.List;
 public class PromotionEngine {
 
 
+    private final RuleResolver ruleResolver;
+    private final FreeTimeRangeMerger freeTimeRangeMerger;
+    private final FreeMinuteAllocator freeMinuteAllocator;
+
     public PromotionAggregate evaluate(BillingContext context) {
+        // 1️⃣ 确定本次 promotion 计算的时间窗口
+        CalculationWindow window = context.getWindow();
+        // window 内部已经处理了：
+        // - 方案分段
+        // - SEGMENT_ORIGIN / GLOBAL_ORIGIN
+        List<PromotionContribution> timeRangePromotions = new ArrayList<>();
+        List<PromotionContribution> freeMinutesPromotions = new ArrayList<>();
 
-        PromotionContext promotionContext = buildPromotionContext(context);
 
-        // 1. 从方案中解析出【规则内优惠】
-        List<PromotionContribution> ruleContributions =
-                loadPromotionRules(promotionContext);
-
-        // 2. 从外部输入中解析【外部优惠】
-        List<PromotionContribution> externalContributions =
-                loadExternalPromotions(promotionContext);
-
-        List<PromotionContribution> contributions = new ArrayList<>();
-
-        // 外部优惠
-        for (PromotionRule rule : context.getPromotionRules()) {
-            contributions.add(rule.contribute(context));
+        // 2.1 来自优惠规则（按方案 + 时间段）
+        List<PromotionRuleSnapshot> promotionRules = context.getPromotionRules();
+        for (PromotionRuleSnapshot rule : context.getPromotionRules()) {
+            PromotionContribution grant = rule.grant(context, window);
+            if (grant.getType() == BConstants.PromotionType.FREE_MINUTES) {
+                freeMinutesPromotions.add(grant);
+            }
+            if (grant.getType() == BConstants.PromotionType.FREE_RANGE) {
+                timeRangePromotions.add(grant);
+            }
         }
-        // 规则优惠
-        // 3. 合并所有优惠（优先级 + 截断 + 去重）
-        PromotionAggregate aggregate =
-                PromotionAggregator.aggregate(
-                        ruleContributions,
-                        externalContributions,
-                        promotionContext
+
+        // 2️⃣ 来自外部优惠
+        for (PromotionContribution externalPromotion : context.getExternalPromotions()) {
+            if (externalPromotion.getType() == BConstants.PromotionType.FREE_MINUTES) {
+                freeMinutesPromotions.add(externalPromotion);
+            }
+            if (externalPromotion.getType() == BConstants.PromotionType.FREE_RANGE) {
+                timeRangePromotions.add(externalPromotion);
+            }
+        }
+
+        // 3️⃣ 合并显式免费时间段
+        List<FreeTimeRange> explicitFreeRanges =
+                freeTimeRangeMerger.merge(
+                        rawInput.getFreeTimeRanges(),
+                        window
                 );
 
-        return aggregate;
-    }
+        // 免费分钟数转为时间段
+        FreeMinuteAllocationResult minuteResult =
+                freeMinuteAllocator.allocate(
+                        rawInput.getFreeMinuteGrants(),
+                        explicitFreeRanges,
+                        window
+                );
 
-    private PromotionContext buildPromotionContext(BillingContext ctx) {
+        // 最终合并
+        List<FreeTimeRange> finalFreeRanges =
+                freeTimeRangeMerger.merge(
+                        Stream.concat(
+                                explicitFreeRanges.stream(),
+                                minuteResult.getGeneratedFreeRanges().stream()
+                        ).toList(),
+                        window
+                );
 
-        return new PromotionContext(
-                ctx.getEntryTime(),
-                ctx.getExitTime(),
-                ctx.getCurrentSchemeId(),
-                ctx.getBillingCycleType(),
-                ctx.getExternalPromotionParams()
-        );
-        return PromotionContext.builder()
-                .beginTime(ctx.getBeginTime())
-                .endTime(ctx.getEndTime())
-                .schemeId(ctx.getSC)
+        return PromotionAggregate.builder()
+                .freeTimeRanges(finalFreeRanges)
+                .promotionUsages(minuteResult.getUsages())
+                .unconsumedPromotions(minuteResult.getUnconsumed())
                 .build();
     }
+
+
+    @Data
+    public static class PromotionRawInput {
+        List<FreeMinuteGrant> minuteGrants;
+        List<FreeTimeRange> timeRangeGrants;
+    }
+
 
 }

@@ -5,73 +5,134 @@ import cn.shang.charge.ChargingEngine;
 import cn.shang.charge.pojo.ChargingResult;
 import cn.shang.promotion.PromotionEngine;
 import cn.shang.promotion.pojo.PromotionAggregate;
+import cn.shang.promotion.pojo.PromotionRule;
+import cn.shang.settlement.ResultAssembler;
 import cn.shang.settlement.SettlementEngine;
 import cn.shang.settlement.pojo.SettlementResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-@RequiredArgsConstructor
-@Service
+import java.util.ArrayList;
+import java.util.List;
+
 public class BillingService {
 
-
+    private final SegmentBuilder segmentBuilder;
+    private final RuleResolver ruleResolver;
     private final PromotionEngine promotionEngine;
-    private final ChargingEngine chargingEngine;
-    private final SettlementEngine settlementEngine;
-    private final BillingSchemaService billingSchemaService;
+    private final BillingCalculator billingCalculator;
+    private final ResultAssembler resultAssembler;
+
+    public BillingService(
+            SegmentBuilder segmentBuilder,
+            RuleResolver ruleResolver,
+            PromotionEngine promotionEngine,
+            BillingCalculator billingCalculator,
+            ResultAssembler resultAssembler) {
+        this.segmentBuilder = segmentBuilder;
+        this.ruleResolver = ruleResolver;
+        this.promotionEngine = promotionEngine;
+        this.billingCalculator = billingCalculator;
+        this.resultAssembler = resultAssembler;
+    }
 
     /**
      * 计费计算
+     *
      * @param request 计费参数
      */
     public BillingResult calculate(BillingRequest request) {
 
-        BillingContext context = buildContext(request);
+        // 1. 构建方案分段（只负责方案切换）
+        List<BillingSegment> segments = segmentBuilder.buildSegments(request);
 
-        // === Stage 1：优惠时间同化 ===
-        PromotionAggregate promotionAggregate = promotionEngine.evaluate(context);
+        // 各分段计费结果
+        List<BillingSegmentResult> segmentResults = new ArrayList<>();
 
-        // === Stage 2：单位时间计费 ===
-        ChargingResult chargingResult = chargingEngine.calculate(context, promotionAggregate);
+        // 2.逐段计算
 
-        // === Stage 3：金额结算调整 ===
-        SettlementResult settlementResult = settlementEngine.settle(chargingResult);
+        // 2. 逐段计算
+        for (BillingSegment segment : segments) {
 
-        return BillingResult.of(chargingResult, settlementResult);
+            // 2.1 构建计算窗口（支持两种分段模式）
+            CalculationWindow window = CalculationWindowFactory.create(
+                            request.getBeginTime(),
+                            segment,
+                            request.getSegmentCalculationMode()
+                    );
+
+            // 2.2 解析规则快照（方案已确定）
+            RuleSnapshot chargingRule = ruleResolver.resolveChargingRule(
+                            segment.getSchemeId(),
+                            window.getCalculationBegin(),
+                            window.getCalculationEnd());
+            // 解析优惠规则
+            List<PromotionRuleSnapshot> promotionRules =
+                    ruleResolver.resolvePromotionRules(
+                            segment.getSchemeId(),
+                            window.getCalculationBegin(),
+                            window.getCalculationEnd());
+
+            // 2.3 构建 BillingContext（只读）
+            BillingContext context = BillingContext.builder()
+                    .id(request.getId())
+                    .beginTime(request.getBeginTime())
+                    .segment(segment)
+                    .window(window)
+                    .chargingRule(chargingRule)
+                    .promotionRules(promotionRules)
+                    .externalPromotions(request.getExternalPromotions())
+                    .billingMode(request.getBillingMode())
+                    .build();
+
+            // 2.4 执行优惠聚合
+            PromotionAggregate promotionAggregate = promotionEngine.evaluate(context);
+
+            // 2.5 执行计费
+            BillingSegmentResult segmentResult = billingCalculator.calculate(context, promotionAggregate);
+
+            segmentResults.add(segmentResult);
+        }
+        // 3. 汇总结果（金额、满减、封顶等）
+        return resultAssembler.assemble(
+                request,
+                segmentResults
+        );
     }
 
     private BillingContext buildContext(BillingRequest request) {
-        return switch (request.getMode()) {
+        return switch (request.getBillingMode()) {
             case BConstants.BillingMode.STATELESS -> {
                 yield createContext(request);
             }
             case BConstants.BillingMode.CACHE -> {
                 // TODO 待实现 缓存模式
-                throw new IllegalArgumentException("not implemented " + request.getMode());
+                throw new IllegalArgumentException("not implemented " + request.getBillingMode());
             }
             case BConstants.BillingMode.PERSIST -> {
                 // TODO 待实现 持久化模式
-                throw new IllegalArgumentException("not implemented " + request.getMode());
+                throw new IllegalArgumentException("not implemented " + request.getBillingMode());
             }
-            default -> throw new IllegalArgumentException("Invalid mode " + request.getMode());
+            default -> throw new IllegalArgumentException("Invalid mode " + request.getBillingMode());
         };
     }
 
     /**
      * 创建一个新的context
+     *
      * @param request 计费请求
      */
     private BillingContext createContext(BillingRequest request) {
-        var schemaChanges = billingSchemaService.getSchemeChanges(request);
+        var schemeChanges = billingSchemeService.getSchemeChanges(request);
         return BillingContext.builder()
                 .id(request.getId())
-                .entryTime(request.getEntryTime())
-                .billingEndTime(request.getBillingEndTime())
+                .beginTime(request.getBeginTime())
+                .endTime(request.getEndTime())
                 .mode(request.getMode())
                 .progress(BillingProgress.create())
                 .promotionRules(request.getPromotionRules())
                 .promotionTracker(new PromotionUsageTracker())
-                .schemeChanges(schemaChanges)
+                .schemeChanges(schemeChanges)
                 .build();
     }
 }

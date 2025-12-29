@@ -12,5 +12,5 @@ public abstract class PromotionRuleSnapshot {
     Long id;
     Integer type;
 
-    abstract PromotionContribution contribute(PromotionContext ctx);
+    public abstract PromotionContribution grant(BillingContext ctx, CalculationWindow window);
 }

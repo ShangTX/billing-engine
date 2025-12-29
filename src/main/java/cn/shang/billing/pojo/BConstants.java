@@ -35,9 +35,11 @@ public class BConstants {
     /**
      * 分段计算方式
      */
-    enum SegmentCalculationMode {
+    public enum SegmentCalculationMode {
+        SINGLE, // 仅单个分段
         SEGMENT_LOCAL,     // 分段独立起算
         GLOBAL_ORIGIN      // 全局起算 + 分段截取
     }
+
 
 }
