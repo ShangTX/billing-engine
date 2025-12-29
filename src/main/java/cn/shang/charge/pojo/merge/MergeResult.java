@@ -41,11 +41,6 @@ public class MergeResult {
         }
     }
 
-    // Getters
-    public List<TimeSlot> getMergedSlots() { return mergedSlots; }
-    public List<TimeSlot> getDiscardedSlots() { return discardedSlots; }
-    public Map<String, List<TimeSlot>> getOriginalToDiscarded() { return originalToDiscarded; }
-
     /**
      * 获取指定原始时间段被舍弃的部分
      */
