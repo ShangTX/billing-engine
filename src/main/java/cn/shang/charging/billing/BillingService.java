@@ -93,39 +93,4 @@ public class BillingService {
         );
     }
 
-    private BillingContext buildContext(BillingRequest request) {
-        return switch (request.getBillingMode()) {
-            case BConstants.BillingMode.STATELESS -> {
-                yield createContext(request);
-            }
-            case BConstants.BillingMode.CACHE -> {
-                // TODO 待实现 缓存模式
-                throw new IllegalArgumentException("not implemented " + request.getBillingMode());
-            }
-            case BConstants.BillingMode.PERSIST -> {
-                // TODO 待实现 持久化模式
-                throw new IllegalArgumentException("not implemented " + request.getBillingMode());
-            }
-            default -> throw new IllegalArgumentException("Invalid mode " + request.getBillingMode());
-        };
-    }
-
-    /**
-     * 创建一个新的context
-     *
-     * @param request 计费请求
-     */
-    private BillingContext createContext(BillingRequest request) {
-        var schemeChanges = billingSchemeService.getSchemeChanges(request);
-        return BillingContext.builder()
-                .id(request.getId())
-                .beginTime(request.getBeginTime())
-                .endTime(request.getEndTime())
-                .mode(request.getMode())
-                .progress(BillingProgress.create())
-                .promotionRules(request.getPromotionRules())
-                .promotionTracker(new PromotionUsageTracker())
-                .schemeChanges(schemeChanges)
-                .build();
-    }
 }

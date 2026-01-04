@@ -128,28 +128,5 @@ public class FreeMinuteAllocator {
 
 
 
-    /**
-     * 分配结果
-     */
-    @Data
-    public static class AllocateFreeMinutes {
-        FreeMinutes freeMinutes;
-        PromotionUsage promotionUsage;
 
-        public AllocateFreeMinutes(FreeMinutes freeMinutes, PromotionUsage promotionUsage) {
-            this.freeMinutes = freeMinutes;
-            this.promotionUsage = promotionUsage;
-        }
-    }
-
-    List<TimeRange> subtractFreeRanges(
-            TimeRange window,
-            List<FreeTimeRange> freeRanges) {
-
-        // 标准区间差集算法
-        // window - union(freeRanges)
-        // 返回连续可收费区间
-
-        // TODO: 已有实现你可以直接复用
-    }
 }

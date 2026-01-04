@@ -17,11 +17,4 @@ public class PromotionRule {
 
     BConstants.PromotionType type; // 优惠类型
 
-    public PromotionContribution contribute(BillingContext context) {
-        return PromotionContribution.builder()
-                .id(this.id).type(this.type)
-                .source(BConstants.PromotionSource.COUPON)
-                .build();
-    }
-
 }

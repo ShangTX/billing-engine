@@ -1,6 +1,6 @@
 package cn.shang.charging.billing.pojo;
 
-import cn.shang.charging.promotion.pojo.PromotionContribution;
+import cn.shang.charging.promotion.pojo.PromotionGrant;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -22,7 +22,7 @@ public class BillingRequest {
     private BConstants.BillingMode billingMode;
 
     // 外部优惠
-    private List<PromotionContribution> externalPromotions;
+    private List<PromotionGrant> externalPromotions;
 
     // 分段计算方式
     private BConstants.SegmentCalculationMode segmentCalculationMode;
