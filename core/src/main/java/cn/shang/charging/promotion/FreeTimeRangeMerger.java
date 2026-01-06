@@ -44,13 +44,13 @@ public class FreeTimeRangeMerger {
 
         for (Map.Entry<Integer, List<FreeTimeRange>> entry : timeRangesByPriority.entrySet()) {
             int priority = entry.getKey();
-            List<FreeTimeRange> prioritySlots = entry.getValue();
+            List<FreeTimeRange> priorityRanges = entry.getValue();
 
             // 对同优先级的时间段排序
-            prioritySlots.sort(Comparator.comparing(FreeTimeRange::getBeginTime));
+            priorityRanges.sort(Comparator.comparing(FreeTimeRange::getBeginTime));
 
             // 处理同优先级时间段之间的覆盖（开始早的覆盖开始晚的）
-            List<FreeTimeRange> priorityResult = handleSamePriorityCoverage(prioritySlots, result);
+            List<FreeTimeRange> priorityResult = handleSamePriorityCoverage(priorityRanges, result);
 
             // 将当前优先级的结果与已有的时间段合并
             if (currentMerged.isEmpty()) {
@@ -77,44 +77,44 @@ public class FreeTimeRangeMerger {
                                                 TimeRangeMergeResult result) {
         List<FreeTimeRange> processed = new ArrayList<>();
 
-        for (FreeTimeRange originalSlot : timeRanges) {
-            if (!originalSlot.isValid()) {
+        for (FreeTimeRange originalRange : timeRanges) {
+            if (!originalRange.isValid()) {
                 // 记录无效时间段为被舍弃
-                result.addDiscardedSlot(originalSlot.copy());
+                result.addDiscardedRange(originalRange.copy());
                 continue;
             }
 
             // 时间段完全在整体区间外
-            if (originalSlot.getEndTime().isBefore(overallStart) ||
-                    originalSlot.getBeginTime().isAfter(overallEnd)) {
-                result.addDiscardedSlot(originalSlot.copy());
+            if (originalRange.getEndTime().isBefore(overallStart) ||
+                    originalRange.getBeginTime().isAfter(overallEnd)) {
+                result.addDiscardedRange(originalRange.copy());
                 continue;
             }
 
             // 仅记录在有效区间之后被舍弃的部分
-            if (originalSlot.getEndTime().isAfter(overallEnd)) {
+            if (originalRange.getEndTime().isAfter(overallEnd)) {
                 var discarded = new FreeTimeRange()
-                        .setId(originalSlot.getId())
+                        .setId(originalRange.getId())
                         .setBeginTime(overallEnd)
-                        .setEndTime(originalSlot.getEndTime())
-                        .setPriority(originalSlot.getPriority());
-                result.addDiscardedSlot(discarded);
+                        .setEndTime(originalRange.getEndTime())
+                        .setPriority(originalRange.getPriority());
+                result.addDiscardedRange(discarded);
             }
 
             // 截取在整体区间内的部分
-            LocalDateTime start = originalSlot.getBeginTime().isBefore(overallStart) ?
-                    overallStart : originalSlot.getBeginTime();
-            LocalDateTime end = originalSlot.getEndTime().isAfter(overallEnd) ?
-                    overallEnd : originalSlot.getEndTime();
+            LocalDateTime start = originalRange.getBeginTime().isBefore(overallStart) ?
+                    overallStart : originalRange.getBeginTime();
+            LocalDateTime end = originalRange.getEndTime().isAfter(overallEnd) ?
+                    overallEnd : originalRange.getEndTime();
 
             if (start.isBefore(end)) {
-                FreeTimeRange processedSlot = new FreeTimeRange()
-                        .setId(originalSlot.getId())
+                FreeTimeRange processedRange = new FreeTimeRange()
+                        .setId(originalRange.getId())
                         .setBeginTime(start)
                         .setEndTime(end)
-                        .setPriority(originalSlot.getPriority());
-                processedSlot.setData(originalSlot.getData());
-                processed.add(processedSlot);
+                        .setPriority(originalRange.getPriority());
+                processedRange.setData(originalRange.getData());
+                processed.add(processedRange);
             }
         }
 
@@ -129,24 +129,24 @@ public class FreeTimeRangeMerger {
             return new ArrayList<>(timeRanges);
         }
 
-        List<FreeTimeRange> coveredSlots = new ArrayList<>(timeRanges);
-        List<FreeTimeRange> finalSlots = new ArrayList<>();
+        List<FreeTimeRange> coveredRanges = new ArrayList<>(timeRanges);
+        List<FreeTimeRange> finalRanges = new ArrayList<>();
 
         // 按开始时间排序
-        coveredSlots.sort(Comparator.comparing(FreeTimeRange::getBeginTime));
+        coveredRanges.sort(Comparator.comparing(FreeTimeRange::getBeginTime));
 
-        FreeTimeRange current = coveredSlots.getFirst();
-        finalSlots.add(current);
+        FreeTimeRange current = coveredRanges.getFirst();
+        finalRanges.add(current);
 
-        for (int i = 1; i < coveredSlots.size(); i++) {
-            FreeTimeRange next = coveredSlots.get(i);
+        for (int i = 1; i < coveredRanges.size(); i++) {
+            FreeTimeRange next = coveredRanges.get(i);
 
             if (current.overlaps(next)) {
                 // 当前时间段覆盖下一个时间段的重叠部分
                 FreeTimeRange overlap = current.getOverlap(next);
                 if (overlap != null) {
                     // 记录被覆盖的部分
-                    result.addDiscardedSlot(new FreeTimeRange()
+                    result.addDiscardedRange(new FreeTimeRange()
                             .setId(next.getId())
                             .setBeginTime(overlap.getBeginTime())
                             .setEndTime(overlap.getEndTime())
@@ -162,7 +162,7 @@ public class FreeTimeRangeMerger {
                             // 检查是否与当前时间段相邻
                             if (!current.getEndTime().equals(part.getBeginTime()) ||
                                     !part.overlaps(current)) {
-                                finalSlots.add(part);
+                                finalRanges.add(part);
                             }
                         }
                     }
@@ -171,42 +171,42 @@ public class FreeTimeRangeMerger {
                 // 更新当前时间段为合并后的（如果下一个开始更早，理论上不会发生）
                 if (next.getBeginTime().isBefore(current.getBeginTime())) {
                     current = next;
-                    finalSlots.addFirst(current);
+                    finalRanges.addFirst(current);
                 }
             } else {
-                finalSlots.add(next);
+                finalRanges.add(next);
                 current = next;
             }
         }
 
         // 重新排序
-        finalSlots.sort(Comparator.comparing(FreeTimeRange::getBeginTime));
-        return finalSlots;
+        finalRanges.sort(Comparator.comparing(FreeTimeRange::getBeginTime));
+        return finalRanges;
     }
 
     /**
      * 合并不同优先级的时间段
      */
-    private List<FreeTimeRange> mergeDifferentPriority(List<FreeTimeRange> higherPrioritySlots,
-                                                       List<FreeTimeRange> lowerPrioritySlots,
+    private List<FreeTimeRange> mergeDifferentPriority(List<FreeTimeRange> higherPriorityRanges,
+                                                       List<FreeTimeRange> lowerPriorityRanges,
                                                        int lowerPriority,
                                                        TimeRangeMergeResult result) {
-        List<FreeTimeRange> merged = new ArrayList<>(higherPrioritySlots);
+        List<FreeTimeRange> merged = new ArrayList<>(higherPriorityRanges);
 
-        for (FreeTimeRange lowerSlot : lowerPrioritySlots) {
+        for (FreeTimeRange lowerRange : lowerPriorityRanges) {
             List<FreeTimeRange> remainingParts = new ArrayList<>();
-            remainingParts.add(lowerSlot.copy());
+            remainingParts.add(lowerRange.copy());
 
             // 检查低优先级时间段是否被任何高优先级时间段覆盖
-            for (FreeTimeRange higherSlot : higherPrioritySlots) {
+            for (FreeTimeRange higherRange : higherPriorityRanges) {
                 List<FreeTimeRange> newRemaining = new ArrayList<>();
 
                 for (FreeTimeRange part : remainingParts) {
-                    if (part.overlaps(higherSlot)) {
-                        FreeTimeRange overlap = part.getOverlap(higherSlot);
+                    if (part.overlaps(higherRange)) {
+                        FreeTimeRange overlap = part.getOverlap(higherRange);
                         if (overlap != null) {
                             // 记录被覆盖的部分
-                            result.addDiscardedSlot(new FreeTimeRange()
+                            result.addDiscardedRange(new FreeTimeRange()
                                     .setId(part.getId())
                                     .setBeginTime(overlap.getBeginTime())
                                     .setEndTime(overlap.getEndTime())

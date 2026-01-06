@@ -10,6 +10,6 @@ public class BillingCalculator {
      * 计算
      */
     public BillingSegmentResult calculate(BillingContext context, PromotionAggregate promotionAggregate) {
-        return new BillingSegmentResult();
+        return BillingSegmentResult.builder().promotionUsages(promotionAggregate.getUsages()).build();
     }
 }

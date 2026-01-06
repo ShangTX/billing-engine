@@ -23,22 +23,22 @@ public class TimeRangeMergeResult {
         this.originalToDiscarded = new HashMap<>();
     }
 
-    public void addMergedSlot(FreeTimeRange slot) {
-        this.mergedRanges.add(slot);
+    public void addMergedRange(FreeTimeRange range) {
+        this.mergedRanges.add(range);
     }
 
-    public void addDiscardedSlot(FreeTimeRange slot) {
-        this.discardedRanges.add(slot);
+    public void addDiscardedRange(FreeTimeRange range) {
+        this.discardedRanges.add(range);
 
         // 记录到原始时间段映射
-        String originalId = slot.getId();
+        String originalId = range.getId();
         originalToDiscarded.computeIfAbsent(originalId, k -> new ArrayList<>())
-                .add(slot.copyWithNewId()); // 保存副本，避免后续修改
+                .add(range.copyWithNewId()); // 保存副本，避免后续修改
     }
 
-    public void addDiscardedSlots(List<FreeTimeRange> slots) {
-        for (FreeTimeRange slot : slots) {
-            addDiscardedSlot(slot);
+    public void addDiscardedRanges(List<FreeTimeRange> ranges) {
+        for (FreeTimeRange range : ranges) {
+            addDiscardedRange(range);
         }
     }
 
@@ -55,9 +55,9 @@ public class TimeRangeMergeResult {
     public List<FreeTimeRange> getRemainingParts(String originalId) {
         List<FreeTimeRange> allParts = new ArrayList<>();
         // 在mergedRanges中查找属于该原始ID的时间段
-        for (FreeTimeRange slot : mergedRanges) {
-            if (slot.getId().equals(originalId)) {
-                allParts.add(slot);
+        for (FreeTimeRange range : mergedRanges) {
+            if (range.getId().equals(originalId)) {
+                allParts.add(range);
             }
         }
         return allParts;
