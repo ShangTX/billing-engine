@@ -41,5 +41,19 @@ public class BConstants {
         GLOBAL_ORIGIN      // 全局起算 + 分段截取
     }
 
+    /**
+     * 计费规则类型
+     */
+    public static class ChargeRuleType {
+        public static String DAY_NIGHT = "dayNight"; // 日夜分时段计费
+        public static String TIMES = "times"; // 按次数
+        public static String NATURAL_TIME = "naturalTime"; // 按自然时间段计费
+        public static String RELATIVE_TIME = "relativeTime"; // 按相对时间段计费
+        public static String NR_TIME_MIX = "nrTimeMix"; // 按自然时间、相对时间混合时间段计费
+    }
+
+    public static class PromotionRuleType {
+        public static String FREE_MINUTES = "freeMinutes"; // 免费分钟数
+    }
 
 }

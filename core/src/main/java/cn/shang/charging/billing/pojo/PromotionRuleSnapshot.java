@@ -10,8 +10,8 @@ import java.util.List;
  */
 @Data
 public abstract class PromotionRuleSnapshot {
-    Long id;
-    Integer type;
+    String id;
+    String type;
 
     public abstract List<PromotionGrant> grant(BillingContext ctx, CalculationWindow window);
 }

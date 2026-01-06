@@ -7,6 +7,6 @@ import lombok.Data;
  */
 @Data
 public abstract class RuleSnapshot {
-    Long id;
-    Integer type;
+    String id;
+    String type;
 }
