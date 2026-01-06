@@ -11,6 +11,7 @@
     <groupId>cn.shang</groupId>
     <artifactId>charge</artifactId>
     <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
     <name>charge</name>
     <description>charge</description>
     <url/>
@@ -20,6 +21,10 @@
     <developers>
         <developer/>
     </developers>
+    <modules>
+        <module>core</module>
+        <module>bill-test</module>
+    </modules>
     <scm>
         <connection/>
         <developerConnection/>
