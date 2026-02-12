@@ -9,9 +9,8 @@ public class BConstants {
      * 计费模式
      */
     public enum BillingMode {
-        STATELESS, // 无状态，完全重算
-        CACHE, // 缓存
-        PERSIST // 持久化
+        FROM_SCRATCH, // 从开始时间计算
+        CONTINUE // 从上一次的结果继续计算
     }
 
     /**

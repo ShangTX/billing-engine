@@ -55,13 +55,13 @@ public class BillingService {
                     );
 
             // 2.2 解析规则快照（方案已确定）
-            RuleSnapshot chargingRule = ruleResolver.resolveChargingRule(
+            RuleConfig chargingRule = ruleResolver.resolveChargingRule(
                             segment.getSchemeId(),
                             window.getCalculationBegin(),
                             window.getCalculationEnd());
 
             // 解析优惠规则
-            List<PromotionRuleSnapshot> promotionRules =
+            List<PromotionRuleConfig> promotionRules =
                     ruleResolver.resolvePromotionRules(
                             segment.getSchemeId(),
                             window.getCalculationBegin(),

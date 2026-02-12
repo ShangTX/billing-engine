@@ -50,12 +50,12 @@ public class BillingContext {
     /**
      * 优惠规则
      */
-    private List<PromotionRuleSnapshot> promotionRules;
+    private List<PromotionRuleConfig> promotionRules;
 
     /**
      * 计费规则
      */
-    private RuleSnapshot chargingRule;
+    private RuleConfig chargingRule;
 
 
 

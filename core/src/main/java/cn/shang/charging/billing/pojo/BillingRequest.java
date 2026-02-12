@@ -35,4 +35,8 @@ public class BillingRequest {
      */
     private List<SchemeChange> schemeChanges;
 
+    /**
+     * 上一次计费结果 TODO
+     */
+
 }

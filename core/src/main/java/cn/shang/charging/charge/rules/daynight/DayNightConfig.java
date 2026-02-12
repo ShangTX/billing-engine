@@ -1,19 +1,19 @@
 package cn.shang.charging.charge.rules.daynight;
 
 import cn.shang.charging.billing.pojo.BConstants;
-import cn.shang.charging.billing.pojo.RuleSnapshot;
+import cn.shang.charging.billing.pojo.RuleConfig;
 import lombok.*;
 import lombok.experimental.Accessors;
 
 import java.math.BigDecimal;
 
-@Builder
-@EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
+@EqualsAndHashCode(callSuper = true)
 @AllArgsConstructor
 @NoArgsConstructor
+@Builder
 @Data
-public class DayNightConfig extends RuleSnapshot {
+public class DayNightConfig extends RuleConfig {
 
     @Builder.Default
     String type = BConstants.ChargeRuleType.DAY_NIGHT;

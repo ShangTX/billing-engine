@@ -4,10 +4,9 @@ import cn.shang.charging.billing.BillingCalculator;
 import cn.shang.charging.billing.BillingService;
 import cn.shang.charging.billing.RuleResolver;
 import cn.shang.charging.billing.SegmentBuilder;
-import cn.shang.charging.billing.pojo.BConstants;
-import cn.shang.charging.billing.pojo.BillingRequest;
-import cn.shang.charging.billing.pojo.PromotionRuleSnapshot;
-import cn.shang.charging.billing.pojo.RuleSnapshot;
+import cn.shang.charging.billing.pojo.*;
+import cn.shang.charging.charge.rules.BillingRule;
+import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.util.JacksonUtils;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
@@ -32,7 +31,7 @@ public class PromotionTest {
         var billingService = getBillingService();
         var request = new BillingRequest();
         request.setId("23");
-        request.setBillingMode(BConstants.BillingMode.STATELESS);
+        request.setBillingMode(BConstants.BillingMode.FROM_SCRATCH);
         request.setBeginTime(LocalDateTime.of(2026, Month.JANUARY, 1, 0, 0, 0));
         request.setEndTime(LocalDateTime.of(2026, Month.JANUARY, 2, 12, 0, 0));
         request.setSchemeChanges(
@@ -50,12 +49,12 @@ public class PromotionTest {
         var ruleResolver = new RuleResolver() {
 
             @Override
-            public RuleSnapshot resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
                 return null;
             }
 
             @Override
-            public List<PromotionRuleSnapshot> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
                 return List.of();
             }
         };
@@ -66,11 +65,13 @@ public class PromotionTest {
                 new FreeMinuteAllocator()
         );
 
+        var ruleRegistry = new BillingRuleRegistry();
+
         return new BillingService(
                 new SegmentBuilder(),
                 ruleResolver,
                 promotionEngine,
-                new BillingCalculator(),
+                new BillingCalculator(ruleRegistry),
                 new ResultAssembler()
         );
     }
