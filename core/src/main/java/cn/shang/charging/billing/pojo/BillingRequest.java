@@ -18,9 +18,6 @@ public class BillingRequest {
     private LocalDateTime beginTime;
     private LocalDateTime endTime;
 
-    /** 三种模式：STATELESS / CACHE / PERSIST */
-    private BConstants.BillingMode billingMode;
-
     // 外部优惠
     private List<PromotionGrant> externalPromotions;
 

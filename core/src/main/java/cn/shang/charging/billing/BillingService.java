@@ -42,23 +42,21 @@ public class BillingService {
         // 各分段计费结果
         List<BillingSegmentResult> segmentResults = new ArrayList<>();
 
-        // 2.逐段计算
-
         // 2. 逐段计算
         for (BillingSegment segment : segments) {
 
             // 2.1 构建计算窗口（支持两种分段模式）
             CalculationWindow window = CalculationWindowFactory.create(
-                            request.getBeginTime(),
-                            segment,
-                            request.getSegmentCalculationMode()
-                    );
+                    request.getBeginTime(),
+                    segment,
+                    request.getSegmentCalculationMode()
+            );
 
             // 2.2 解析规则快照（方案已确定）
             RuleConfig chargingRule = ruleResolver.resolveChargingRule(
-                            segment.getSchemeId(),
-                            window.getCalculationBegin(),
-                            window.getCalculationEnd());
+                    segment.getSchemeId(),
+                    window.getCalculationBegin(),
+                    window.getCalculationEnd());
 
             // 解析优惠规则
             List<PromotionRuleConfig> promotionRules =
@@ -77,7 +75,6 @@ public class BillingService {
                     .chargingRule(chargingRule)
                     .promotionRules(promotionRules)
                     .externalPromotions(request.getExternalPromotions())
-                    .billingMode(request.getBillingMode())
                     .build();
 
             // 2.4 执行优惠聚合

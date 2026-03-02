@@ -1,21 +1,23 @@
 package cn.shang.charging;
 
-import cn.shang.charging.billing.BillingCalculator;
-import cn.shang.charging.billing.BillingService;
-import cn.shang.charging.billing.RuleResolver;
-import cn.shang.charging.billing.SegmentBuilder;
-import cn.shang.charging.billing.pojo.*;
-import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
+import cn.shang.charging.charge.rules.daynight.DayNightConfig;
+import cn.shang.charging.charge.rules.daynight.DayNightRule;
 import cn.shang.charging.charge.util.JacksonUtils;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
+import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
+import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
+import cn.shang.charging.promotion.rules.ranges.FreeTimeRangePromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
-import org.springframework.cglib.core.Local;
+import cn.shang.charging.billing.BillingCalculator;
+import cn.shang.charging.billing.BillingService;
+import cn.shang.charging.billing.RuleResolver;
+import cn.shang.charging.billing.SegmentBuilder;
+import cn.shang.charging.billing.pojo.*;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Month;
 import java.util.ArrayList;
@@ -26,12 +28,11 @@ public class PromotionTest {
     /**
      * 优惠聚合测试
      */
-    static void main() {
+    public static void main(String[] args) {
 
         var billingService = getBillingService();
         var request = new BillingRequest();
         request.setId("23");
-        request.setBillingMode(BConstants.BillingMode.FROM_SCRATCH);
         request.setBeginTime(LocalDateTime.of(2026, Month.JANUARY, 1, 0, 0, 0));
         request.setEndTime(LocalDateTime.of(2026, Month.JANUARY, 2, 12, 0, 0));
         request.setSchemeChanges(
@@ -50,7 +51,7 @@ public class PromotionTest {
 
             @Override
             public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
-                return null;
+                return new DayNightConfig();
             }
 
             @Override
@@ -59,13 +60,19 @@ public class PromotionTest {
             }
         };
 
+        var promotionRegistry = new PromotionRuleRegistry();
+        promotionRegistry.register(BConstants.PromotionRuleType.FREE_TIME_RANGE, new FreeTimeRangePromotionRule());
+        promotionRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
+
         var promotionEngine = new PromotionEngine(
                 ruleResolver,
                 new FreeTimeRangeMerger(),
-                new FreeMinuteAllocator()
+                new FreeMinuteAllocator(),
+                promotionRegistry
         );
 
         var ruleRegistry = new BillingRuleRegistry();
+        ruleRegistry.register(BConstants.ChargeRuleType.DAY_NIGHT, new DayNightRule());
 
         return new BillingService(
                 new SegmentBuilder(),

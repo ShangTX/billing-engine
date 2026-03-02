@@ -1,11 +1,8 @@
 package cn.shang.charging.billing.pojo;
 
-import lombok.Data;
+public interface RuleConfig {
 
-@Data
-public abstract class RuleConfig {
-
-    String id;
-    String type;
+    String getId();
+    String getType();
 
 }

@@ -53,6 +53,7 @@ public class BConstants {
 
     public static class PromotionRuleType {
         public static String FREE_MINUTES = "freeMinutes"; // 免费分钟数
+        public static String FREE_TIME_RANGE = "freeTimeRange"; // 免费时间段
     }
 
 }

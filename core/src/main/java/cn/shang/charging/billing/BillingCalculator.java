@@ -2,7 +2,6 @@ package cn.shang.charging.billing;
 
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
-import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;

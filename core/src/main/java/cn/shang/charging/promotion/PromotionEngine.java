@@ -3,6 +3,8 @@ package cn.shang.charging.promotion;
 import cn.shang.charging.billing.RuleResolver;
 import cn.shang.charging.billing.pojo.*;
 import cn.shang.charging.promotion.pojo.*;
+import cn.shang.charging.promotion.rules.PromotionRule;
+import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
 import lombok.AllArgsConstructor;
 
 import java.util.ArrayList;
@@ -18,6 +20,7 @@ public class PromotionEngine {
     private RuleResolver ruleResolver;
     private FreeTimeRangeMerger freeTimeRangeMerger;
     private FreeMinuteAllocator freeMinuteAllocator;
+    private PromotionRuleRegistry promotionRuleRegistry;
 
     public PromotionAggregate evaluate(BillingContext context) {
         // 1️⃣ 确定本次 promotion 计算的时间窗口
@@ -30,8 +33,8 @@ public class PromotionEngine {
 
 
         // 2.1 来自优惠规则（按方案 + 时间段）
-        for (PromotionRuleSnapshot rule : context.getPromotionRules()) {
-            List<PromotionGrant> grants = rule.grant(context, window);
+        for (PromotionRuleConfig ruleConfig : context.getPromotionRules()) {
+            List<PromotionGrant> grants = grant(context, ruleConfig);
             grants.forEach(grant -> {
                 if (grant.getType() == BConstants.PromotionType.FREE_RANGE) {
                     timeRangePromotions.add(convertTimeRangeFromRule(grant));
@@ -82,6 +85,29 @@ public class PromotionEngine {
                 .freeTimeRanges(finalFreeRanges)
                 .usages(List.of())
                 .build();
+    }
+
+    /**
+     * 计算有效优惠
+     */
+    private List<PromotionGrant> grant(BillingContext context, PromotionRuleConfig ruleConfig) {
+        var rule = promotionRuleRegistry.get(ruleConfig.getType());
+        if (!rule.getType().equals(ruleConfig.getType())) {
+            throw new IllegalStateException("PromotionRuleConfig mismatch");
+        }
+        return invokeRule(rule, context, ruleConfig);
+
+    }
+    private <C extends PromotionRuleConfig> List<PromotionGrant> invokeRule(
+            PromotionRule<C> rule,
+            BillingContext context,
+            PromotionRuleConfig rawConfig) {
+
+        if (!rule.getConfigClass().isInstance(rawConfig)) {
+            throw new IllegalStateException("PromotionRuleConfig mismatch");
+        }
+        C config = rule.getConfigClass().cast(rawConfig);
+        return rule.grant(context, config);
     }
 
     /**

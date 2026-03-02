@@ -6,4 +6,5 @@ import lombok.Data;
 public abstract class PromotionRuleConfig {
     String id;
     String type;
+    Integer priority;
 }

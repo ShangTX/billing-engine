@@ -7,13 +7,14 @@ import lombok.experimental.Accessors;
 
 import java.math.BigDecimal;
 
+@Data
+@Builder
 @Accessors(chain = true)
-@EqualsAndHashCode(callSuper = true)
 @AllArgsConstructor
 @NoArgsConstructor
-@Builder
-@Data
-public class DayNightConfig extends RuleConfig {
+public class DayNightConfig implements RuleConfig {
+
+    String id;
 
     @Builder.Default
     String type = BConstants.ChargeRuleType.DAY_NIGHT;
