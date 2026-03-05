@@ -19,7 +19,6 @@ public class BillingCalculator {
      */
     public BillingSegmentResult calculate(BillingContext context, PromotionAggregate promotionAggregate) {
 
-        var window = context.getWindow();
         var ruleConfig = context.getChargingRule();
         BillingRule<?> billingRule = ruleRegistry.get(ruleConfig.getType());
 

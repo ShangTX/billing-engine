@@ -18,6 +18,9 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
 
     @Override
     public BillingSegmentResult calculate(BillingContext context, DayNightConfig ruleConfig, PromotionAggregate promotionAggregate) {
+
+
+
         // 校验类型
         return null;
     }

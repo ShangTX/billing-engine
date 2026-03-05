@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.experimental.Accessors;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -29,5 +30,7 @@ public class PromotionUsage {
 
     private LocalDateTime usedFrom;
     private LocalDateTime usedTo;
+
+    private BigDecimal equivalentAmount; // 等效优惠金额
 
 }

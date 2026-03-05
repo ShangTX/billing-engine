@@ -36,7 +36,7 @@ public class DayNightConfig implements RuleConfig {
     /**
      * 白天黑夜比例
      */
-    float blockWeight;
+    BigDecimal blockWeight;
 
     /**
      * 白天价格

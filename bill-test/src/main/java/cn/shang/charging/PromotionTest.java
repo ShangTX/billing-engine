@@ -9,6 +9,7 @@ import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
+import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionConfig;
 import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
 import cn.shang.charging.promotion.rules.ranges.FreeTimeRangePromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
@@ -18,6 +19,7 @@ import cn.shang.charging.billing.RuleResolver;
 import cn.shang.charging.billing.SegmentBuilder;
 import cn.shang.charging.billing.pojo.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.Month;
 import java.util.ArrayList;
@@ -51,12 +53,17 @@ public class PromotionTest {
 
             @Override
             public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
-                return new DayNightConfig();
+                return new DayNightConfig().setId("20").setBlockWeight(new BigDecimal("0.5"))
+                        .setDayBeginMinute(740).setDayEndMinute(1140).setDayUnitPrice(new BigDecimal("2"))
+                        .setNightUnitPrice(new BigDecimal("1")).setMaxChargeOneDay(new BigDecimal("20"))
+                        .setUnitMinutes(60);
             }
 
             @Override
             public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
-                return List.of();
+                return List.of(
+                        new FreeMinutesPromotionConfig().setId("fm").setPriority(1).setMinutes(30)
+                );
             }
         };
 

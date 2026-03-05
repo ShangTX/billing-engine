@@ -18,6 +18,12 @@ public class FreeMinuteAllocator {
 
     }
 
+    /**
+     * 分配免费分钟数
+     * @param freeMinutesPromotions 免费分钟数
+     * @param explicitFreeRanges 合并后的免费时间范围
+     * @param window 计算窗口
+     */
     public FreeMinuteAllocationResult allocate(List<FreeMinutes> freeMinutesPromotions,
                                                List<FreeTimeRange> explicitFreeRanges,
                                                CalculationWindow window) {
