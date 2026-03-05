@@ -31,7 +31,7 @@ public class PromotionTest {
      * 优惠聚合测试
      */
     public static void main(String[] args) {
-
+//        System.out.println(JacksonUtils.toJsonString(LocalDateTime.now()));
         var billingService = getBillingService();
         var request = new BillingRequest();
         request.setId("23");
@@ -61,9 +61,9 @@ public class PromotionTest {
 
             @Override
             public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
-                return List.of(
-                        new FreeMinutesPromotionConfig().setId("fm").setPriority(1).setMinutes(30)
-                );
+                List<PromotionRuleConfig> rules = new ArrayList<>();
+                rules.add(new FreeMinutesPromotionConfig().setId("fm").setPriority(1).setMinutes(30));
+                return rules;
             }
         };
 

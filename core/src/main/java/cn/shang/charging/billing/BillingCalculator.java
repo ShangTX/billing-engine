@@ -25,9 +25,7 @@ public class BillingCalculator {
         if (billingRule == null) {
             throw new RuntimeException();
         }
-        var result = calculateInternal(context, billingRule, ruleConfig, promotionAggregate);
-
-        return BillingSegmentResult.builder().promotionUsages(promotionAggregate.getUsages()).build();
+        return calculateInternal(context, billingRule, ruleConfig, promotionAggregate);
     }
 
     /**

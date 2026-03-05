@@ -83,7 +83,7 @@ public class PromotionEngine {
 
         return PromotionAggregate.builder()
                 .freeTimeRanges(finalFreeRanges)
-                .usages(List.of())
+                .usages(minuteResult.getPromotionUsages())
                 .build();
     }
 
