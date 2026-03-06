@@ -64,6 +64,10 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // 计算费用稳定时间窗口
+        LocalDateTime feeEffectiveStart = calculateEffectiveFrom(billingUnits);
+        LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
+
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getSchemeId())
                 .segmentStartTime(context.getSegment().getBeginTime())
@@ -74,6 +78,8 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
                 .billingUnits(billingUnits)
                 .promotionUsages(promotionUsages)
                 .promotionAggregate(promotionAggregate)
+                .feeEffectiveStart(feeEffectiveStart)
+                .feeEffectiveEnd(feeEffectiveEnd)
                 .build();
     }
 
@@ -324,6 +330,80 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
                 }
             }
         }
+    }
+
+    /**
+     * 计算费用确定开始时间
+     * = 最后一个计费单元的开始时间
+     */
+    private LocalDateTime calculateEffectiveFrom(List<BillingUnit> billingUnits) {
+        if (billingUnits == null || billingUnits.isEmpty()) {
+            return null;
+        }
+        return billingUnits.get(billingUnits.size() - 1).getBeginTime();
+    }
+
+    /**
+     * 计算费用稳定结束时间
+     * 取以下因素的最小值：
+     * 1. 最后一个计费单元结束时间
+     * 2. 如果最后一个单元在免费时段内，延伸到免费时段结束
+     * 3. 下一个24小时周期边界
+     * 4. 分段结束时间
+     */
+    private LocalDateTime calculateEffectiveTo(List<BillingUnit> billingUnits,
+                                                List<FreeTimeRange> freeTimeRanges,
+                                                LocalDateTime calcBegin,
+                                                LocalDateTime calcEnd) {
+        if (billingUnits == null || billingUnits.isEmpty()) {
+            return null;
+        }
+
+        BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
+        LocalDateTime effectiveTo = lastUnit.getEndTime();
+
+        // 如果最后一个单元在免费时段内，延伸到免费时段结束
+        if (lastUnit.isFree() && lastUnit.getFreePromotionId() != null) {
+            FreeTimeRange coveringRange = findFreeTimeRangeById(lastUnit.getFreePromotionId(), freeTimeRanges);
+            if (coveringRange != null && coveringRange.getEndTime().isAfter(effectiveTo)) {
+                effectiveTo = coveringRange.getEndTime();
+            }
+        }
+
+        // 检查下一个24小时周期边界
+        // 周期从 calcBegin 开始，每个周期24小时
+        LocalDateTime currentCycleEnd = calcBegin;
+        while (currentCycleEnd.isBefore(effectiveTo) || currentCycleEnd.equals(effectiveTo)) {
+            LocalDateTime nextCycleEnd = currentCycleEnd.plusHours(24);
+            if (nextCycleEnd.isAfter(effectiveTo)) {
+                // 找到下一个周期边界
+                effectiveTo = nextCycleEnd.isBefore(effectiveTo) ? nextCycleEnd : effectiveTo;
+                break;
+            }
+            currentCycleEnd = nextCycleEnd;
+        }
+
+        // 不超过分段结束时间
+        if (calcEnd != null && effectiveTo.isAfter(calcEnd)) {
+            effectiveTo = calcEnd;
+        }
+
+        return effectiveTo;
+    }
+
+    /**
+     * 根据ID查找免费时段
+     */
+    private FreeTimeRange findFreeTimeRangeById(String id, List<FreeTimeRange> freeTimeRanges) {
+        if (freeTimeRanges == null || id == null) {
+            return null;
+        }
+        for (FreeTimeRange range : freeTimeRanges) {
+            if (id.equals(range.getId())) {
+                return range;
+            }
+        }
+        return null;
     }
 
     /**

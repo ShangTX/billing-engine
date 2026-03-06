@@ -7,7 +7,9 @@ import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -36,10 +38,42 @@ public class ResultAssembler {
                 .map(BillingSegmentResult::getChargedAmount)
                 .reduce(BigDecimal.ZERO, (a, b) -> a.add(b != null ? b : BigDecimal.ZERO));
 
+        // 汇总费用稳定时间窗口
+        LocalDateTime effectiveFrom = calculateEffectiveFrom(segmentResultList);
+        LocalDateTime effectiveTo = calculateEffectiveTo(segmentResultList);
+
         return BillingResult.builder()
                 .units(allUnits)
                 .promotionUsages(allUsages)
                 .finalAmount(totalAmount)
+                .effectiveFrom(effectiveFrom)
+                .effectiveTo(effectiveTo)
                 .build();
+    }
+
+    /**
+     * 汇总 effectiveFrom
+     * 取最后一个分段的 feeEffectiveStart
+     */
+    private LocalDateTime calculateEffectiveFrom(List<BillingSegmentResult> segmentResultList) {
+        if (segmentResultList == null || segmentResultList.isEmpty()) {
+            return null;
+        }
+        return segmentResultList.get(segmentResultList.size() - 1).getFeeEffectiveStart();
+    }
+
+    /**
+     * 汇总 effectiveTo
+     * 取所有分段中最早的 feeEffectiveEnd（保守策略）
+     */
+    private LocalDateTime calculateEffectiveTo(List<BillingSegmentResult> segmentResultList) {
+        if (segmentResultList == null || segmentResultList.isEmpty()) {
+            return null;
+        }
+        return segmentResultList.stream()
+                .map(BillingSegmentResult::getFeeEffectiveEnd)
+                .filter(t -> t != null)
+                .min(Comparator.naturalOrder())
+                .orElse(null);
     }
 }
