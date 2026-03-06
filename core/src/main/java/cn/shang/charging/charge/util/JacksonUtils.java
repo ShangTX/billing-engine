@@ -4,14 +4,22 @@ package cn.shang.charging.charge.util;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.module.SimpleModule;
+import tools.jackson.datatype.jsr310.JavaTimeModule;
+import tools.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
 
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
 public class JacksonUtils {
 
+    /**
+     * LocalDateTime 序列化格式
+     */
+    private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
      * 注入统一的配置
@@ -19,13 +27,16 @@ public class JacksonUtils {
      */
     private static final ObjectMapper MAPPER = createMapper();
 
-    // 默认时间格式
-    private static final DateFormat DATETIME_FORMATTER = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
     private static ObjectMapper createMapper() {
+        // 创建自定义模块配置 LocalDateTime 序列化格式
+        SimpleModule customModule = new SimpleModule();
+        customModule.addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(DATETIME_FORMATTER));
+
         return JsonMapper.builder()
-                .findAndAddModules()
-                .defaultDateFormat(DATETIME_FORMATTER).build();
+                .addModule(new JavaTimeModule())
+                .addModule(customModule)
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .build();
     }
 
     public static String toJsonString(Object obj) {
