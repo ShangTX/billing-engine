@@ -23,11 +23,9 @@ public class BillingCalculator {
         BillingRule<?> billingRule = ruleRegistry.get(ruleConfig.getType());
 
         if (billingRule == null) {
-            throw new RuntimeException();
+            throw new RuntimeException("No billing rule found for type: " + ruleConfig.getType());
         }
-        var result = calculateInternal(context, billingRule, ruleConfig, promotionAggregate);
-
-        return BillingSegmentResult.builder().promotionUsages(promotionAggregate.getUsages()).build();
+        return calculateInternal(context, billingRule, ruleConfig, promotionAggregate);
     }
 
     /**
