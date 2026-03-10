@@ -340,7 +340,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         if (billingUnits == null || billingUnits.isEmpty()) {
             return null;
         }
-        return billingUnits.get(billingUnits.size() - 1).getBeginTime();
+        return billingUnits.getLast().getBeginTime();
     }
 
     /**

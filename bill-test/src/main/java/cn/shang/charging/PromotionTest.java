@@ -44,7 +44,12 @@ public class PromotionTest {
         request.setSchemeId("12");
         request.setExternalPromotions(getExternalPromotions());
 
+        System.out.println("=== Request ===");
+        System.out.println(JacksonUtils.toJsonString(request));
+        System.out.println();
+
         var result = billingService.calculate(request);
+        System.out.println("=== Result ===");
         System.out.println(JacksonUtils.toJsonString(result));
     }
 
