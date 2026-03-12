@@ -23,7 +23,12 @@ public class BillingContext {
     private LocalDateTime endTime;
 
     /**
-     * 三种模式：STATELESS / CACHE / PERSIST
+     * 继续模式：是否从上次结果继续计算
+     */
+    private BConstants.ContinueMode continueMode;
+
+    /**
+     * 计费模式：计费单位如何划分
      */
     private BConstants.BillingMode billingMode;
 
@@ -43,7 +48,7 @@ public class BillingContext {
     private List<PromotionGrant> externalPromotions;
 
     /**
-     * 已计算进度（仅缓存 / 持久化模式使用）
+     * 已计算进度（仅继续模式使用）
      */
     private BillingProgress progress;
 
@@ -56,9 +61,5 @@ public class BillingContext {
      * 计费规则
      */
     private RuleConfig chargingRule;
-
-
-
-
 
 }
