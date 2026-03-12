@@ -11,19 +11,19 @@ import java.util.List;
 public class BillingService {
 
     private final SegmentBuilder segmentBuilder;
-    private final RuleResolver ruleResolver;
+    private final BillingConfigResolver billingConfigResolver;
     private final PromotionEngine promotionEngine;
     private final BillingCalculator billingCalculator;
     private final ResultAssembler resultAssembler;
 
     public BillingService(
             SegmentBuilder segmentBuilder,
-            RuleResolver ruleResolver,
+            BillingConfigResolver billingConfigResolver,
             PromotionEngine promotionEngine,
             BillingCalculator billingCalculator,
             ResultAssembler resultAssembler) {
         this.segmentBuilder = segmentBuilder;
-        this.ruleResolver = ruleResolver;
+        this.billingConfigResolver = billingConfigResolver;
         this.promotionEngine = promotionEngine;
         this.billingCalculator = billingCalculator;
         this.resultAssembler = resultAssembler;
@@ -53,17 +53,20 @@ public class BillingService {
             );
 
             // 2.2 解析规则快照（方案已确定）
-            RuleConfig chargingRule = ruleResolver.resolveChargingRule(
+            RuleConfig chargingRule = billingConfigResolver.resolveChargingRule(
                     segment.getSchemeId(),
                     window.getCalculationBegin(),
                     window.getCalculationEnd());
 
             // 解析优惠规则
             List<PromotionRuleConfig> promotionRules =
-                    ruleResolver.resolvePromotionRules(
+                    billingConfigResolver.resolvePromotionRules(
                             segment.getSchemeId(),
                             window.getCalculationBegin(),
                             window.getCalculationEnd());
+
+            // 解析计费模式
+            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(segment.getSchemeId());
 
             // 2.3 构建 BillingContext（只读）
             BillingContext context = BillingContext.builder()
@@ -75,6 +78,7 @@ public class BillingService {
                     .chargingRule(chargingRule)
                     .promotionRules(promotionRules)
                     .externalPromotions(request.getExternalPromotions())
+                    .billingMode(billingMode)
                     .build();
 
             // 2.4 执行优惠聚合

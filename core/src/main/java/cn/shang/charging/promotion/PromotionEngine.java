@@ -1,6 +1,6 @@
 package cn.shang.charging.promotion;
 
-import cn.shang.charging.billing.RuleResolver;
+import cn.shang.charging.billing.BillingConfigResolver;
 import cn.shang.charging.billing.pojo.*;
 import cn.shang.charging.promotion.pojo.*;
 import cn.shang.charging.promotion.rules.PromotionRule;
@@ -17,7 +17,7 @@ import java.util.stream.Stream;
 @AllArgsConstructor
 public class PromotionEngine {
 
-    private RuleResolver ruleResolver;
+    private BillingConfigResolver billingConfigResolver;
     private FreeTimeRangeMerger freeTimeRangeMerger;
     private FreeMinuteAllocator freeMinuteAllocator;
     private PromotionRuleRegistry promotionRuleRegistry;
