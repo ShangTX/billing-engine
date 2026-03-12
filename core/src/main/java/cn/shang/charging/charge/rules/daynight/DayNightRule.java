@@ -1,5 +1,6 @@
 package cn.shang.charging.charge.rules.daynight;
 
+import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
@@ -13,7 +14,9 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 日夜分时段计费规则
@@ -30,6 +33,11 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
     @Override
     public Class<DayNightConfig> configClass() {
         return DayNightConfig.class;
+    }
+
+    @Override
+    public Set<BConstants.BillingMode> supportedModes() {
+        return EnumSet.of(BConstants.BillingMode.CONTINUOUS, BConstants.BillingMode.UNIT_BASED);
     }
 
     @Override
