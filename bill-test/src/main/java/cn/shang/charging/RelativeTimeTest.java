@@ -2,7 +2,7 @@ package cn.shang.charging;
 
 import cn.shang.charging.billing.BillingCalculator;
 import cn.shang.charging.billing.BillingService;
-import cn.shang.charging.billing.RuleResolver;
+import cn.shang.charging.billing.BillingConfigResolver;
 import cn.shang.charging.billing.SegmentBuilder;
 import cn.shang.charging.billing.pojo.*;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
@@ -329,7 +329,12 @@ public class RelativeTimeTest {
      * 基础服务（带免费分钟数规则）
      */
     static BillingService getBillingService() {
-        var ruleResolver = new RuleResolver() {
+        var billingConfigResolver = new BillingConfigResolver() {
+            @Override
+            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+                return BConstants.BillingMode.CONTINUOUS;
+            }
+
             @Override
             public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
                 List<RelativeTimePeriod> periods = List.of(
@@ -371,7 +376,7 @@ public class RelativeTimeTest {
         promotionRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
 
         var promotionEngine = new PromotionEngine(
-                ruleResolver,
+                billingConfigResolver,
                 new FreeTimeRangeMerger(),
                 new FreeMinuteAllocator(),
                 promotionRegistry
@@ -382,7 +387,7 @@ public class RelativeTimeTest {
 
         return new BillingService(
                 new SegmentBuilder(),
-                ruleResolver,
+                billingConfigResolver,
                 promotionEngine,
                 new BillingCalculator(ruleRegistry),
                 new ResultAssembler()
@@ -393,7 +398,12 @@ public class RelativeTimeTest {
      * 带封顶的服务（带免费分钟数规则）
      */
     static BillingService getBillingServiceWithCap() {
-        var ruleResolver = new RuleResolver() {
+        var billingConfigResolver = new BillingConfigResolver() {
+            @Override
+            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+                return BConstants.BillingMode.CONTINUOUS;
+            }
+
             @Override
             public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
                 List<RelativeTimePeriod> periods = List.of(
@@ -435,7 +445,7 @@ public class RelativeTimeTest {
         promotionRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
 
         var promotionEngine = new PromotionEngine(
-                ruleResolver,
+                billingConfigResolver,
                 new FreeTimeRangeMerger(),
                 new FreeMinuteAllocator(),
                 promotionRegistry
@@ -446,7 +456,7 @@ public class RelativeTimeTest {
 
         return new BillingService(
                 new SegmentBuilder(),
-                ruleResolver,
+                billingConfigResolver,
                 promotionEngine,
                 new BillingCalculator(ruleRegistry),
                 new ResultAssembler()

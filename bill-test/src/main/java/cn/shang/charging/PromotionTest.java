@@ -15,7 +15,7 @@ import cn.shang.charging.promotion.rules.ranges.FreeTimeRangePromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
 import cn.shang.charging.billing.BillingCalculator;
 import cn.shang.charging.billing.BillingService;
-import cn.shang.charging.billing.RuleResolver;
+import cn.shang.charging.billing.BillingConfigResolver;
 import cn.shang.charging.billing.SegmentBuilder;
 import cn.shang.charging.billing.pojo.*;
 
@@ -54,7 +54,12 @@ public class PromotionTest {
     }
 
     static BillingService getBillingService() {
-        var ruleResolver = new RuleResolver() {
+        var billingConfigResolver = new BillingConfigResolver() {
+
+            @Override
+            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+                return BConstants.BillingMode.CONTINUOUS;
+            }
 
             @Override
             public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
@@ -77,7 +82,7 @@ public class PromotionTest {
         promotionRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
 
         var promotionEngine = new PromotionEngine(
-                ruleResolver,
+                billingConfigResolver,
                 new FreeTimeRangeMerger(),
                 new FreeMinuteAllocator(),
                 promotionRegistry
@@ -88,7 +93,7 @@ public class PromotionTest {
 
         return new BillingService(
                 new SegmentBuilder(),
-                ruleResolver,
+                billingConfigResolver,
                 promotionEngine,
                 new BillingCalculator(ruleRegistry),
                 new ResultAssembler()
