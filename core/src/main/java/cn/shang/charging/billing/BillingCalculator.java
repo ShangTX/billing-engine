@@ -25,6 +25,16 @@ public class BillingCalculator {
         if (billingRule == null) {
             throw new RuntimeException("No billing rule found for type: " + ruleConfig.getType());
         }
+
+        // 校验计费模式支持
+        if (!billingRule.supportedModes().contains(context.getBillingMode())) {
+            throw new IllegalStateException(
+                    "Rule " + billingRule.getClass().getSimpleName() +
+                    " (type=" + ruleConfig.getType() + ") does not support billing mode: " +
+                    context.getBillingMode()
+            );
+        }
+
         return calculateInternal(context, billingRule, ruleConfig, promotionAggregate);
     }
 
