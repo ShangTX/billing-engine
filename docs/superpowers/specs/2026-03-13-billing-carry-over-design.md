@@ -7,6 +7,12 @@
 2. 查询阶段：按时间点搜索已计算的费用
 3. 增量阶段：时间过去后，增量更新实际费用
 
+## 前置依赖
+
+**计费单元延伸**：此功能依赖 `calculationEndTime` 字段，需先完成 [计费单元延伸设计](./2026-03-13-billing-unit-extension-design.md)。
+
+CONTINUE 模式将使用延伸后的 `calculationEndTime` 作为继续计算的起点，避免重复计算延伸部分。
+
 ## 需求决策
 
 | 维度 | 决策 |
@@ -21,27 +27,6 @@
 | 跨分段 | 按 segmentId 独立结转 |
 | 结转结构 | 通用 Map 结构，后续可演进到接口+实现分离 |
 | 规则状态结构 | 使用内部类定义，序列化为 Map 存储 |
-
-### 计费单元延伸
-
-最后一个计费单元会被计费结束时间截断，为支持有效缓存和 CONTINUE 模式，需要将截断的单元延伸到完整长度：
-
-| 维度 | 决策 |
-|------|------|
-| 延伸边界 | 周期边界和时间段边界取最近的 |
-| 收费影响 | 无，收费金额不变（全额收费） |
-| 单元存储 | 替换为延伸后的单元 |
-| CONTINUE 起点 | 使用延伸后的实际计算时间 |
-
-**示例**：
-```
-计费结束时间：9:00
-原截断单元：8:30-9:00（30分钟）
-下一个周期边界：次日 8:00
-下一个时间段边界：9:15（如 RelativeTimeRule 的 period 边界）
-延伸后单元：8:30-9:15（取最近的边界）
-收费金额：不变
-```
 
 ## 数据结构
 
@@ -120,10 +105,9 @@ private BillingCarryOver previousCarryOver;
 ```java
 /** 本次计算后的结转状态（供下次 CONTINUE 使用） */
 private BillingCarryOver carryOver;
-
-/** 实际计算到的时间点（延伸后，用于缓存有效性判断和 CONTINUE 起点） */
-private LocalDateTime calculationEndTime;
 ```
+
+**注意**：`calculationEndTime` 字段由计费单元延伸功能引入，CONTINUE 模式依赖此字段。
 
 ### BillingContext 变更
 
@@ -144,12 +128,11 @@ private Map<String, Object> ruleState;
 private BillingCarryOver carryOverAfter;
 
 // 新增
-/** 实际计算到的时间点（延伸后，最后一个单元的结束时间） */
-private LocalDateTime calculationEndTime;
-
 /** 规则计算过程中的输出状态（供 buildCarryOverState 提取） */
 private Map<String, Object> ruleOutputState;
 ```
+
+**注意**：`calculationEndTime` 字段由计费单元延伸功能引入，CONTINUE 模式依赖此字段。
 
 ## 计算流程
 
@@ -512,74 +495,7 @@ evaluate(context, promoCarryOver)
   usedFreeRanges 记录：[09:00-10:00]
 
 第二次计算 CONTINUE：10:00-12:00
-  剩余免费时段：10:00-11:00（继续使用后半部分）
   预期：10:00-11:00 免费，11:00-12:00 收费
-```
-
-### 测试7：计费单元延伸
-
-```
-配置：
-  单元长度：60分钟
-  时间段边界：120分钟（从计费起点）
-
-计费时间：08:00-09:00（1小时）
-原截断单元：08:00-09:00（被结束时间截断）
-下一个时间段边界：10:00（120分钟边界）
-下一个周期边界：次日 08:00（24小时边界）
-
-延伸后单元：08:00-10:00（取最近的边界：时间段边界）
-收费金额：全额（不变）
-calculationEndTime：10:00
-effectiveTo：10:00（延伸后，缓存有效期延长）
-
-CONTINUE 场景：下次从 10:00 继续，避免重复计算延伸部分
-```
-
-## 计费单元延伸实现
-
-### 延伸逻辑
-
-最后一个计费单元的延伸由规则在计算时处理：
-
-```
-计算最后一个单元时：
-1. 获取单元原始结束时间（未截断的完整单元）
-2. 查找下一个边界：
-   - 下一个周期边界：currentCycleEnd + 24h
-   - 下一个时间段边界：根据 RelativeTimeRule 的 periods 配置
-3. 取最近的边界作为延伸终点
-4. 更新单元 endTime 为延伸后的时间
-5. 设置 calculationEndTime = 延伸后的单元结束时间
-6. 收费金额不变
-```
-
-### 边界计算规则
-
-**周期边界**：
-- DayNightRule：从计费起点开始，每24小时为一个周期
-- RelativeTimeRule：同上
-
-**时间段边界**：
-- RelativeTimeRule：根据 `RelativeTimePeriod.endMinute` 计算
-  - 例如：period1 = 0-120分钟，period2 = 120-1440分钟
-  - 计费起点 08:00，第一个时间段边界在 10:00（120分钟）
-
-### 与 CONTINUE 模式的关联
-
-```
-第一次计算：
-  计费时间：08:00-09:00
-  延伸后：08:00-10:00
-  calculationEndTime：10:00
-  carryOver.calculatedUpTo：10:00
-
-第二次计算（CONTINUE）：
-  请求时间：08:00-12:00
-  从 calculatedUpTo（10:00）继续计算
-  实际计算：10:00-12:00
-  延伸后：10:00-11:00（下一个边界）
-  ...
 ```
 
 ## 文件变更清单
@@ -597,16 +513,15 @@ CONTINUE 场景：下次从 10:00 继续，避免重复计算延伸部分
 | 文件路径 | 变更内容 |
 |---------|---------|
 | `core/.../billing/pojo/BillingRequest.java` | 新增 previousCarryOver 字段 |
-| `core/.../billing/pojo/BillingResult.java` | 新增 carryOver、calculationEndTime 字段 |
+| `core/.../billing/pojo/BillingResult.java` | 新增 carryOver 字段 |
 | `core/.../billing/pojo/BillingContext.java` | 删除 progress，新增 ruleState |
-| `core/.../billing/pojo/BillingSegmentResult.java` | 取消 carryOverAfter 注释，新增 calculationEndTime、ruleOutputState 字段 |
+| `core/.../billing/pojo/BillingSegmentResult.java` | 取消 carryOverAfter 注释，新增 ruleOutputState 字段 |
 | `core/.../billing/BillingSegment.java` | 新增 id 字段 |
 | `core/.../billing/SegmentBuilder.java` | 生成分段 id |
 | `core/.../billing/BillingService.java` | 实现 CONTINUE 模式逻辑 |
-| `core/.../settlement/ResultAssembler.java` | 汇总 calculationEndTime |
 | `core/.../charge/rules/BillingRule.java` | 新增 buildCarryOverState 方法 |
-| `core/.../charge/rules/relativetime/RelativeTimeRule.java` | 实现 RuleState 内部类 + 状态恢复 + 计费单元延伸 |
-| `core/.../charge/rules/daynight/DayNightRule.java` | 实现 RuleState 内部类 + 状态恢复 + 计费单元延伸 |
+| `core/.../charge/rules/relativetime/RelativeTimeRule.java` | 实现 RuleState 内部类 + 状态恢复 |
+| `core/.../charge/rules/daynight/DayNightRule.java` | 实现 RuleState 内部类 + 状态恢复 |
 | `core/.../promotion/PromotionEngine.java` | 支持 promoCarryOver 参数 |
 | `core/.../promotion/pojo/PromotionAggregate.java` | 新增结转相关字段 |
 
