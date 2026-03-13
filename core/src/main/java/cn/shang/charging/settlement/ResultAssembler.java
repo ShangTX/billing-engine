@@ -48,6 +48,7 @@ public class ResultAssembler {
                 .finalAmount(totalAmount)
                 .effectiveFrom(effectiveFrom)
                 .effectiveTo(effectiveTo)
+                .calculationEndTime(calculateCalculationEndTime(segmentResultList))
                 .build();
     }
 
@@ -75,5 +76,23 @@ public class ResultAssembler {
                 .filter(t -> t != null)
                 .min(Comparator.naturalOrder())
                 .orElse(null);
+    }
+
+    /**
+     * 汇总 calculationEndTime
+     * 取最后一个分段的 calculationEndTime
+     */
+    private LocalDateTime calculateCalculationEndTime(List<BillingSegmentResult> segmentResultList) {
+        if (segmentResultList == null || segmentResultList.isEmpty()) {
+            return null;
+        }
+        // 取最后一个分段的 calculationEndTime
+        for (int i = segmentResultList.size() - 1; i >= 0; i--) {
+            LocalDateTime time = segmentResultList.get(i).getCalculationEndTime();
+            if (time != null) {
+                return time;
+            }
+        }
+        return null;
     }
 }
