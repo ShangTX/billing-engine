@@ -522,12 +522,20 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, freeTimeRanges, calcBegin, calcEnd);
 
+        // 延伸最后一个计费单元
+        LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, freeTimeRanges, config);
+
+        // 如果延伸后的时间超过 effectiveEnd，更新 effectiveEnd
+        if (extendedCalculationEndTime.isAfter(feeEffectiveEnd)) {
+            feeEffectiveEnd = extendedCalculationEndTime;
+        }
+
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getSchemeId())
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
-                .calculationEndTime(calcEnd)
+                .calculationEndTime(extendedCalculationEndTime)  // 使用延伸后的时间
                 .chargedAmount(totalAmount)
                 .billingUnits(allUnits)
                 .promotionUsages(new ArrayList<>())
