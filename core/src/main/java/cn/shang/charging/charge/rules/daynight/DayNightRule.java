@@ -323,9 +323,8 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             }
         }
 
-        // 计算原始金额
-        BigDecimal originalAmount = unitPrice.multiply(BigDecimal.valueOf(duration))
-                .divide(BigDecimal.valueOf(config.getUnitMinutes()), 2, RoundingMode.HALF_UP);
+        // 计算原始金额：不足单元也收全额
+        BigDecimal originalAmount = unitPrice;
 
         // 检查是否被免费时段覆盖
         String freePromotionId = findFreePromotionId(unitCtx.beginTime, unitCtx.endTime, freeTimeRanges);
