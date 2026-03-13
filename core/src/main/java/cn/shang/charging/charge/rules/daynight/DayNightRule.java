@@ -40,6 +40,44 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         return EnumSet.of(BConstants.BillingMode.CONTINUOUS, BConstants.BillingMode.UNIT_BASED);
     }
 
+    /**
+     * 验证配置有效性
+     */
+    private void validateConfig(DayNightConfig config) {
+        // 检查每日封顶金额（必填）
+        if (config.getMaxChargeOneDay() == null) {
+            throw new IllegalArgumentException("maxChargeOneDay is required");
+        }
+        if (config.getMaxChargeOneDay().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("maxChargeOneDay must be positive");
+        }
+
+        // 检查单元长度
+        if (config.getUnitMinutes() == null || config.getUnitMinutes() <= 0) {
+            throw new IllegalArgumentException("unitMinutes must be positive");
+        }
+
+        // 检查单价
+        if (config.getDayUnitPrice() == null || config.getDayUnitPrice().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("dayUnitPrice must be non-negative");
+        }
+        if (config.getNightUnitPrice() == null || config.getNightUnitPrice().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("nightUnitPrice must be non-negative");
+        }
+
+        // 检查日夜时段配置
+        if (config.getDayBeginMinute() == null || config.getDayEndMinute() == null) {
+            throw new IllegalArgumentException("dayBeginMinute and dayEndMinute are required");
+        }
+
+        // 检查 blockWeight
+        if (config.getBlockWeight() == null ||
+            config.getBlockWeight().compareTo(BigDecimal.ZERO) < 0 ||
+            config.getBlockWeight().compareTo(BigDecimal.ONE) > 0) {
+            throw new IllegalArgumentException("blockWeight must be between 0 and 1");
+        }
+    }
+
     @Override
     public BillingSegmentResult calculate(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
         if (context.getBillingMode() == BConstants.BillingMode.UNIT_BASED) {
@@ -54,6 +92,9 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
      * 固定从计费起点对齐，免费时段必须完全覆盖整个单元才免费
      */
     private BillingSegmentResult calculateUnitBased(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
+        // 验证配置
+        validateConfig(config);
+
         // 获取计算窗口
         LocalDateTime calcBegin = context.getWindow().getCalculationBegin();
         LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
@@ -322,9 +363,6 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
      */
     private void applyDailyCap(List<BillingUnit> units, DayNightConfig config) {
         BigDecimal maxCharge = config.getMaxChargeOneDay();
-        if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
-            return;
-        }
 
         // 按周期分组
         int maxCycleIndex = units.stream()
@@ -515,6 +553,9 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
      * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
      */
     private BillingSegmentResult calculateContinuous(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
+        // 验证配置
+        validateConfig(config);
+
         // 获取计算窗口
         LocalDateTime calcBegin = context.getWindow().getCalculationBegin();
         LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
@@ -747,10 +788,6 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
      * 封顶后截止，剩余时间合并为免费单元
      */
     private void applyContinuousCap(List<BillingUnit> units, BigDecimal maxCharge) {
-        if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
-            return;
-        }
-
         BigDecimal accumulated = BigDecimal.ZERO;
         int capIndex = -1;
         BigDecimal lastChargeAmount = null;

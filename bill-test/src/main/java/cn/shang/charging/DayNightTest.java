@@ -292,7 +292,7 @@ public class DayNightTest {
                         .setDayEndMinute(1140)    // 19:00
                         .setDayUnitPrice(new BigDecimal("2"))
                         .setNightUnitPrice(new BigDecimal("1"))
-                        .setMaxChargeOneDay(null)
+                        .setMaxChargeOneDay(new BigDecimal("100")) // 封顶金额必填
                         .setUnitMinutes(60);
             }
 
