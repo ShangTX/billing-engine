@@ -89,7 +89,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
 
         // 延伸最后一个计费单元
-        LocalDateTime extendedCalculationEndTime = extendLastUnit(billingUnits, calcBegin, calcEnd, freeTimeRanges);
+        LocalDateTime extendedCalculationEndTime = extendLastUnit(billingUnits, calcBegin, calcEnd, config);
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getSchemeId())
@@ -448,16 +448,17 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
 
     /**
      * 延伸最后一个计费单元
+     * 延伸 = 恢复到完整单元长度，但不能超过下一个周期边界
      * @param allUnits 所有计费单元
      * @param calcBegin 计费起点
      * @param calcEnd 计算结束时间（原截断点）
-     * @param freeTimeRanges 免费时段列表
+     * @param config 规则配置
      * @return 延伸后的 calculationEndTime
      */
     private LocalDateTime extendLastUnit(List<BillingUnit> allUnits,
                                          LocalDateTime calcBegin,
                                          LocalDateTime calcEnd,
-                                         List<FreeTimeRange> freeTimeRanges) {
+                                         DayNightConfig config) {
         if (allUnits == null || allUnits.isEmpty()) {
             return calcEnd;
         }
@@ -470,34 +471,32 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             return lastUnit.getEndTime();
         }
 
-        // 查找下一个周期边界
-        LocalDateTime nextCycleBoundary = findNextCycleBoundary(calcEnd, calcBegin);
+        // 获取单元长度
+        int unitMinutes = config.getUnitMinutes();
 
-        // 如果没有找到边界，不延伸
-        if (nextCycleBoundary == null || !nextCycleBoundary.isAfter(calcEnd)) {
+        // 计算完整单元结束时间
+        LocalDateTime fullUnitEnd = lastUnit.getBeginTime().plusMinutes(unitMinutes);
+
+        // 查找下一个周期边界（不能超过边界）
+        LocalDateTime nextCycleBoundary = findNextCycleBoundary(lastUnit.getBeginTime(), calcBegin);
+
+        // 延伸后的结束时间 = min(完整单元结束时间, 下一个周期边界)
+        LocalDateTime extendedEnd = fullUnitEnd;
+        if (nextCycleBoundary != null && nextCycleBoundary.isBefore(fullUnitEnd)) {
+            extendedEnd = nextCycleBoundary;
+        }
+
+        // 如果延伸后的时间不比当前结束时间晚，不需要延伸
+        if (!extendedEnd.isAfter(calcEnd)) {
             return calcEnd;
         }
 
-        // 更新最后一个单元的结束时间
-        int extendedDuration = (int) Duration.between(lastUnit.getBeginTime(), nextCycleBoundary).toMinutes();
+        // 更新最后一个单元
+        int extendedDuration = (int) Duration.between(lastUnit.getBeginTime(), extendedEnd).toMinutes();
+        lastUnit.setEndTime(extendedEnd);
+        lastUnit.setDurationMinutes(extendedDuration);
 
-        // 创建新的延伸后单元（替换原单元）
-        BillingUnit extendedUnit = BillingUnit.builder()
-                .beginTime(lastUnit.getBeginTime())
-                .endTime(nextCycleBoundary)
-                .durationMinutes(extendedDuration)
-                .unitPrice(lastUnit.getUnitPrice())
-                .originalAmount(lastUnit.getOriginalAmount()) // 金额不变
-                .chargedAmount(lastUnit.getChargedAmount())   // 金额不变
-                .free(lastUnit.isFree())
-                .freePromotionId(lastUnit.getFreePromotionId())
-                .ruleData(lastUnit.getRuleData()) // 保留周期序号
-                .build();
-
-        // 替换最后一个单元
-        allUnits.set(allUnits.size() - 1, extendedUnit);
-
-        return nextCycleBoundary;
+        return extendedEnd;
     }
 
     /**
@@ -538,7 +537,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, freeTimeRanges, calcBegin, calcEnd);
 
         // 延伸最后一个计费单元
-        LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, freeTimeRanges);
+        LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, config);
 
         // 如果延伸后的时间超过 effectiveEnd，更新 effectiveEnd
         if (extendedCalculationEndTime.isAfter(feeEffectiveEnd)) {
