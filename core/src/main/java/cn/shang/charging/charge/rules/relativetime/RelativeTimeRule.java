@@ -44,6 +44,18 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
 
     @Override
     public BillingSegmentResult calculate(BillingContext context, RelativeTimeConfig config, PromotionAggregate promotionAggregate) {
+        if (context.getBillingMode() == BConstants.BillingMode.UNIT_BASED) {
+            return calculateUnitBased(context, config, promotionAggregate);
+        } else {
+            return calculateContinuous(context, config, promotionAggregate);
+        }
+    }
+
+    /**
+     * UNIT_BASED 模式计算
+     * 固定从计费起点对齐，免费时段必须完全覆盖整个单元才免费
+     */
+    private BillingSegmentResult calculateUnitBased(BillingContext context, RelativeTimeConfig config, PromotionAggregate promotionAggregate) {
         // 验证配置
         validateConfig(config);
 
@@ -357,5 +369,14 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
             }
         }
         return null;
+    }
+
+    /**
+     * CONTINUOUS 模式计算
+     * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
+     */
+    private BillingSegmentResult calculateContinuous(BillingContext context, RelativeTimeConfig config, PromotionAggregate promotionAggregate) {
+        // 将在 Task 4 中实现
+        throw new UnsupportedOperationException("CONTINUOUS mode not yet implemented");
     }
 }
