@@ -108,6 +108,14 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
      * 验证配置有效性
      */
     private void validateConfig(RelativeTimeConfig config) {
+        // 检查封顶金额（必填）
+        if (config.getMaxChargeOneCycle() == null) {
+            throw new IllegalArgumentException("maxChargeOneCycle is required");
+        }
+        if (config.getMaxChargeOneCycle().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("maxChargeOneCycle must be positive");
+        }
+
         List<RelativeTimePeriod> periods = config.getPeriods();
         if (periods == null || periods.isEmpty()) {
             throw new IllegalArgumentException("Periods cannot be empty");
@@ -299,10 +307,17 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
             if (charged.compareTo(excess) >= 0) {
                 // 当前单元足够抵扣超出金额
                 unit.setChargedAmount(charged.subtract(excess).setScale(2, RoundingMode.HALF_UP));
+                // 如果抵扣后金额为0，标记为免费
+                if (unit.getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
+                    unit.setFree(true);
+                    unit.setFreePromotionId("CYCLE_CAP");
+                }
                 excess = BigDecimal.ZERO;
             } else {
                 // 当前单元不足以抵扣，减为0，继续处理前一个单元
                 unit.setChargedAmount(BigDecimal.ZERO);
+                unit.setFree(true);
+                unit.setFreePromotionId("CYCLE_CAP");
                 excess = excess.subtract(charged);
             }
         }
@@ -468,7 +483,12 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         LocalDateTime fullUnitEnd = lastUnit.getBeginTime().plusMinutes(unitMinutes);
 
         // 查找下一个时间段边界（不能超过边界）
+        // 注意：如果时间段边界等于 calcEnd，则不应该作为限制条件
+        // 因为单元就是被 calcEnd 截断的，应该能延伸过这个边界
         LocalDateTime nextPeriodBoundary = findNextPeriodBoundary(lastUnit.getBeginTime(), calcBegin, config);
+        if (nextPeriodBoundary != null && nextPeriodBoundary.equals(calcEnd)) {
+            nextPeriodBoundary = findNextPeriodBoundary(nextPeriodBoundary, calcBegin, config);
+        }
 
         // 取最近的边界
         LocalDateTime nextBoundary = null;
