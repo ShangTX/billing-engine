@@ -29,6 +29,12 @@ public class BillingResult {
     private LocalDateTime effectiveFrom;
     private LocalDateTime effectiveTo;
 
+    /**
+     * 实际计算到的时间点（延伸后，用于缓存有效性判断和 CONTINUE 起点）
+     * 最后一个计费单元延伸后的结束时间
+     */
+    private LocalDateTime calculationEndTime;
+
 
     public static BillingResult of(ChargingResult chargingResult, SettlementResult settlementResult) {
         // TODO
