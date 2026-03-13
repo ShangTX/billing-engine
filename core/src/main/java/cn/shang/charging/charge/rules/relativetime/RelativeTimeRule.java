@@ -422,7 +422,9 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
 
     /**
      * 计算延伸后的结束时间并更新最后一个计费单元
-     * 延伸 = 恢复到完整单元长度，但不能超过下一个边界
+     * 延伸规则：
+     * 1. 普通情况：恢复到完整单元长度，但不能超过下一个边界
+     * 2. 例外情况：如果因封顶而免费（CYCLE_CAP），可延伸到下一个周期边界
      * @param allUnits 所有计费单元
      * @param calcBegin 计费起点
      * @param calcEnd 计算结束时间（原截断点）
@@ -445,6 +447,18 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
             return lastUnit.getEndTime();
         }
 
+        // 查找下一个周期边界
+        LocalDateTime nextCycleBoundary = findNextCycleBoundary(lastUnit.getBeginTime(), calcBegin);
+
+        // 例外情况：如果因封顶而免费，可延伸到下一个周期边界
+        if (lastUnit.isFree() && "CYCLE_CAP".equals(lastUnit.getFreePromotionId())) {
+            if (nextCycleBoundary != null && nextCycleBoundary.isAfter(calcEnd)) {
+                lastUnit.setEndTime(nextCycleBoundary);
+                lastUnit.setDurationMinutes((int) Duration.between(lastUnit.getBeginTime(), nextCycleBoundary).toMinutes());
+                return nextCycleBoundary;
+            }
+        }
+
         // 找到最后一个单元对应的 period，获取单元长度
         int minutesFromCalcBegin = (int) Duration.between(calcBegin, lastUnit.getBeginTime()).toMinutes();
         RelativeTimePeriod period = findPeriodForMinute(minutesFromCalcBegin, config.getPeriods());
@@ -453,9 +467,8 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         // 计算完整单元结束时间
         LocalDateTime fullUnitEnd = lastUnit.getBeginTime().plusMinutes(unitMinutes);
 
-        // 查找下一个边界（不能超过边界）
+        // 查找下一个时间段边界（不能超过边界）
         LocalDateTime nextPeriodBoundary = findNextPeriodBoundary(lastUnit.getBeginTime(), calcBegin, config);
-        LocalDateTime nextCycleBoundary = findNextCycleBoundary(lastUnit.getBeginTime(), calcBegin);
 
         // 取最近的边界
         LocalDateTime nextBoundary = null;

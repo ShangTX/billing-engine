@@ -448,7 +448,9 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
 
     /**
      * 延伸最后一个计费单元
-     * 延伸 = 恢复到完整单元长度，但不能超过下一个周期边界
+     * 延伸规则：
+     * 1. 普通情况：恢复到完整单元长度，但不能超过下一个周期边界
+     * 2. 例外情况：如果因封顶而免费（DAILY_CAP），可延伸到下一个周期边界
      * @param allUnits 所有计费单元
      * @param calcBegin 计费起点
      * @param calcEnd 计算结束时间（原截断点）
@@ -471,14 +473,23 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             return lastUnit.getEndTime();
         }
 
+        // 查找下一个周期边界
+        LocalDateTime nextCycleBoundary = findNextCycleBoundary(lastUnit.getBeginTime(), calcBegin);
+
+        // 例外情况：如果因封顶而免费，可延伸到下一个周期边界
+        if (lastUnit.isFree() && "DAILY_CAP".equals(lastUnit.getFreePromotionId())) {
+            if (nextCycleBoundary != null && nextCycleBoundary.isAfter(calcEnd)) {
+                lastUnit.setEndTime(nextCycleBoundary);
+                lastUnit.setDurationMinutes((int) Duration.between(lastUnit.getBeginTime(), nextCycleBoundary).toMinutes());
+                return nextCycleBoundary;
+            }
+        }
+
         // 获取单元长度
         int unitMinutes = config.getUnitMinutes();
 
         // 计算完整单元结束时间
         LocalDateTime fullUnitEnd = lastUnit.getBeginTime().plusMinutes(unitMinutes);
-
-        // 查找下一个周期边界（不能超过边界）
-        LocalDateTime nextCycleBoundary = findNextCycleBoundary(lastUnit.getBeginTime(), calcBegin);
 
         // 延伸后的结束时间 = min(完整单元结束时间, 下一个周期边界)
         LocalDateTime extendedEnd = fullUnitEnd;
