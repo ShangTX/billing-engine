@@ -86,12 +86,15 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, freeTimeRanges, calcBegin, calcEnd);
 
+        // 延伸最后一个计费单元
+        LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, freeTimeRanges, config);
+
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getSchemeId())
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
-                .calculationEndTime(calcEnd)
+                .calculationEndTime(extendedCalculationEndTime)  // 使用延伸后的时间
                 .chargedAmount(totalAmount)
                 .billingUnits(allUnits)
                 .promotionUsages(new ArrayList<>())
@@ -369,6 +372,118 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
             }
         }
         return null;
+    }
+
+    /**
+     * 查找下一个时间段边界
+     * @param current 当前时间点
+     * @param calcBegin 计费起点
+     * @param config 规则配置
+     * @return 下一个时间段边界时间，如果没有则返回 null
+     */
+    private LocalDateTime findNextPeriodBoundary(LocalDateTime current, LocalDateTime calcBegin, RelativeTimeConfig config) {
+        if (config.getPeriods() == null || config.getPeriods().isEmpty()) {
+            return null;
+        }
+
+        // 遍历所有时间段，找到第一个大于当前位置的边界
+        for (RelativeTimePeriod period : config.getPeriods()) {
+            // 时间段结束边界
+            long periodEndMinute = period.getEndMinute();
+            LocalDateTime periodBoundary = calcBegin.plusMinutes(periodEndMinute);
+
+            if (periodBoundary.isAfter(current)) {
+                return periodBoundary;
+            }
+        }
+
+        // 如果当前周期内没有，检查下一个周期
+        // 下一个周期的第一个时间段边界
+        RelativeTimePeriod firstPeriod = config.getPeriods().get(0);
+        return calcBegin.plusMinutes(MINUTES_PER_CYCLE).plusMinutes(firstPeriod.getBeginMinute());
+    }
+
+    /**
+     * 查找下一个周期边界
+     * @param current 当前时间点
+     * @param calcBegin 计费起点
+     * @return 下一个周期边界时间（24小时后）
+     */
+    private LocalDateTime findNextCycleBoundary(LocalDateTime current, LocalDateTime calcBegin) {
+        // 找到包含 current 的周期起点
+        LocalDateTime cycleStart = calcBegin;
+        while (cycleStart.plusMinutes(MINUTES_PER_CYCLE).isBefore(current) ||
+               cycleStart.plusMinutes(MINUTES_PER_CYCLE).equals(current)) {
+            cycleStart = cycleStart.plusMinutes(MINUTES_PER_CYCLE);
+        }
+        // 下一个周期边界
+        return cycleStart.plusMinutes(MINUTES_PER_CYCLE);
+    }
+
+    /**
+     * 延伸最后一个计费单元
+     * @param allUnits 所有计费单元
+     * @param calcBegin 计费起点
+     * @param calcEnd 计算结束时间（原截断点）
+     * @param freeTimeRanges 免费时段列表
+     * @param config 规则配置
+     * @return 延伸后的 calculationEndTime
+     */
+    private LocalDateTime extendLastUnit(List<BillingUnit> allUnits,
+                                         LocalDateTime calcBegin,
+                                         LocalDateTime calcEnd,
+                                         List<FreeTimeRange> freeTimeRanges,
+                                         RelativeTimeConfig config) {
+        if (allUnits == null || allUnits.isEmpty()) {
+            return calcEnd;
+        }
+
+        BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
+
+        // 只有当结束时间等于 calcEnd 时才需要延伸
+        if (!lastUnit.getEndTime().equals(calcEnd)) {
+            // 单元已经被其他边界截断，不需要延伸
+            return lastUnit.getEndTime();
+        }
+
+        // 查找下一个边界
+        LocalDateTime nextPeriodBoundary = findNextPeriodBoundary(calcEnd, calcBegin, config);
+        LocalDateTime nextCycleBoundary = findNextCycleBoundary(calcEnd, calcBegin);
+
+        // 取最近的边界
+        LocalDateTime nextBoundary = null;
+        if (nextPeriodBoundary != null && nextCycleBoundary != null) {
+            nextBoundary = nextPeriodBoundary.isBefore(nextCycleBoundary) ? nextPeriodBoundary : nextCycleBoundary;
+        } else if (nextPeriodBoundary != null) {
+            nextBoundary = nextPeriodBoundary;
+        } else if (nextCycleBoundary != null) {
+            nextBoundary = nextCycleBoundary;
+        }
+
+        // 如果没有找到边界，不延伸
+        if (nextBoundary == null || !nextBoundary.isAfter(calcEnd)) {
+            return calcEnd;
+        }
+
+        // 更新最后一个单元的结束时间
+        int extendedDuration = (int) Duration.between(lastUnit.getBeginTime(), nextBoundary).toMinutes();
+
+        // 创建新的延伸后单元（替换原单元）
+        BillingUnit extendedUnit = BillingUnit.builder()
+                .beginTime(lastUnit.getBeginTime())
+                .endTime(nextBoundary)
+                .durationMinutes(extendedDuration)
+                .unitPrice(lastUnit.getUnitPrice())
+                .originalAmount(lastUnit.getOriginalAmount()) // 金额不变
+                .chargedAmount(lastUnit.getChargedAmount())   // 金额不变
+                .free(lastUnit.isFree())
+                .freePromotionId(lastUnit.getFreePromotionId())
+                .build();
+
+        // 替换最后一个单元
+        allUnits.set(allUnits.size() - 1, extendedUnit);
+
+        return nextBoundary;
     }
 
     /**
