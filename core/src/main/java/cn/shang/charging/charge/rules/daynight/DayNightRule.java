@@ -88,12 +88,15 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(billingUnits);
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
 
+        // 延伸最后一个计费单元
+        LocalDateTime extendedCalculationEndTime = extendLastUnit(billingUnits, calcBegin, calcEnd, freeTimeRanges);
+
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getSchemeId())
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
-                .calculationEndTime(calcEnd)
+                .calculationEndTime(extendedCalculationEndTime)  // 使用延伸后的时间
                 .chargedAmount(totalAmount)
                 .billingUnits(billingUnits)
                 .promotionUsages(promotionUsages)
@@ -427,6 +430,77 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
     }
 
     /**
+     * 查找下一个周期边界
+     * @param current 当前时间点
+     * @param calcBegin 计费起点
+     * @return 下一个周期边界时间（24小时后）
+     */
+    private LocalDateTime findNextCycleBoundary(LocalDateTime current, LocalDateTime calcBegin) {
+        // 找到包含 current 的周期起点
+        LocalDateTime cycleStart = calcBegin;
+        while (cycleStart.plusHours(24).isBefore(current) ||
+               cycleStart.plusHours(24).equals(current)) {
+            cycleStart = cycleStart.plusHours(24);
+        }
+        // 下一个周期边界
+        return cycleStart.plusHours(24);
+    }
+
+    /**
+     * 延伸最后一个计费单元
+     * @param allUnits 所有计费单元
+     * @param calcBegin 计费起点
+     * @param calcEnd 计算结束时间（原截断点）
+     * @param freeTimeRanges 免费时段列表
+     * @return 延伸后的 calculationEndTime
+     */
+    private LocalDateTime extendLastUnit(List<BillingUnit> allUnits,
+                                         LocalDateTime calcBegin,
+                                         LocalDateTime calcEnd,
+                                         List<FreeTimeRange> freeTimeRanges) {
+        if (allUnits == null || allUnits.isEmpty()) {
+            return calcEnd;
+        }
+
+        BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
+
+        // 只有当结束时间等于 calcEnd 时才需要延伸
+        if (!lastUnit.getEndTime().equals(calcEnd)) {
+            // 单元已经被其他边界截断，不需要延伸
+            return lastUnit.getEndTime();
+        }
+
+        // 查找下一个周期边界
+        LocalDateTime nextCycleBoundary = findNextCycleBoundary(calcEnd, calcBegin);
+
+        // 如果没有找到边界，不延伸
+        if (nextCycleBoundary == null || !nextCycleBoundary.isAfter(calcEnd)) {
+            return calcEnd;
+        }
+
+        // 更新最后一个单元的结束时间
+        int extendedDuration = (int) Duration.between(lastUnit.getBeginTime(), nextCycleBoundary).toMinutes();
+
+        // 创建新的延伸后单元（替换原单元）
+        BillingUnit extendedUnit = BillingUnit.builder()
+                .beginTime(lastUnit.getBeginTime())
+                .endTime(nextCycleBoundary)
+                .durationMinutes(extendedDuration)
+                .unitPrice(lastUnit.getUnitPrice())
+                .originalAmount(lastUnit.getOriginalAmount()) // 金额不变
+                .chargedAmount(lastUnit.getChargedAmount())   // 金额不变
+                .free(lastUnit.isFree())
+                .freePromotionId(lastUnit.getFreePromotionId())
+                .ruleData(lastUnit.getRuleData()) // 保留周期序号
+                .build();
+
+        // 替换最后一个单元
+        allUnits.set(allUnits.size() - 1, extendedUnit);
+
+        return nextCycleBoundary;
+    }
+
+    /**
      * CONTINUOUS 模式计算
      * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
      */
@@ -463,12 +537,20 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, freeTimeRanges, calcBegin, calcEnd);
 
+        // 延伸最后一个计费单元
+        LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, freeTimeRanges);
+
+        // 如果延伸后的时间超过 effectiveEnd，更新 effectiveEnd
+        if (extendedCalculationEndTime.isAfter(feeEffectiveEnd)) {
+            feeEffectiveEnd = extendedCalculationEndTime;
+        }
+
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getSchemeId())
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
-                .calculationEndTime(calcEnd)
+                .calculationEndTime(extendedCalculationEndTime)  // 使用延伸后的时间
                 .chargedAmount(totalAmount)
                 .billingUnits(allUnits)
                 .promotionUsages(new ArrayList<>())
