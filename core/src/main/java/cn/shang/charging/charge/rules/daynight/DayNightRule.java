@@ -8,15 +8,16 @@ import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * 日夜分时段计费规则
@@ -30,6 +31,25 @@ import java.util.Set;
  */
 public class DayNightRule implements BillingRule<DayNightConfig> {
 
+    /**
+     * 规则状态结构（用于 CONTINUE 模式）
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RuleState {
+        /** 当前24小时周期索引 */
+        private int cycleIndex;
+        /** 当前周期累计金额 */
+        private BigDecimal cycleAccumulated;
+        /** 周期边界时间（beginTime + 24h） */
+        private LocalDateTime cycleBoundary;
+    }
+
+    // 规则类型标识
+    private static final String RULE_TYPE = "dayNight";
+
     @Override
     public Class<DayNightConfig> configClass() {
         return DayNightConfig.class;
@@ -38,6 +58,52 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
     @Override
     public Set<BConstants.BillingMode> supportedModes() {
         return EnumSet.of(BConstants.BillingMode.CONTINUOUS, BConstants.BillingMode.UNIT_BASED);
+    }
+
+    /**
+     * 从 Map 恢复 RuleState
+     */
+    @SuppressWarnings("unchecked")
+    private RuleState restoreState(Map<String, Object> stateMap) {
+        if (stateMap == null) return null;
+        Object state = stateMap.get(RULE_TYPE);
+        if (state == null) return null;
+
+        if (state instanceof RuleState) {
+            return (RuleState) state;
+        }
+
+        // 从序列化的 Map 恢复
+        if (state instanceof Map) {
+            Map<String, Object> map = (Map<String, Object>) state;
+            return RuleState.builder()
+                    .cycleIndex((Integer) map.getOrDefault("cycleIndex", 0))
+                    .cycleAccumulated(map.get("cycleAccumulated") instanceof BigDecimal
+                            ? (BigDecimal) map.get("cycleAccumulated")
+                            : new BigDecimal(map.getOrDefault("cycleAccumulated", "0").toString()))
+                    .cycleBoundary((LocalDateTime) map.get("cycleBoundary"))
+                    .build();
+        }
+        return null;
+    }
+
+    /**
+     * 序列化 RuleState 为 Map
+     */
+    private Map<String, Object> toMap(RuleState state) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("cycleIndex", state.getCycleIndex());
+        map.put("cycleAccumulated", state.getCycleAccumulated());
+        map.put("cycleBoundary", state.getCycleBoundary());
+        return map;
+    }
+
+    @Override
+    public Map<String, Object> buildCarryOverState(BillingSegmentResult result) {
+        if (result.getRuleOutputState() == null) {
+            return Collections.emptyMap();
+        }
+        return result.getRuleOutputState();
     }
 
     /**
@@ -99,8 +165,26 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         LocalDateTime calcBegin = context.getWindow().getCalculationBegin();
         LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
 
-        // 按周期和单元划分，生成计费单元
-        List<UnitWithContext> unitsWithContext = buildUnitsWithContext(calcBegin, calcEnd, config);
+        // 恢复状态
+        RuleState state = restoreState(context.getRuleState());
+        if (state == null) {
+            // FROM_SCRATCH: 初始化状态
+            state = RuleState.builder()
+                    .cycleIndex(0)
+                    .cycleAccumulated(BigDecimal.ZERO)
+                    .cycleBoundary(calcBegin.plusHours(24))
+                    .build();
+        } else {
+            // CONTINUE: 更新周期状态
+            while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
+                state.setCycleIndex(state.getCycleIndex() + 1);
+                state.setCycleAccumulated(BigDecimal.ZERO);
+                state.setCycleBoundary(state.getCycleBoundary().plusHours(24));
+            }
+        }
+
+        // 按周期和单元划分，生成计费单元（传入初始周期索引）
+        List<UnitWithContext> unitsWithContext = buildUnitsWithContextWithState(calcBegin, calcEnd, config, state);
 
         // 获取免费时段
         List<FreeTimeRange> freeTimeRanges = promotionAggregate.getFreeTimeRanges();
@@ -117,8 +201,20 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             billingUnits.add(unit);
         }
 
-        // 按周期应用封顶
-        applyDailyCap(billingUnits, config);
+        // 按周期应用封顶（考虑结转的累计金额）
+        applyDailyCapWithCarryOver(billingUnits, config, state.getCycleAccumulated());
+
+        // 更新最终状态
+        int maxCycleIndex = billingUnits.stream()
+                .mapToInt(u -> (Integer) u.getRuleData())
+                .max().orElse(0);
+        state.setCycleIndex(maxCycleIndex);
+        // 计算最后一个周期的累计金额
+        BigDecimal lastCycleAmount = billingUnits.stream()
+                .filter(u -> (Integer) u.getRuleData() == maxCycleIndex)
+                .map(BillingUnit::getChargedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        state.setCycleAccumulated(lastCycleAmount);
 
         // 汇总结果
         BigDecimal totalAmount = billingUnits.stream()
@@ -132,31 +228,38 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         // 延伸最后一个计费单元
         LocalDateTime extendedCalculationEndTime = extendLastUnit(billingUnits, calcBegin, calcEnd, config);
 
+        // 构建输出状态
+        Map<String, Object> ruleOutputState = new HashMap<>();
+        ruleOutputState.put(RULE_TYPE, toMap(state));
+
         return BillingSegmentResult.builder()
-                .segmentId(context.getSegment().getSchemeId())
+                .segmentId(context.getSegment().getId())
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
-                .calculationEndTime(extendedCalculationEndTime)  // 使用延伸后的时间
+                .calculationEndTime(extendedCalculationEndTime)
                 .chargedAmount(totalAmount)
                 .billingUnits(billingUnits)
                 .promotionUsages(promotionUsages)
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)
+                .ruleOutputState(ruleOutputState)
                 .build();
     }
 
     /**
-     * 构建带上下文的计费单元列表
+     * 构建带上下文的计费单元列表（支持状态恢复）
      */
-    private List<UnitWithContext> buildUnitsWithContext(LocalDateTime begin, LocalDateTime end, DayNightConfig config) {
+    private List<UnitWithContext> buildUnitsWithContextWithState(LocalDateTime begin, LocalDateTime end, DayNightConfig config, RuleState state) {
         List<UnitWithContext> units = new ArrayList<>();
         int unitMinutes = config.getUnitMinutes();
 
         LocalDateTime current = begin;
-        int cycleIndex = 0;
-        LocalDateTime cycleStart = begin;
+        int cycleIndex = state.getCycleIndex();
+        LocalDateTime cycleStart = state.getCycleBoundary() != null
+                ? state.getCycleBoundary().minusHours(24)
+                : begin;
 
         while (current.isBefore(end)) {
             // 计算当前周期结束时间
@@ -393,6 +496,67 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
     }
 
     /**
+     * 应用每日封顶（考虑结转的累计金额）
+     */
+    private void applyDailyCapWithCarryOver(List<BillingUnit> units, DayNightConfig config, BigDecimal carryOverAccumulated) {
+        BigDecimal maxCharge = config.getMaxChargeOneDay();
+
+        // 按周期分组
+        int maxCycleIndex = units.stream()
+                .mapToInt(u -> (Integer) u.getRuleData())
+                .max().orElse(0);
+
+        BigDecimal accumulated = carryOverAccumulated;
+
+        for (int cycle = 0; cycle <= maxCycleIndex; cycle++) {
+            final int cycleIdx = cycle;
+            List<BillingUnit> cycleUnits = units.stream()
+                    .filter(u -> (Integer) u.getRuleData() == cycleIdx)
+                    .toList();
+
+            // 本周期新增金额
+            BigDecimal cycleNewAmount = cycleUnits.stream()
+                    .map(BillingUnit::getChargedAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // 总累计金额 = 结转金额 + 新增金额
+            BigDecimal totalAccumulated = accumulated.add(cycleNewAmount);
+
+            if (totalAccumulated.compareTo(maxCharge) > 0) {
+                // 超过封顶
+                BigDecimal maxAllowed = maxCharge.subtract(accumulated).max(BigDecimal.ZERO);
+                if (maxAllowed.compareTo(BigDecimal.ZERO) <= 0) {
+                    // 已达封顶，全部免费
+                    for (BillingUnit unit : cycleUnits) {
+                        if (!unit.isFree()) {
+                            unit.setChargedAmount(BigDecimal.ZERO);
+                            unit.setFree(true);
+                            unit.setFreePromotionId("DAILY_CAP");
+                        }
+                    }
+                } else {
+                    // 按比例削减
+                    BigDecimal ratio = maxAllowed.divide(cycleNewAmount, 6, RoundingMode.HALF_UP);
+                    for (BillingUnit unit : cycleUnits) {
+                        if (!unit.isFree()) {
+                            BigDecimal newAmount = unit.getChargedAmount().multiply(ratio)
+                                    .setScale(2, RoundingMode.HALF_UP);
+                            unit.setChargedAmount(newAmount);
+                            if (newAmount.compareTo(BigDecimal.ZERO) == 0) {
+                                unit.setFree(true);
+                                unit.setFreePromotionId("DAILY_CAP");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 重置累计金额（新周期）
+            accumulated = BigDecimal.ZERO;
+        }
+    }
+
+    /**
      * 计算费用确定开始时间
      * = 最后一个计费单元的开始时间
      */
@@ -559,6 +723,24 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         LocalDateTime calcBegin = context.getWindow().getCalculationBegin();
         LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
 
+        // 恢复状态
+        RuleState state = restoreState(context.getRuleState());
+        if (state == null) {
+            // FROM_SCRATCH: 初始化状态
+            state = RuleState.builder()
+                    .cycleIndex(0)
+                    .cycleAccumulated(BigDecimal.ZERO)
+                    .cycleBoundary(calcBegin.plusHours(24))
+                    .build();
+        } else {
+            // CONTINUE: 更新周期状态
+            while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
+                state.setCycleIndex(state.getCycleIndex() + 1);
+                state.setCycleAccumulated(BigDecimal.ZERO);
+                state.setCycleBoundary(state.getCycleBoundary().plusHours(24));
+            }
+        }
+
         // 获取免费时段
         List<FreeTimeRange> freeTimeRanges = promotionAggregate.getFreeTimeRanges();
         if (freeTimeRanges == null) {
@@ -571,13 +753,32 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         // 按周期组织片段
         List<CycleFragments> cycles = organizeByCycle(calcBegin, calcEnd, fragments);
 
-        // 对每个周期的片段生成计费单元并应用封顶
+        // 对每个周期的片段生成计费单元并应用封顶（考虑结转的累计金额）
+        BigDecimal carryOverAccumulated = state.getCycleAccumulated();
         List<BillingUnit> allUnits = new ArrayList<>();
         for (CycleFragments cycle : cycles) {
             List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
-            applyContinuousCap(cycleUnits, config.getMaxChargeOneDay());
+            applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneDay(), carryOverAccumulated);
             allUnits.addAll(cycleUnits);
+            // 新周期重置累计金额
+            carryOverAccumulated = BigDecimal.ZERO;
         }
+
+        // 更新最终状态
+        // 计算最后一个周期的累计金额
+        BigDecimal lastCycleAmount = BigDecimal.ZERO;
+        if (!cycles.isEmpty()) {
+            // 找到最后一个周期的非免费单元
+            LocalDateTime lastCycleEnd = cycles.get(cycles.size() - 1).cycleEnd;
+            lastCycleAmount = allUnits.stream()
+                    .filter(u -> !u.isFree() && u.getEndTime().compareTo(lastCycleEnd) <= 0 && u.getEndTime().compareTo(cycles.get(cycles.size() - 1).cycleStart) > 0)
+                    .map(BillingUnit::getChargedAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            // 更新周期索引
+            state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+            state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24));
+        }
+        state.setCycleAccumulated(lastCycleAmount);
 
         // 汇总结果
         BigDecimal totalAmount = allUnits.stream()
@@ -595,8 +796,12 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             feeEffectiveEnd = extendedCalculationEndTime;
         }
 
+        // 构建输出状态
+        Map<String, Object> ruleOutputState = new HashMap<>();
+        ruleOutputState.put(RULE_TYPE, toMap(state));
+
         return BillingSegmentResult.builder()
-                .segmentId(context.getSegment().getSchemeId())
+                .segmentId(context.getSegment().getId())
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
@@ -607,6 +812,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)
+                .ruleOutputState(ruleOutputState)
                 .build();
     }
 
@@ -787,7 +993,14 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
      * 封顶后截止，剩余时间合并为免费单元
      */
     private void applyContinuousCap(List<BillingUnit> units, BigDecimal maxCharge) {
-        BigDecimal accumulated = BigDecimal.ZERO;
+        applyContinuousCapWithCarryOver(units, maxCharge, BigDecimal.ZERO);
+    }
+
+    /**
+     * CONTINUOUS 模式封顶处理（考虑结转的累计金额）
+     */
+    private void applyContinuousCapWithCarryOver(List<BillingUnit> units, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
+        BigDecimal accumulated = carryOverAccumulated;
         int capIndex = -1;
         BigDecimal lastChargeAmount = null;
 

@@ -33,7 +33,9 @@ public class BillingRequest {
     private List<SchemeChange> schemeChanges;
 
     /**
-     * 上一次计费结果 TODO
+     * 上一次计费的结转状态（用于 CONTINUE 模式）
+     * 如果不为 null，则从 previousCarryOver.calculatedUpTo 继续计算
      */
+    private BillingCarryOver previousCarryOver;
 
 }

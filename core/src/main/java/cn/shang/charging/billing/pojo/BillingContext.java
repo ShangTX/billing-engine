@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @NoArgsConstructor
 @AllArgsConstructor
@@ -48,9 +49,11 @@ public class BillingContext {
     private List<PromotionGrant> externalPromotions;
 
     /**
-     * 已计算进度（仅继续模式使用）
+     * 从 carryOver 恢复的规则状态
+     * key: 规则类型（如 "relativeTime", "dayNight"）
+     * value: 规则自定义的状态结构
      */
-    private BillingProgress progress;
+    private Map<String, Object> ruleState;
 
     /**
      * 优惠规则

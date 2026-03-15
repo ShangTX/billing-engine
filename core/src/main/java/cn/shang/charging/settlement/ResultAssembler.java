@@ -1,16 +1,20 @@
 package cn.shang.charging.settlement;
 
+import cn.shang.charging.billing.pojo.BillingCarryOver;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.pojo.SegmentCarryOver;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 public class ResultAssembler {
@@ -42,13 +46,20 @@ public class ResultAssembler {
         LocalDateTime effectiveFrom = calculateEffectiveFrom(segmentResultList);
         LocalDateTime effectiveTo = calculateEffectiveTo(segmentResultList);
 
+        // 汇总 calculationEndTime
+        LocalDateTime calculationEndTime = calculateCalculationEndTime(segmentResultList);
+
+        // 构建 BillingCarryOver
+        BillingCarryOver carryOver = buildBillingCarryOver(segmentResultList, calculationEndTime);
+
         return BillingResult.builder()
                 .units(allUnits)
                 .promotionUsages(allUsages)
                 .finalAmount(totalAmount)
                 .effectiveFrom(effectiveFrom)
                 .effectiveTo(effectiveTo)
-                .calculationEndTime(calculateCalculationEndTime(segmentResultList))
+                .calculationEndTime(calculationEndTime)
+                .carryOver(carryOver)
                 .build();
     }
 
@@ -94,5 +105,34 @@ public class ResultAssembler {
             }
         }
         return null;
+    }
+
+    /**
+     * 构建 BillingCarryOver
+     */
+    private BillingCarryOver buildBillingCarryOver(List<BillingSegmentResult> segmentResultList, LocalDateTime calculationEndTime) {
+        if (segmentResultList == null || segmentResultList.isEmpty()) {
+            return null;
+        }
+
+        Map<String, SegmentCarryOver> segments = new HashMap<>();
+
+        for (BillingSegmentResult result : segmentResultList) {
+            if (result.getSegmentId() == null) {
+                continue;
+            }
+
+            SegmentCarryOver segmentCarryOver = SegmentCarryOver.builder()
+                    .ruleState(result.getRuleOutputState())
+                    .promotionState(null) // TODO: 实现优惠状态结转
+                    .build();
+
+            segments.put(result.getSegmentId(), segmentCarryOver);
+        }
+
+        return BillingCarryOver.builder()
+                .calculatedUpTo(calculationEndTime)
+                .segments(segments)
+                .build();
     }
 }

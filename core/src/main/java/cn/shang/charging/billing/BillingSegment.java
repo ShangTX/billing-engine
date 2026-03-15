@@ -16,8 +16,13 @@ import java.time.LocalDateTime;
 @Data
 public class BillingSegment {
 
-    LocalDateTime beginTime;
-    LocalDateTime endTime;
-    String schemeId;
+    /**
+     * 分段唯一标识（用于 CONTINUE 模式状态匹配）
+     */
+    private String id;
+
+    private LocalDateTime beginTime;
+    private LocalDateTime endTime;
+    private String schemeId;
 
 }

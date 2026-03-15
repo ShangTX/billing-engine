@@ -35,6 +35,11 @@ public class BillingResult {
      */
     private LocalDateTime calculationEndTime;
 
+    /**
+     * 本次计算后的结转状态（供下次 CONTINUE 使用）
+     */
+    private BillingCarryOver carryOver;
+
 
     public static BillingResult of(ChargingResult chargingResult, SettlementResult settlementResult) {
         // TODO

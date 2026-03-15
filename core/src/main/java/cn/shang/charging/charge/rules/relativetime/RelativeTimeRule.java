@@ -8,15 +8,16 @@ import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * 按相对时间段计费规则
@@ -32,6 +33,25 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
 
     private static final int MINUTES_PER_CYCLE = 1440; // 24小时 = 1440分钟
 
+    /**
+     * 规则状态结构（用于 CONTINUE 模式）
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RuleState {
+        /** 当前周期索引 */
+        private int cycleIndex;
+        /** 当前周期累计金额 */
+        private BigDecimal cycleAccumulated;
+        /** 周期边界时间 */
+        private LocalDateTime cycleBoundary;
+    }
+
+    // 规则类型标识（用于 ruleState Map 的 key）
+    private static final String RULE_TYPE = "relativeTime";
+
     @Override
     public Class<RelativeTimeConfig> configClass() {
         return RelativeTimeConfig.class;
@@ -40,6 +60,52 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
     @Override
     public Set<BConstants.BillingMode> supportedModes() {
         return EnumSet.of(BConstants.BillingMode.CONTINUOUS, BConstants.BillingMode.UNIT_BASED);
+    }
+
+    /**
+     * 从 Map 恢复 RuleState
+     */
+    @SuppressWarnings("unchecked")
+    private RuleState restoreState(Map<String, Object> stateMap) {
+        if (stateMap == null) return null;
+        Object state = stateMap.get(RULE_TYPE);
+        if (state == null) return null;
+
+        if (state instanceof RuleState) {
+            return (RuleState) state;
+        }
+
+        // 从序列化的 Map 恢复
+        if (state instanceof Map) {
+            Map<String, Object> map = (Map<String, Object>) state;
+            return RuleState.builder()
+                    .cycleIndex((Integer) map.getOrDefault("cycleIndex", 0))
+                    .cycleAccumulated(map.get("cycleAccumulated") instanceof BigDecimal
+                            ? (BigDecimal) map.get("cycleAccumulated")
+                            : new BigDecimal(map.getOrDefault("cycleAccumulated", "0").toString()))
+                    .cycleBoundary((LocalDateTime) map.get("cycleBoundary"))
+                    .build();
+        }
+        return null;
+    }
+
+    /**
+     * 序列化 RuleState 为 Map
+     */
+    private Map<String, Object> toMap(RuleState state) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("cycleIndex", state.getCycleIndex());
+        map.put("cycleAccumulated", state.getCycleAccumulated());
+        map.put("cycleBoundary", state.getCycleBoundary());
+        return map;
+    }
+
+    @Override
+    public Map<String, Object> buildCarryOverState(BillingSegmentResult result) {
+        if (result.getRuleOutputState() == null) {
+            return Collections.emptyMap();
+        }
+        return result.getRuleOutputState();
     }
 
     @Override
@@ -64,13 +130,32 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         LocalDateTime calcBegin = window.getCalculationBegin();
         LocalDateTime calcEnd = window.getCalculationEnd();
 
+        // 恢复状态
+        RuleState state = restoreState(context.getRuleState());
+        if (state == null) {
+            // FROM_SCRATCH: 初始化状态
+            state = RuleState.builder()
+                    .cycleIndex(0)
+                    .cycleAccumulated(BigDecimal.ZERO)
+                    .cycleBoundary(calcBegin.plusMinutes(MINUTES_PER_CYCLE))
+                    .build();
+        } else {
+            // CONTINUE: 更新周期状态
+            // 如果 calcBegin >= cycleBoundary，说明已经进入新周期
+            while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
+                state.setCycleIndex(state.getCycleIndex() + 1);
+                state.setCycleAccumulated(BigDecimal.ZERO);
+                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(MINUTES_PER_CYCLE));
+            }
+        }
+
         // 获取免费时段
         List<FreeTimeRange> freeTimeRanges = promotionAggregate != null && promotionAggregate.getFreeTimeRanges() != null
                 ? promotionAggregate.getFreeTimeRanges()
                 : List.of();
 
-        // 构建计费单元（按周期组织）
-        List<CycleUnits> cycles = buildBillingUnits(calcBegin, calcEnd, config, freeTimeRanges);
+        // 构建计费单元（按周期组织），传入初始累计金额
+        List<CycleUnits> cycles = buildBillingUnitsWithState(calcBegin, calcEnd, config, freeTimeRanges, state);
 
         // 汇总结果
         List<BillingUnit> allUnits = new ArrayList<>();
@@ -82,6 +167,18 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // 更新最终状态（最后一个周期的状态）
+        if (!cycles.isEmpty()) {
+            CycleUnits lastCycle = cycles.get(cycles.size() - 1);
+            state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+            state.setCycleBoundary(lastCycle.cycleStart.plusMinutes(MINUTES_PER_CYCLE));
+            // 计算最后一个周期的累计金额
+            BigDecimal lastCycleAmount = lastCycle.units.stream()
+                    .map(BillingUnit::getChargedAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            state.setCycleAccumulated(lastCycleAmount);
+        }
+
         // 计算费用稳定时间窗口
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, freeTimeRanges, calcBegin, calcEnd);
@@ -89,18 +186,23 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         // 延伸最后一个计费单元
         LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, config);
 
+        // 构建输出状态
+        Map<String, Object> ruleOutputState = new HashMap<>();
+        ruleOutputState.put(RULE_TYPE, toMap(state));
+
         return BillingSegmentResult.builder()
-                .segmentId(context.getSegment().getSchemeId())
+                .segmentId(context.getSegment().getId())
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
-                .calculationEndTime(extendedCalculationEndTime)  // 使用延伸后的时间
+                .calculationEndTime(extendedCalculationEndTime)
                 .chargedAmount(totalAmount)
                 .billingUnits(allUnits)
                 .promotionUsages(new ArrayList<>())
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)
+                .ruleOutputState(ruleOutputState)
                 .build();
     }
 
@@ -162,6 +264,7 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         final LocalDateTime cycleStart;
         final LocalDateTime cycleEnd;
         final List<BillingUnit> units = new ArrayList<>();
+        BigDecimal accumulatedBeforeCap; // 封顶前的累计金额
 
         CycleUnits(LocalDateTime cycleStart, LocalDateTime cycleEnd) {
             this.cycleStart = cycleStart;
@@ -170,12 +273,14 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
     }
 
     /**
-     * 构建计费单元，按周期组织
+     * 构建计费单元，按周期组织（支持状态恢复）
      */
-    private List<CycleUnits> buildBillingUnits(LocalDateTime calcBegin, LocalDateTime calcEnd,
-                                                RelativeTimeConfig config, List<FreeTimeRange> freeTimeRanges) {
+    private List<CycleUnits> buildBillingUnitsWithState(LocalDateTime calcBegin, LocalDateTime calcEnd,
+                                                          RelativeTimeConfig config, List<FreeTimeRange> freeTimeRanges,
+                                                          RuleState state) {
         List<CycleUnits> cycles = new ArrayList<>();
         LocalDateTime current = calcBegin;
+        BigDecimal carryOverAccumulated = state.getCycleAccumulated();
 
         while (current.isBefore(calcEnd)) {
             // 计算当前周期起止
@@ -192,14 +297,66 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
                 generateUnitsInPeriod(cycle, period, freeTimeRanges);
             }
 
-            // 应用周期封顶
-            applyCycleCap(cycle, config.getMaxChargeOneCycle());
+            // 应用周期封顶（考虑已有累计金额）
+            applyCycleCapWithCarryOver(cycle, config.getMaxChargeOneCycle(), carryOverAccumulated);
 
             cycles.add(cycle);
+
+            // 重置累计金额（新周期）
+            carryOverAccumulated = BigDecimal.ZERO;
             current = cycleStart.plusMinutes(MINUTES_PER_CYCLE);
         }
 
         return cycles;
+    }
+
+    /**
+     * 应用周期封顶（考虑结转的累计金额）
+     */
+    private void applyCycleCapWithCarryOver(CycleUnits cycle, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
+        if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        // 计算非免费单元的总金额
+        List<BillingUnit> chargeableUnits = cycle.units.stream()
+                .filter(u -> !u.isFree())
+                .toList();
+
+        // 本周期新增金额
+        BigDecimal cycleNewAmount = chargeableUnits.stream()
+                .map(BillingUnit::getChargedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 总累计金额 = 结转金额 + 新增金额
+        BigDecimal totalAccumulated = carryOverAccumulated.add(cycleNewAmount);
+
+        if (totalAccumulated.compareTo(maxCharge) <= 0) {
+            return; // 未超过封顶
+        }
+
+        // 计算超出金额
+        BigDecimal excess = totalAccumulated.subtract(maxCharge);
+
+        // 从最后一个非免费单元开始削减
+        for (int i = chargeableUnits.size() - 1; i >= 0 && excess.compareTo(BigDecimal.ZERO) > 0; i--) {
+            BillingUnit unit = chargeableUnits.get(i);
+            BigDecimal charged = unit.getChargedAmount();
+
+            if (charged.compareTo(excess) >= 0) {
+                unit.setChargedAmount(charged.subtract(excess).setScale(2, RoundingMode.HALF_UP));
+                if (unit.getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
+                    unit.setFree(true);
+                    unit.setFreePromotionId("CYCLE_CAP");
+                }
+                excess = BigDecimal.ZERO;
+            } else {
+                unit.setChargedAmount(BigDecimal.ZERO);
+                unit.setFree(true);
+                unit.setFreePromotionId("CYCLE_CAP");
+                excess = excess.subtract(charged);
+            }
+        }
     }
 
     /**
@@ -530,6 +687,24 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         LocalDateTime calcBegin = window.getCalculationBegin();
         LocalDateTime calcEnd = window.getCalculationEnd();
 
+        // 恢复状态
+        RuleState state = restoreState(context.getRuleState());
+        if (state == null) {
+            // FROM_SCRATCH: 初始化状态
+            state = RuleState.builder()
+                    .cycleIndex(0)
+                    .cycleAccumulated(BigDecimal.ZERO)
+                    .cycleBoundary(calcBegin.plusMinutes(MINUTES_PER_CYCLE))
+                    .build();
+        } else {
+            // CONTINUE: 更新周期状态
+            while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
+                state.setCycleIndex(state.getCycleIndex() + 1);
+                state.setCycleAccumulated(BigDecimal.ZERO);
+                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(MINUTES_PER_CYCLE));
+            }
+        }
+
         List<FreeTimeRange> freeTimeRanges = promotionAggregate != null && promotionAggregate.getFreeTimeRanges() != null
                 ? promotionAggregate.getFreeTimeRanges()
                 : List.of();
@@ -540,13 +715,33 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         // 按周期组织片段
         List<CycleFragments> cycles = organizeByCycle(calcBegin, calcEnd, fragments);
 
-        // 对每个周期的片段生成计费单元并应用封顶
+        // 对每个周期的片段生成计费单元并应用封顶（考虑结转的累计金额）
+        BigDecimal carryOverAccumulated = state.getCycleAccumulated();
         List<BillingUnit> allUnits = new ArrayList<>();
         for (CycleFragments cycle : cycles) {
             List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
-            applyContinuousCap(cycleUnits, config.getMaxChargeOneCycle());
+            applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneCycle(), carryOverAccumulated);
             allUnits.addAll(cycleUnits);
+            // 新周期重置累计金额
+            carryOverAccumulated = BigDecimal.ZERO;
         }
+
+        // 更新最终状态
+        // 计算最后一个周期的累计金额
+        BigDecimal lastCycleAmount = BigDecimal.ZERO;
+        if (!cycles.isEmpty()) {
+            // 更新周期索引和边界
+            state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+            state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE));
+            // 计算最后一个周期的累计金额（非免费单元）
+            LocalDateTime lastCycleStart = cycles.get(cycles.size() - 1).cycleStart;
+            LocalDateTime lastCycleEnd = cycles.get(cycles.size() - 1).cycleEnd;
+            lastCycleAmount = allUnits.stream()
+                    .filter(u -> !u.isFree() && !u.getBeginTime().isBefore(lastCycleStart) && u.getEndTime().compareTo(lastCycleEnd) <= 0)
+                    .map(BillingUnit::getChargedAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
+        state.setCycleAccumulated(lastCycleAmount);
 
         BigDecimal totalAmount = allUnits.stream()
                 .map(BillingUnit::getChargedAmount)
@@ -563,8 +758,12 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
             feeEffectiveEnd = extendedCalculationEndTime;
         }
 
+        // 构建输出状态
+        Map<String, Object> ruleOutputState = new HashMap<>();
+        ruleOutputState.put(RULE_TYPE, toMap(state));
+
         return BillingSegmentResult.builder()
-                .segmentId(context.getSegment().getSchemeId())
+                .segmentId(context.getSegment().getId())
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
@@ -575,6 +774,7 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)
+                .ruleOutputState(ruleOutputState)
                 .build();
     }
 
@@ -757,11 +957,18 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
      * 封顶后截止，剩余时间合并为免费单元
      */
     private void applyContinuousCap(List<BillingUnit> units, BigDecimal maxCharge) {
+        applyContinuousCapWithCarryOver(units, maxCharge, BigDecimal.ZERO);
+    }
+
+    /**
+     * CONTINUOUS 模式封顶处理（考虑结转的累计金额）
+     */
+    private void applyContinuousCapWithCarryOver(List<BillingUnit> units, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
         if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
 
-        BigDecimal accumulated = BigDecimal.ZERO;
+        BigDecimal accumulated = carryOverAccumulated;
         int capIndex = -1;
         BigDecimal lastChargeAmount = null;
 
