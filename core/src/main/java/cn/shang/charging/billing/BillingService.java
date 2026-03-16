@@ -74,6 +74,14 @@ public class BillingService {
                     request.getSegmentCalculationMode()
             );
 
+            // CONTINUE 模式：调整计算窗口起点
+            if (isContinueMode) {
+                // 确保计算窗口的起点不早于 actualBeginTime
+                if (window.getCalculationBegin().isBefore(actualBeginTime)) {
+                    window.setCalculationBegin(actualBeginTime);
+                }
+            }
+
             // 2.2 解析规则快照（方案已确定）
             RuleConfig chargingRule = billingConfigResolver.resolveChargingRule(
                     segment.getSchemeId(),
