@@ -118,6 +118,7 @@ public class BillingService {
                     .promotionRules(promotionRules)
                     .externalPromotions(request.getExternalPromotions())
                     .billingMode(billingMode)
+                    .continueMode(isContinueMode ? BConstants.ContinueMode.CONTINUE : BConstants.ContinueMode.FROM_SCRATCH)
                     .ruleState(ruleState)
                     .build();
 

@@ -49,7 +49,7 @@ public class ResultAssembler {
         // 汇总 calculationEndTime
         LocalDateTime calculationEndTime = calculateCalculationEndTime(segmentResultList);
 
-        // 构建 BillingCarryOver
+        // 构建 carryOver（用于支持后续继续计算）
         BillingCarryOver carryOver = buildBillingCarryOver(segmentResultList, calculationEndTime);
 
         return BillingResult.builder()

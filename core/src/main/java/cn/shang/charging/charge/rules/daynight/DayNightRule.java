@@ -204,7 +204,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         // 按周期应用封顶（考虑结转的累计金额）
         applyDailyCapWithCarryOver(billingUnits, config, state.getCycleAccumulated());
 
-        // 更新最终状态
+        // 更新最终状态（FROM_SCRATCH 结果也需要用于继续计算）
         int maxCycleIndex = billingUnits.stream()
                 .mapToInt(u -> (Integer) u.getRuleData())
                 .max().orElse(0);
@@ -228,7 +228,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         // 延伸最后一个计费单元
         LocalDateTime extendedCalculationEndTime = extendLastUnit(billingUnits, calcBegin, calcEnd, config);
 
-        // 构建输出状态
+        // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
         Map<String, Object> ruleOutputState = new HashMap<>();
         ruleOutputState.put(RULE_TYPE, toMap(state));
 
@@ -764,21 +764,19 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             carryOverAccumulated = BigDecimal.ZERO;
         }
 
-        // 更新最终状态
-        // 计算最后一个周期的累计金额
-        BigDecimal lastCycleAmount = BigDecimal.ZERO;
+        // 更新最终状态（FROM_SCRATCH 结果也需要用于继续计算）
         if (!cycles.isEmpty()) {
             // 找到最后一个周期的非免费单元
             LocalDateTime lastCycleEnd = cycles.get(cycles.size() - 1).cycleEnd;
-            lastCycleAmount = allUnits.stream()
+            BigDecimal lastCycleAmount = allUnits.stream()
                     .filter(u -> !u.isFree() && u.getEndTime().compareTo(lastCycleEnd) <= 0 && u.getEndTime().compareTo(cycles.get(cycles.size() - 1).cycleStart) > 0)
                     .map(BillingUnit::getChargedAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+            state.setCycleAccumulated(lastCycleAmount);
             // 更新周期索引
             state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
             state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24));
         }
-        state.setCycleAccumulated(lastCycleAmount);
 
         // 汇总结果
         BigDecimal totalAmount = allUnits.stream()
@@ -796,7 +794,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             feeEffectiveEnd = extendedCalculationEndTime;
         }
 
-        // 构建输出状态
+        // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
         Map<String, Object> ruleOutputState = new HashMap<>();
         ruleOutputState.put(RULE_TYPE, toMap(state));
 

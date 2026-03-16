@@ -167,8 +167,8 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 更新最终状态（最后一个周期的状态）
-        if (!cycles.isEmpty()) {
+        // 更新最终状态（最后一个周期的状态）- 仅 CONTINUE 模式需要
+        if (!cycles.isEmpty() && context.getContinueMode() == BConstants.ContinueMode.CONTINUE) {
             CycleUnits lastCycle = cycles.get(cycles.size() - 1);
             state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
             state.setCycleBoundary(lastCycle.cycleStart.plusMinutes(MINUTES_PER_CYCLE));
@@ -186,7 +186,7 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         // 延伸最后一个计费单元
         LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, config);
 
-        // 构建输出状态
+        // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
         Map<String, Object> ruleOutputState = new HashMap<>();
         ruleOutputState.put(RULE_TYPE, toMap(state));
 
@@ -726,9 +726,7 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
             carryOverAccumulated = BigDecimal.ZERO;
         }
 
-        // 更新最终状态
-        // 计算最后一个周期的累计金额
-        BigDecimal lastCycleAmount = BigDecimal.ZERO;
+        // 更新最终状态（FROM_SCRATCH 结果也需要用于继续计算）
         if (!cycles.isEmpty()) {
             // 更新周期索引和边界
             state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
@@ -736,12 +734,12 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
             // 计算最后一个周期的累计金额（非免费单元）
             LocalDateTime lastCycleStart = cycles.get(cycles.size() - 1).cycleStart;
             LocalDateTime lastCycleEnd = cycles.get(cycles.size() - 1).cycleEnd;
-            lastCycleAmount = allUnits.stream()
+            BigDecimal lastCycleAmount = allUnits.stream()
                     .filter(u -> !u.isFree() && !u.getBeginTime().isBefore(lastCycleStart) && u.getEndTime().compareTo(lastCycleEnd) <= 0)
                     .map(BillingUnit::getChargedAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+            state.setCycleAccumulated(lastCycleAmount);
         }
-        state.setCycleAccumulated(lastCycleAmount);
 
         BigDecimal totalAmount = allUnits.stream()
                 .map(BillingUnit::getChargedAmount)
@@ -758,7 +756,7 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
             feeEffectiveEnd = extendedCalculationEndTime;
         }
 
-        // 构建输出状态
+        // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
         Map<String, Object> ruleOutputState = new HashMap<>();
         ruleOutputState.put(RULE_TYPE, toMap(state));
 
