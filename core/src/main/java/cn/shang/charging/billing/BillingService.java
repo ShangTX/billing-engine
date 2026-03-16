@@ -100,10 +100,12 @@ public class BillingService {
 
             // 2.3 恢复规则状态（CONTINUE 模式）
             Map<String, Object> ruleState = null;
+            PromotionCarryOver promotionCarryOver = null;
             if (isContinueMode && carryOver.getSegments() != null) {
                 SegmentCarryOver segmentCarryOver = carryOver.getSegments().get(segment.getId());
                 if (segmentCarryOver != null) {
                     ruleState = segmentCarryOver.getRuleState();
+                    promotionCarryOver = segmentCarryOver.getPromotionState();
                 }
             }
 
@@ -120,6 +122,7 @@ public class BillingService {
                     .billingMode(billingMode)
                     .continueMode(isContinueMode ? BConstants.ContinueMode.CONTINUE : BConstants.ContinueMode.FROM_SCRATCH)
                     .ruleState(ruleState)
+                    .promotionCarryOver(promotionCarryOver)
                     .build();
 
             // 2.5 执行优惠聚合

@@ -1,5 +1,6 @@
 package cn.shang.charging.promotion.pojo;
 
+import cn.shang.charging.billing.pojo.PromotionCarryOver;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -26,4 +27,10 @@ public class PromotionAggregate {
 
     // —— 可选：等效金额（仅统计，不参与计费） ——
     BigDecimal equivalentAmount;
+
+    /**
+     * 优惠结转输出状态
+     * 用于 CONTINUE 模式的下次计算
+     */
+    PromotionCarryOver promotionCarryOver;
 }

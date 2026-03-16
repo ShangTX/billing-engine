@@ -56,6 +56,12 @@ public class BillingContext {
     private Map<String, Object> ruleState;
 
     /**
+     * 从 carryOver 恢复的优惠结转状态
+     * 包含剩余免费分钟数和已使用免费时段
+     */
+    private PromotionCarryOver promotionCarryOver;
+
+    /**
      * 优惠规则
      */
     private List<PromotionRuleConfig> promotionRules;

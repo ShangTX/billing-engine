@@ -6,6 +6,7 @@ import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.SegmentCarryOver;
+import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
@@ -122,9 +123,12 @@ public class ResultAssembler {
                 continue;
             }
 
+            // 从 PromotionAggregate 中提取优惠结转状态
+            var promotionCarryOver = extractPromotionCarryOver(result.getPromotionAggregate());
+
             SegmentCarryOver segmentCarryOver = SegmentCarryOver.builder()
                     .ruleState(result.getRuleOutputState())
-                    .promotionState(null) // TODO: 实现优惠状态结转
+                    .promotionState(promotionCarryOver)
                     .build();
 
             segments.put(result.getSegmentId(), segmentCarryOver);
@@ -134,5 +138,15 @@ public class ResultAssembler {
                 .calculatedUpTo(calculationEndTime)
                 .segments(segments)
                 .build();
+    }
+
+    /**
+     * 从 PromotionAggregate 中提取优惠结转状态
+     */
+    private cn.shang.charging.billing.pojo.PromotionCarryOver extractPromotionCarryOver(PromotionAggregate aggregate) {
+        if (aggregate == null || aggregate.getPromotionCarryOver() == null) {
+            return null;
+        }
+        return aggregate.getPromotionCarryOver();
     }
 }

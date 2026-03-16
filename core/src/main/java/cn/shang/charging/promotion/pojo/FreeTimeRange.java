@@ -58,12 +58,21 @@ public class FreeTimeRange {
 
     // 复制构造方法
     public FreeTimeRange copy() {
-        FreeTimeRange copy = new FreeTimeRange().setId(id).setBeginTime(beginTime).setEndTime(endTime).setPriority(priority);
+        FreeTimeRange copy = new FreeTimeRange()
+                .setId(id)
+                .setBeginTime(beginTime)
+                .setEndTime(endTime)
+                .setPriority(priority)
+                .setPromotionType(promotionType);
         copy.data = this.data;
         return copy;
     }
 
     public FreeTimeRange copyWithNewId() {
-        return new FreeTimeRange().setBeginTime(this.beginTime).setEndTime(this.endTime).setPriority(this.priority);
+        return new FreeTimeRange()
+                .setBeginTime(this.beginTime)
+                .setEndTime(this.endTime)
+                .setPriority(this.priority)
+                .setPromotionType(this.promotionType);
     }
 }
