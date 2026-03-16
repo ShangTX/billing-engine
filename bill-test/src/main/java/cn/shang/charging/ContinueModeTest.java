@@ -12,6 +12,7 @@ import cn.shang.charging.charge.rules.daynight.DayNightRule;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
+import cn.shang.charging.charge.util.JacksonUtils;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
@@ -112,6 +113,7 @@ public class ContinueModeTest {
         System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
         System.out.println("  carryOver.calculatedUpTo: " + result1.getCarryOver().getCalculatedUpTo());
         System.out.println("  计费单元数: " + result1.getUnits().size());
+        printBillingDetail(result1);
 
         // 验证 carryOver 结构
         var carryOver = result1.getCarryOver();
@@ -131,6 +133,7 @@ public class ContinueModeTest {
         System.out.println("  实际计算窗口: " + carryOver.getCalculatedUpTo() + " - 14:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  计费单元数: " + result2.getUnits().size());
+        printBillingDetail(result2);
 
         // 验证: 第二次应该只计算 12:00-14:00 的增量
         // 08:00-12:00 = 4单元 = 7元 (2个30分钟@1元 + 2个60分钟@2元)
@@ -194,6 +197,7 @@ public class ContinueModeTest {
         System.out.println("第一次计算: 08:00 - 10:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  封顶金额: 10元");
+        printBillingDetail(result1);
 
         // 获取规则状态中的累计金额
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
@@ -207,6 +211,7 @@ public class ContinueModeTest {
 
         System.out.println("\n第二次计算（CONTINUE）: 10:00 - 14:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
+        printBillingDetail(result2);
 
         // 10:00-14:00 原本 6元，累计 4+6=10元，刚好封顶
         // 封顶差额 = 10-4=6元，实际收取 6元
@@ -870,6 +875,28 @@ public class ContinueModeTest {
             System.out.println("验证通过: " + name + " = " + actual);
         } else {
             System.out.println("验证失败: " + name + " 预期=" + expected + ", 实际=" + actual);
+        }
+    }
+
+    /**
+     * 打印计费明细（JSON格式）
+     */
+    static void printBillingDetail(BillingResult result) {
+        System.out.println("  计费明细（JSON）:");
+        try {
+            // 打印计费单元
+            if (result.getUnits() != null && !result.getUnits().isEmpty()) {
+                System.out.println("    计费单元:");
+                for (BillingUnit unit : result.getUnits()) {
+                    System.out.println("      " + JacksonUtils.toJsonString(unit));
+                }
+            }
+            // 打印carryOver
+            if (result.getCarryOver() != null) {
+                System.out.println("    carryOver: " + JacksonUtils.toJsonString(result.getCarryOver()));
+            }
+        } catch (Exception e) {
+            System.out.println("    序列化失败: " + e.getMessage());
         }
     }
 }

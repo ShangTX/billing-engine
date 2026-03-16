@@ -11,6 +11,7 @@ import cn.shang.charging.charge.rules.daynight.DayNightRule;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
+import cn.shang.charging.charge.util.JacksonUtils;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
@@ -108,6 +109,7 @@ public class PromotionCarryOverTest {
         System.out.println("  外部优惠: 60分钟免费");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  预期: 前60分钟免费, 后30分钟收费");
+        printBillingDetail(result1);
 
         // 验证剩余免费分钟数
         var promoCarryOver = getPromotionCarryOver(result1);
@@ -127,6 +129,7 @@ public class PromotionCarryOverTest {
         System.out.println("\n第二次计算（CONTINUE）: 09:30 - 11:00 (90分钟)");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 无剩余免费分钟, 全部收费");
+        printBillingDetail(result2);
 
         // 验证总金额
         var totalFromScratch = createBillingService(false)
@@ -256,6 +259,7 @@ public class PromotionCarryOverTest {
         System.out.println("  外部优惠: 免费时段 09:00-12:00 (3小时)");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  预期: 08:00-09:00收费, 09:00-10:00免费");
+        printBillingDetail(result1);
 
         // 验证已使用免费时段
         var promo1 = getPromotionCarryOver(result1);
@@ -272,6 +276,7 @@ public class PromotionCarryOverTest {
         System.out.println("\n第二次计算（CONTINUE）: 10:00 - 14:00 (4小时)");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 10:00-12:00免费, 12:00-14:00收费");
+        printBillingDetail(result2);
 
         // 验证一致性
         var totalFromScratch = createBillingService(false)
@@ -673,5 +678,27 @@ public class PromotionCarryOverTest {
             }
         }
         return null;
+    }
+
+    /**
+     * 打印计费明细（JSON格式）
+     */
+    static void printBillingDetail(BillingResult result) {
+        System.out.println("  计费明细（JSON）:");
+        try {
+            // 打印计费单元
+            if (result.getUnits() != null && !result.getUnits().isEmpty()) {
+                System.out.println("    计费单元:");
+                for (BillingUnit unit : result.getUnits()) {
+                    System.out.println("      " + JacksonUtils.toJsonString(unit));
+                }
+            }
+            // 打印carryOver
+            if (result.getCarryOver() != null) {
+                System.out.println("    carryOver: " + JacksonUtils.toJsonString(result.getCarryOver()));
+            }
+        } catch (Exception e) {
+            System.out.println("    序列化失败: " + e.getMessage());
+        }
     }
 }
