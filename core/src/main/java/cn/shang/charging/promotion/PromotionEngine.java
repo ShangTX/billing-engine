@@ -209,7 +209,9 @@ public class PromotionEngine {
         Map<String, Integer> remainingMinutes = new HashMap<>();
         for (PromotionUsage usage : usages) {
             int remaining = (int) (usage.getGrantedMinutes() - usage.getUsedMinutes());
-            if (remaining > 0) {
+            // 记录所有使用过的优惠，包括已用完的（remaining=0）
+            // 这样在 CONTINUE 模式下可以正确识别哪些优惠已经用完
+            if (remaining >= 0) {
                 remainingMinutes.put(usage.getPromotionId(), remaining);
             }
         }

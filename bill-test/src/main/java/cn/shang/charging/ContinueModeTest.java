@@ -92,6 +92,36 @@ public class ContinueModeTest {
         testContinue_CompoundScenario_RelativeTime();
         testContinue_CompoundScenario_DayNight();
 
+        // ==================== 最后单元延伸+继续计算测试 ====================
+        System.out.println("\n╔══════════════════════════════════════════════════════════════╗");
+        System.out.println("║               最后单元延伸+继续计算测试                      ║");
+        System.out.println("╚══════════════════════════════════════════════════════════════╝\n");
+
+        testContinue_LastUnitExtension_CapTriggered_RelativeTime();
+        testContinue_LastUnitExtension_CapTriggered_DayNight();
+
+        // ==================== 不规则时间测试（贴近现实场景） ====================
+        System.out.println("\n╔══════════════════════════════════════════════════════════════╗");
+        System.out.println("║               不规则时间测试（贴近现实场景）                 ║");
+        System.out.println("╚══════════════════════════════════════════════════════════════╝\n");
+
+        testIrregularTime_Basic_RelativeTime();
+        testIrregularTime_CrossCycle_RelativeTime();
+        testIrregularTime_CapTriggered_RelativeTime();
+        testIrregularTime_DayNight_Basic();
+        testIrregularTime_DayNight_CrossCycle();
+        testIrregularTime_MultiContinue_RelativeTime();
+
+        // ==================== 延伸与优惠交互测试 ====================
+        System.out.println("\n╔══════════════════════════════════════════════════════════════╗");
+        System.out.println("║               延伸与优惠交互测试                             ║");
+        System.out.println("╚══════════════════════════════════════════════════════════════╝\n");
+
+        testExtension_NotConsumeUnusedPromotion();
+        testExtension_LastUnitCoveredByFreeRange();
+        testExtension_LastUnitCoveredByFreeMinutes();
+        testExtension_StopsAtFreeRangeBoundary();
+
         System.out.println("\n========== 测试完成 ==========\n");
     }
 
@@ -156,6 +186,7 @@ public class ContinueModeTest {
         System.out.println("第一次计算: 08:00 - 10:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
 
         // 第二次: 继续到 12:00
         var request2 = createRelativeTimeRequest("08:00", "12:00");
@@ -165,6 +196,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 10:00 - 12:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  calculationEndTime: " + result2.getCalculationEndTime());
+        printBillingDetail(result2);
 
         // 第三次: 继续到 14:00
         var request3 = createRelativeTimeRequest("08:00", "14:00");
@@ -174,6 +206,7 @@ public class ContinueModeTest {
         System.out.println("\n第三次计算（CONTINUE）: 12:00 - 14:00");
         System.out.println("  结果金额: " + result3.getFinalAmount());
         System.out.println("  calculationEndTime: " + result3.getCalculationEndTime());
+        printBillingDetail(result3);
 
         // 验证累计
         var totalFromScratch = getRelativeTimeBillingService(new BigDecimal("100"), false)
@@ -233,6 +266,7 @@ public class ContinueModeTest {
         System.out.println("第一次计算: 08:00 - 12:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  封顶金额: 5元");
+        printBillingDetail(result1);
 
         // 获取规则状态
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
@@ -247,6 +281,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 12:00 - 14:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 因本周期已封顶，应收 0元");
+        printBillingDetail(result2);
 
         verifyEquals("金额", BigDecimal.ZERO, result2.getFinalAmount());
         System.out.println();
@@ -264,6 +299,7 @@ public class ContinueModeTest {
         System.out.println("第一次计算: 08:00 - 次日 06:00 (22小时)");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
 
         // 获取规则状态
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
@@ -280,6 +316,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 次日 06:00 - 10:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 新周期重新累计");
+        printBillingDetail(result2);
 
         // 新周期应该重新累计，不受上一周期封顶影响
         System.out.println();
@@ -298,6 +335,7 @@ public class ContinueModeTest {
         System.out.println("  规则级别免费分钟数: 30分钟");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  计费单元数: " + result1.getUnits().size());
+        printBillingDetail(result1);
 
         // 查看优惠使用情况
         System.out.println("  优惠使用: " + result1.getPromotionUsages());
@@ -316,6 +354,7 @@ public class ContinueModeTest {
 
         System.out.println("\n第二次计算（CONTINUE）: 09:00 - 10:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
+        printBillingDetail(result2);
 
         // 验证：两次计算总共使用的免费分钟数不应超过30分钟
         // 第一次用30分钟，第二次应该从0开始（无剩余）
@@ -347,6 +386,7 @@ public class ContinueModeTest {
         System.out.println("  外部优惠: 免费时段 09:00-11:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  预期: 08:00-09:00收费(2元), 09:00-10:00免费");
+        printBillingDetail(result1);
 
         // 验证 usedFreeRanges
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
@@ -364,6 +404,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 10:00 - 12:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 10:00-11:00免费, 11:00-12:00收费(2元)");
+        printBillingDetail(result2);
         System.out.println("  验证: 免费时段结转正常工作");
         System.out.println();
     }
@@ -384,6 +425,7 @@ public class ContinueModeTest {
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
         System.out.println("  计费单元数: " + result1.getUnits().size());
+        printBillingDetail(result1);
 
         // 验证 carryOver 结构
         var carryOver = result1.getCarryOver();
@@ -399,6 +441,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 从 12:00 继续到 16:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  计费单元数: " + result2.getUnits().size());
+        printBillingDetail(result2);
 
         // 12:00-16:00 = 4小时，其中 12:00-12:20 夜间，12:20-16:00 白天
         System.out.println("  预期: 12:00-12:20 夜间, 12:20-16:00 白天");
@@ -417,6 +460,7 @@ public class ContinueModeTest {
         System.out.println("第一次计算: 08:00 - 10:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
 
         // 第二次: 继续 10:00 - 14:00
         var request2 = createDayNightRequest("08:00", "14:00");
@@ -426,6 +470,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 10:00 - 14:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  calculationEndTime: " + result2.getCalculationEndTime());
+        printBillingDetail(result2);
 
         // 第三次: 继续 14:00 - 18:00
         var request3 = createDayNightRequest("08:00", "18:00");
@@ -435,6 +480,7 @@ public class ContinueModeTest {
         System.out.println("\n第三次计算（CONTINUE）: 14:00 - 18:00");
         System.out.println("  结果金额: " + result3.getFinalAmount());
         System.out.println("  calculationEndTime: " + result3.getCalculationEndTime());
+        printBillingDetail(result3);
 
         // 验证累计
         var totalFromScratch = getDayNightBillingService(new BigDecimal("100"), false)
@@ -458,6 +504,7 @@ public class ContinueModeTest {
         System.out.println("第一次计算: 08:00 - 10:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  封顶金额: 10元/天");
+        printBillingDetail(result1);
 
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
         var ruleState = (java.util.Map<String, Object>) segmentCarryOver.getRuleState().get("dayNight");
@@ -471,6 +518,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 10:00 - 16:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 继续累计后触发封顶");
+        printBillingDetail(result2);
 
         // 检查封顶后的单元
         var lastUnit = result2.getUnits().get(result2.getUnits().size() - 1);
@@ -493,6 +541,7 @@ public class ContinueModeTest {
         System.out.println("第一次计算: 08:00 - 14:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  封顶金额: 5元");
+        printBillingDetail(result1);
 
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
         var ruleState = (java.util.Map<String, Object>) segmentCarryOver.getRuleState().get("dayNight");
@@ -506,6 +555,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 14:00 - 16:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 因本周期已封顶，应收 0元");
+        printBillingDetail(result2);
 
         verifyEquals("金额", BigDecimal.ZERO, result2.getFinalAmount());
         System.out.println();
@@ -523,6 +573,7 @@ public class ContinueModeTest {
         System.out.println("第一次计算: 08:00 - 次日 06:00 (22小时)");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
 
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
         var ruleState = (java.util.Map<String, Object>) segmentCarryOver.getRuleState().get("dayNight");
@@ -537,6 +588,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 次日 06:00 - 10:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 新周期重新累计");
+        printBillingDetail(result2);
 
         System.out.println();
     }
@@ -553,6 +605,7 @@ public class ContinueModeTest {
         System.out.println("第一次计算: 08:00 - 09:00");
         System.out.println("  规则级别免费分钟数: 30分钟");
         System.out.println("  结果金额: " + result1.getFinalAmount());
+        printBillingDetail(result1);
 
         // 验证 promotionState
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
@@ -567,6 +620,7 @@ public class ContinueModeTest {
 
         System.out.println("\n第二次计算（CONTINUE）: 09:00 - 10:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
+        printBillingDetail(result2);
         System.out.println("  验证: 免费分钟数结转正常工作");
         System.out.println();
     }
@@ -595,6 +649,7 @@ public class ContinueModeTest {
         System.out.println("  外部优惠: 免费时段 09:00-11:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  预期: 08:00-09:00收费(1元), 09:00-10:00免费");
+        printBillingDetail(result1);
 
         // 验证 usedFreeRanges
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
@@ -611,6 +666,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 10:00 - 12:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 10:00-11:00免费, 11:00-12:00收费(2元)");
+        printBillingDetail(result2);
         System.out.println("  验证: 免费时段结转正常工作");
         System.out.println();
     }
@@ -641,6 +697,7 @@ public class ContinueModeTest {
         System.out.println("  规则免费分钟: 30分钟");
         System.out.println("  外部免费分钟: 60分钟");
         System.out.println("  结果金额: " + result1.getFinalAmount());
+        printBillingDetail(result1);
 
         // 第二次计算: 继续 10:00 - 14:00
         var request2 = createRelativeTimeRequest("08:00", "14:00");
@@ -650,6 +707,7 @@ public class ContinueModeTest {
 
         System.out.println("\n第二次计算（CONTINUE）: 10:00 - 14:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
+        printBillingDetail(result2);
 
         // 第三次计算: 继续 14:00 - 次日 10:00 (跨周期)
         var request3 = createRelativeTimeRequest("2026-03-10 08:00", "2026-03-11 10:00");
@@ -660,6 +718,7 @@ public class ContinueModeTest {
         System.out.println("\n第三次计算（CONTINUE）: 14:00 - 次日 10:00 (跨周期)");
         System.out.println("  结果金额: " + result3.getFinalAmount());
         System.out.println("  预期: 新周期重新累计，封顶状态重置");
+        printBillingDetail(result3);
 
         // 验证总金额
         var total = result1.getFinalAmount().add(result2.getFinalAmount()).add(result3.getFinalAmount());
@@ -692,6 +751,7 @@ public class ContinueModeTest {
         System.out.println("  规则免费分钟: 30分钟");
         System.out.println("  外部免费时段: 10:00-12:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
+        printBillingDetail(result1);
 
         // 第二次计算: 继续 10:00 - 14:00
         var request2 = createDayNightRequest("08:00", "14:00");
@@ -702,6 +762,7 @@ public class ContinueModeTest {
         System.out.println("\n第二次计算（CONTINUE）: 10:00 - 14:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 10:00-12:00免费, 12:00-14:00收费");
+        printBillingDetail(result2);
 
         // 第三次计算: 跨周期
         var request3 = createDayNightRequest("2026-03-10 08:00", "2026-03-11 10:00");
@@ -711,9 +772,626 @@ public class ContinueModeTest {
 
         System.out.println("\n第三次计算（CONTINUE）: 次日 06:00 - 10:00");
         System.out.println("  结果金额: " + result3.getFinalAmount());
+        printBillingDetail(result3);
 
         var total = result1.getFinalAmount().add(result2.getFinalAmount()).add(result3.getFinalAmount());
         System.out.println("\n累计金额: " + total);
+        System.out.println();
+    }
+
+    // ==================== 最后单元延伸+继续计算测试 ====================
+
+    /**
+     * 测试：RelativeTimeRule - 封顶后继续计算（延迟生成免费单元）
+     * 场景：第一次计算触达封顶，最后单元正常结束（不延伸）；
+     *       第二次继续计算时检测已封顶，延迟生成免费单元到周期边界，然后进入新周期
+     */
+    static void testContinue_LastUnitExtension_CapTriggered_RelativeTime() {
+        System.out.println("=== 测试: RelativeTimeRule - 封顶触发延伸后继续 ===\n");
+
+        // 使用较低的封顶金额，确保第一次计算能触发封顶
+        var billingService = getRelativeTimeBillingService(new BigDecimal("6"), false);
+
+        // 第一次计算: 08:00 - 11:00, 累计6元刚好封顶
+        var request1 = createRelativeTimeRequest("08:00", "11:00");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:00 - 11:00");
+        System.out.println("  封顶金额: 6元");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        System.out.println("  预期: 累计6元封顶，最后单元正常结束（不延伸到周期边界）");
+        printBillingDetail(result1);
+
+        // 验证：最后一个单元应该正常结束（不延伸）
+        var lastUnit = result1.getUnits().get(result1.getUnits().size() - 1);
+        System.out.println("  最后单元结束时间: " + lastUnit.getEndTime());
+        System.out.println("  是否免费: " + lastUnit.isFree() + " (原因: " + lastUnit.getFreePromotionId() + ")");
+
+        // 第二次计算（CONTINUE）: 继续计算
+        // 应该从 calculatedUpTo（11:00）开始，检测已封顶，生成免费单元到次日08:00，然后进入新周期
+        var request2 = createRelativeTimeRequest("2026-03-10 08:00", "2026-03-11 10:00");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+
+        // 调试输出
+        System.out.println("\n[DEBUG] 第一次计算的 carryOver:");
+        System.out.println("  calculatedUpTo: " + result1.getCarryOver().getCalculatedUpTo());
+        var ruleState = result1.getCarryOver().getSegments().get("scheme-relative-0").getRuleState();
+        @SuppressWarnings("unchecked")
+        var relativeTimeState = (java.util.Map<String, Object>) ruleState.get("relativeTime");
+        System.out.println("  cycleAccumulated: " + relativeTimeState.get("cycleAccumulated"));
+        System.out.println("  cycleBoundary: " + relativeTimeState.get("cycleBoundary"));
+        System.out.println("[DEBUG] request2 beginTime: 2026-03-10 08:00, endTime: 2026-03-11 10:00");
+
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 从 11:00 继续到次日 10:00");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        System.out.println("  预期: 检测已封顶，生成免费单元 11:00→次日08:00，新周期从次日08:00开始");
+        printBillingDetail(result2);
+
+        System.out.println();
+    }
+
+    /**
+     * 测试：DayNightRule - 封顶后继续计算（延迟生成免费单元）
+     */
+    static void testContinue_LastUnitExtension_CapTriggered_DayNight() {
+        System.out.println("=== 测试: DayNightRule - 封顶触发延伸后继续 ===\n");
+
+        // 使用较低的封顶金额，确保第一次计算能触发封顶
+        var billingService = getDayNightBillingService(new BigDecimal("2"), false);
+
+        // 第一次计算: 08:00 - 10:00, 2单元=2元刚好封顶
+        var request1 = createDayNightRequest("08:00", "10:00");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:00 - 10:00");
+        System.out.println("  封顶金额: 2元");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        System.out.println("  预期: 累计2元封顶，最后单元正常结束（不延伸到周期边界）");
+        printBillingDetail(result1);
+
+        // 验证：最后一个单元应该正常结束（不延伸）
+        var lastUnit = result1.getUnits().get(result1.getUnits().size() - 1);
+        System.out.println("  最后单元结束时间: " + lastUnit.getEndTime());
+        System.out.println("  是否免费: " + lastUnit.isFree() + " (原因: " + lastUnit.getFreePromotionId() + ")");
+
+        // 第二次计算（CONTINUE）: 继续计算
+        // 应该从 calculatedUpTo（10:00）开始，检测已封顶，生成免费单元到次日08:00，然后进入新周期
+        var request2 = createDayNightRequest("2026-03-10 08:00", "2026-03-11 10:00");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 从 10:00 继续到次日 10:00");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        System.out.println("  预期: 检测已封顶，生成免费单元 10:00→次日08:00，新周期从次日08:00开始");
+        printBillingDetail(result2);
+
+        System.out.println();
+    }
+
+    // ==================== 不规则时间测试 ====================
+
+    /**
+     * 测试：RelativeTimeRule - 不规则开始和结束时间
+     * 场景：开始时间 08:13，结束时间 12:47（非整点）
+     */
+    static void testIrregularTime_Basic_RelativeTime() {
+        System.out.println("=== 测试: RelativeTimeRule - 不规则时间（08:13-12:47）===\n");
+
+        var billingService = getRelativeTimeBillingService(new BigDecimal("100"), false);
+
+        // 第一次计算: 08:13 - 12:47（非整点开始和结束）
+        var request1 = createRelativeTimeRequest("08:13", "12:47");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:13 - 12:47 (4小时34分钟)");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        System.out.println("  计费单元数: " + result1.getUnits().size());
+        printBillingDetail(result1);
+
+        // 验证：第一个计费单元应该从 08:13 开始，到 08:30 结束（17分钟，收全额1元）
+        var firstUnit = result1.getUnits().get(0);
+        System.out.println("  第一个单元: " + firstUnit.getBeginTime() + " - " + firstUnit.getEndTime() +
+                " (" + firstUnit.getDurationMinutes() + "分钟, " + firstUnit.getChargedAmount() + "元)");
+
+        // 验证：最后一个计费单元应该被截断
+        var lastUnit = result1.getUnits().get(result1.getUnits().size() - 1);
+        System.out.println("  最后单元: " + lastUnit.getBeginTime() + " - " + lastUnit.getEndTime() +
+                " (" + lastUnit.getDurationMinutes() + "分钟, " + lastUnit.getChargedAmount() + "元)");
+
+        // 继续计算
+        var request2 = createRelativeTimeRequest("08:13", "14:00");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 12:47 - 14:00 (1小时13分钟)");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        printBillingDetail(result2);
+
+        System.out.println();
+    }
+
+    /**
+     * 测试：RelativeTimeRule - 不规则时间跨周期边界
+     * 场景：开始时间 08:13，跨过第一个24小时周期边界
+     */
+    static void testIrregularTime_CrossCycle_RelativeTime() {
+        System.out.println("=== 测试: RelativeTimeRule - 不规则时间跨周期 ===\n");
+
+        var billingService = getRelativeTimeBillingService(new BigDecimal("50"), false);
+
+        // 第一次计算: 08:13 - 次日 10:23（跨过次日08:13周期边界）
+        var request1 = createRelativeTimeRequest("2026-03-10 08:13", "2026-03-11 10:23");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:13 - 次日 10:23 (26小时10分钟)");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        System.out.println("  计费单元数: " + result1.getUnits().size());
+
+        // 检查周期边界处的单元
+        var units = result1.getUnits();
+        for (int i = 0; i < units.size(); i++) {
+            var unit = units.get(i);
+            if (unit.getBeginTime().getHour() == 8 && unit.getBeginTime().getMinute() == 13) {
+                System.out.println("  周期边界单元[" + i + "]: " + unit.getBeginTime() + " - " + unit.getEndTime() +
+                        " (" + unit.getDurationMinutes() + "分钟, " + unit.getChargedAmount() + "元)");
+            }
+        }
+        printBillingDetail(result1);
+
+        // 验证状态
+        var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
+        var ruleState = (java.util.Map<String, Object>) segmentCarryOver.getRuleState().get("relativeTime");
+        System.out.println("  cycleIndex: " + ruleState.get("cycleIndex"));
+        System.out.println("  cycleBoundary: " + ruleState.get("cycleBoundary"));
+
+        // 继续计算
+        var request2 = createRelativeTimeRequest("2026-03-10 08:13", "2026-03-11 14:00");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 10:23 - 14:00 (3小时37分钟)");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        printBillingDetail(result2);
+
+        System.out.println();
+    }
+
+    /**
+     * 测试：RelativeTimeRule - 不规则时间触发封顶
+     * 场景：不规则时间触发封顶，验证最后单元延伸
+     */
+    static void testIrregularTime_CapTriggered_RelativeTime() {
+        System.out.println("=== 测试: RelativeTimeRule - 不规则时间封顶 ===\n");
+
+        var billingService = getRelativeTimeBillingService(new BigDecimal("10"), false);
+
+        // 第一次计算: 08:13 - 12:47，累计超过封顶
+        var request1 = createRelativeTimeRequest("08:13", "14:00");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:13 - 14:00 (5小时47分钟)");
+        System.out.println("  封顶金额: 10元");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
+
+        // 检查封顶单元
+        var lastUnit = result1.getUnits().get(result1.getUnits().size() - 1);
+        System.out.println("  最后单元: " + lastUnit.getBeginTime() + " - " + lastUnit.getEndTime() +
+                " (免费: " + lastUnit.isFree() + ", 原因: " + lastUnit.getFreePromotionId() + ")");
+
+        // 继续计算
+        var request2 = createRelativeTimeRequest("2026-03-10 08:13", "2026-03-11 10:00");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 继续到次日10:00");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        System.out.println("  预期: 新周期重新累计");
+        printBillingDetail(result2);
+
+        System.out.println();
+    }
+
+    /**
+     * 测试：DayNightRule - 不规则时间（日夜混合）
+     * 场景：开始时间 08:13（夜间），跨越 12:20 日夜边界
+     */
+    static void testIrregularTime_DayNight_Basic() {
+        System.out.println("=== 测试: DayNightRule - 不规则时间（08:13-16:47）===\n");
+
+        var billingService = getDayNightBillingService(new BigDecimal("100"), false);
+
+        // 第一次计算: 08:13 - 16:47
+        // 日夜边界: 12:20-19:00 是白天
+        var request1 = createDayNightRequest("08:13", "16:47");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:13 - 16:47 (8小时34分钟)");
+        System.out.println("  配置: 白天 12:20-19:00 @ 2元, 夜间 @ 1元");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        System.out.println("  计费单元数: " + result1.getUnits().size());
+        printBillingDetail(result1);
+
+        // 验证日夜边界处的单元
+        var units = result1.getUnits();
+        for (int i = 0; i < units.size(); i++) {
+            var unit = units.get(i);
+            // 找跨越 12:00 的单元
+            if (unit.getBeginTime().getHour() == 12 || unit.getEndTime().getHour() == 12) {
+                System.out.println("  日夜边界附近单元[" + i + "]: " + unit.getBeginTime() + " - " + unit.getEndTime() +
+                        " (单价: " + unit.getUnitPrice() + "元, 金额: " + unit.getChargedAmount() + "元)");
+            }
+        }
+
+        // 继续计算
+        var request2 = createDayNightRequest("08:13", "20:00");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 16:47 - 20:00 (3小时13分钟)");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        printBillingDetail(result2);
+
+        System.out.println();
+    }
+
+    /**
+     * 测试：DayNightRule - 不规则时间跨周期
+     * 场景：08:13 开始，跨过次日 08:13 周期边界
+     */
+    static void testIrregularTime_DayNight_CrossCycle() {
+        System.out.println("=== 测试: DayNightRule - 不规则时间跨周期 ===\n");
+
+        var billingService = getDayNightBillingService(new BigDecimal("30"), false);
+
+        // 第一次计算: 08:13 - 次日 06:23（跨周期，但未到次日08:13）
+        var request1 = createDayNightRequest("2026-03-10 08:13", "2026-03-11 06:23");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:13 - 次日 06:23 (22小时10分钟)");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
+
+        // 验证状态
+        var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
+        var ruleState = (java.util.Map<String, Object>) segmentCarryOver.getRuleState().get("dayNight");
+        System.out.println("  cycleIndex: " + ruleState.get("cycleIndex"));
+        System.out.println("  cycleAccumulated: " + ruleState.get("cycleAccumulated"));
+
+        // 继续计算：跨过周期边界
+        var request2 = createDayNightRequest("2026-03-10 08:13", "2026-03-11 10:00");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 06:23 - 10:00 (跨过08:13周期边界)");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        System.out.println("  预期: 06:23-08:13 属第一周期(继续累计), 08:13-10:00 属新周期(重新累计)");
+        printBillingDetail(result2);
+
+        System.out.println();
+    }
+
+    /**
+     * 测试：不规则时间多次继续计算
+     * 场景：每次计算的时间都不规则
+     */
+    static void testIrregularTime_MultiContinue_RelativeTime() {
+        System.out.println("=== 测试: RelativeTimeRule - 不规则时间多次继续 ===\n");
+
+        var billingService = getRelativeTimeBillingService(new BigDecimal("100"), false);
+
+        // 第一次: 08:13 - 11:23
+        var request1 = createRelativeTimeRequest("08:13", "11:23");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:13 - 11:23 (3小时10分钟)");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  计费单元数: " + result1.getUnits().size());
+        printBillingDetail(result1);
+
+        // 第二次: 继续 11:23 - 14:37
+        var request2 = createRelativeTimeRequest("08:13", "14:37");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 11:23 - 14:37 (3小时14分钟)");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        printBillingDetail(result2);
+
+        // 第三次: 继续 14:37 - 17:19
+        var request3 = createRelativeTimeRequest("08:13", "17:19");
+        request3.setPreviousCarryOver(result2.getCarryOver());
+        var result3 = billingService.calculate(request3);
+
+        System.out.println("\n第三次计算（CONTINUE）: 14:37 - 17:19 (2小时42分钟)");
+        System.out.println("  结果金额: " + result3.getFinalAmount());
+        printBillingDetail(result3);
+
+        // 验证一致性：一次性计算应该等于三次累计
+        var totalFromScratch = billingService.calculate(createRelativeTimeRequest("08:13", "17:19"));
+        var totalFromContinue = result1.getFinalAmount().add(result2.getFinalAmount()).add(result3.getFinalAmount());
+
+        System.out.println("\n一致性验证:");
+        System.out.println("  一次性计算 08:13-17:19: " + totalFromScratch.getFinalAmount() + "元");
+        System.out.println("  三次继续计算累计: " + totalFromContinue + "元");
+
+        if (totalFromScratch.getFinalAmount().compareTo(totalFromContinue) == 0) {
+            System.out.println("  ✓ 结果一致");
+        } else {
+            System.out.println("  ✗ 结果不一致，可能存在bug");
+        }
+
+        System.out.println();
+    }
+
+    // ==================== 延伸与优惠交互测试 ====================
+
+    /**
+     * 场景1：延伸后与未使用优惠重叠
+     *
+     * 测试目标：验证延伸不会"预支"尚未使用的优惠
+     *
+     * 场景设置：
+     * - 计算窗口: 08:00-10:00
+     * - 免费时段: 10:00-12:00（在本次计算窗口外，尚未使用）
+     * - 最后单元: 09:00-10:00，尝试延伸
+     *
+     * 预期行为：
+     * - 延伸停在 10:00（免费时段开始），不会进入免费时段内部
+     * - 免费时段 10:00-12:00 在下次 CONTINUE 时仍可使用
+     */
+    static void testExtension_NotConsumeUnusedPromotion() {
+        System.out.println("=== 测试: 延伸不消耗未使用优惠 ===\n");
+
+        var billingService = getRelativeTimeBillingService(new BigDecimal("100"), false);
+
+        // 外部优惠: 免费时段 10:00 - 12:00
+        var freeRange = PromotionGrant.builder()
+                .id("free-range-future")
+                .type(BConstants.PromotionType.FREE_RANGE)
+                .priority(1)
+                .source(BConstants.PromotionSource.COUPON)
+                .beginTime(parseTime("10:00"))
+                .endTime(parseTime("12:00"))
+                .build();
+
+        // 第一次计算: 08:00 - 10:00
+        var request1 = createRelativeTimeRequest("08:00", "10:00");
+        request1.setExternalPromotions(List.of(freeRange));
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:00 - 10:00");
+        System.out.println("  外部优惠: 免费时段 10:00-12:00（在计算窗口外）");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
+
+        // 验证：延伸应该停在 10:00，不会进入 10:00-12:00
+        var lastUnit = result1.getUnits().get(result1.getUnits().size() - 1);
+        System.out.println("  最后单元: " + lastUnit.getBeginTime() + " - " + lastUnit.getEndTime());
+
+        // 验证 usedFreeRanges 不应该包含这个免费时段
+        var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
+        if (segmentCarryOver.getPromotionState() != null) {
+            var usedRanges = segmentCarryOver.getPromotionState().getUsedFreeRanges();
+            System.out.println("  已使用免费时段: " + usedRanges);
+            System.out.println("  预期: 不应包含 10:00-12:00（因为完全在计算窗口外）");
+        } else {
+            System.out.println("  已使用免费时段: 无");
+        }
+
+        // 第二次计算: 继续 10:00 - 12:00
+        var request2 = createRelativeTimeRequest("08:00", "12:00");
+        request2.setExternalPromotions(List.of(freeRange));
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 10:00 - 12:00");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        System.out.println("  预期: 10:00-12:00 免费时段应生效");
+        printBillingDetail(result2);
+
+        // 验证：第二次计算的金额应该是0（因为整个时段都在免费时段内）
+        verifyEquals("金额", BigDecimal.ZERO, result2.getFinalAmount());
+        System.out.println();
+    }
+
+    /**
+     * 场景2a：最后单元被 FREE_RANGE 完全覆盖
+     *
+     * 测试目标：验证最后单元被免费时段完全覆盖时的延伸行为
+     *
+     * 场景设置：
+     * - 计算窗口: 08:00-10:00
+     * - 免费时段: 09:00-11:00（完全覆盖最后一个单元 09:00-10:00）
+     *
+     * 预期行为：
+     * - 最后单元免费（被免费时段覆盖）
+     * - 延伸不应超过免费时段结束时间（11:00）
+     */
+    static void testExtension_LastUnitCoveredByFreeRange() {
+        System.out.println("=== 测试: 最后单元被免费时段完全覆盖 ===\n");
+
+        var billingService = getRelativeTimeBillingService(new BigDecimal("100"), false);
+
+        // 外部优惠: 免费时段 09:00 - 11:00（覆盖最后单元）
+        var freeRange = PromotionGrant.builder()
+                .id("free-range-cover")
+                .type(BConstants.PromotionType.FREE_RANGE)
+                .priority(1)
+                .source(BConstants.PromotionSource.COUPON)
+                .beginTime(parseTime("09:00"))
+                .endTime(parseTime("11:00"))
+                .build();
+
+        // 第一次计算: 08:00 - 10:00
+        var request1 = createRelativeTimeRequest("08:00", "10:00");
+        request1.setExternalPromotions(List.of(freeRange));
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:00 - 10:00");
+        System.out.println("  外部优惠: 免费时段 09:00-11:00");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
+
+        // 验证最后单元
+        var lastUnit = result1.getUnits().get(result1.getUnits().size() - 1);
+        System.out.println("  最后单元: " + lastUnit.getBeginTime() + " - " + lastUnit.getEndTime());
+        System.out.println("  最后单元是否免费: " + lastUnit.isFree());
+        System.out.println("  freePromotionId: " + lastUnit.getFreePromotionId());
+
+        // 关键验证：延伸不应超过免费时段结束时间（11:00）
+        // 或者不延伸（因为已经免费了）
+        System.out.println("  预期：延伸不应超过 11:00（免费时段结束）");
+
+        // 验证 usedFreeRanges
+        var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
+        if (segmentCarryOver.getPromotionState() != null) {
+            var usedRanges = segmentCarryOver.getPromotionState().getUsedFreeRanges();
+            System.out.println("  已使用免费时段: " + usedRanges);
+        }
+
+        // 第二次计算: 继续 10:00 - 12:00
+        var request2 = createRelativeTimeRequest("08:00", "12:00");
+        request2.setExternalPromotions(List.of(freeRange));
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 10:00 - 12:00");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        System.out.println("  预期: 10:00-11:00 免费，11:00-12:00 收费");
+        printBillingDetail(result2);
+        System.out.println();
+    }
+
+    /**
+     * 场景2b：最后单元被 FREE_MINUTES 覆盖
+     *
+     * 测试目标：验证最后单元被免费分钟数覆盖时的延伸行为
+     *
+     * 场景设置：
+     * - 计算窗口: 08:00-10:00
+     * - 免费分钟数: 60分钟（足够覆盖最后一个单元 09:00-10:00）
+     *
+     * 预期行为：
+     * - 最后单元因免费分钟数而免费
+     * - 延伸行为需要明确（是延伸还是不延伸）
+     */
+    static void testExtension_LastUnitCoveredByFreeMinutes() {
+        System.out.println("=== 测试: 最后单元被免费分钟数覆盖 ===\n");
+
+        var billingService = getRelativeTimeBillingService(new BigDecimal("100"), false);
+
+        // 外部优惠: 免费分钟数 90分钟（覆盖第一个单元30分钟 + 第二个单元60分钟）
+        var freeMin = PromotionGrant.builder()
+                .id("free-min-cover")
+                .type(BConstants.PromotionType.FREE_MINUTES)
+                .priority(1)
+                .source(BConstants.PromotionSource.COUPON)
+                .freeMinutes(90)
+                .build();
+
+        // 第一次计算: 08:00 - 10:00
+        var request1 = createRelativeTimeRequest("08:00", "10:00");
+        request1.setExternalPromotions(List.of(freeMin));
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:00 - 10:00");
+        System.out.println("  外部优惠: 免费分钟数 90分钟");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
+
+        // 验证最后单元
+        var lastUnit = result1.getUnits().get(result1.getUnits().size() - 1);
+        System.out.println("  最后单元: " + lastUnit.getBeginTime() + " - " + lastUnit.getEndTime());
+        System.out.println("  最后单元是否免费: " + lastUnit.isFree());
+
+        // 验证剩余免费分钟数
+        var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
+        if (segmentCarryOver.getPromotionState() != null) {
+            var remaining = segmentCarryOver.getPromotionState().getRemainingMinutes();
+            System.out.println("  剩余免费分钟: " + remaining);
+        }
+
+        // 第二次计算: 继续 10:00 - 12:00
+        var request2 = createRelativeTimeRequest("08:00", "12:00");
+        request2.setExternalPromotions(List.of(freeMin));
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 10:00 - 12:00");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        System.out.println("  预期: 应使用剩余免费分钟数");
+        printBillingDetail(result2);
+        System.out.println();
+    }
+
+    /**
+     * 综合场景：延伸恰好停在免费时段边界
+     *
+     * 测试目标：验证延伸到免费时段开始时间的行为
+     *
+     * 场景设置：
+     * - 计算窗口: 08:00-09:30（最后单元 09:00-09:30 被截断）
+     * - 免费时段: 10:00-12:00（延伸会遇到）
+     *
+     * 预期行为：
+     * - 最后单元延伸到 10:00（完整单元长度 09:00-10:00，然后停在免费时段边界）
+     */
+    static void testExtension_StopsAtFreeRangeBoundary() {
+        System.out.println("=== 测试: 延伸停在免费时段边界 ===\n");
+
+        var billingService = getRelativeTimeBillingService(new BigDecimal("100"), false);
+
+        // 外部优惠: 免费时段 10:00 - 12:00
+        var freeRange = PromotionGrant.builder()
+                .id("free-range-boundary")
+                .type(BConstants.PromotionType.FREE_RANGE)
+                .priority(1)
+                .source(BConstants.PromotionSource.COUPON)
+                .beginTime(parseTime("10:00"))
+                .endTime(parseTime("12:00"))
+                .build();
+
+        // 第一次计算: 08:00 - 09:30（最后单元被截断）
+        var request1 = createRelativeTimeRequest("08:00", "09:30");
+        request1.setExternalPromotions(List.of(freeRange));
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("第一次计算: 08:00 - 09:30（最后单元被截断）");
+        System.out.println("  外部优惠: 免费时段 10:00-12:00");
+        System.out.println("  结果金额: " + result1.getFinalAmount());
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        printBillingDetail(result1);
+
+        // 验证最后单元延伸情况
+        var lastUnit = result1.getUnits().get(result1.getUnits().size() - 1);
+        System.out.println("  最后单元: " + lastUnit.getBeginTime() + " - " + lastUnit.getEndTime());
+        System.out.println("  最后单元时长: " + lastUnit.getDurationMinutes() + "分钟");
+        System.out.println("  预期: 延伸到 10:00（停在免费时段边界）或 10:00（完整单元）");
+
+        // 如果延伸到 10:00，则下次 CONTINUE 应从 10:00 开始
+        // 但 10:00-12:00 是免费的，所以下次计算金额应该是 0（如果在 12:00 前结束）
+        var request2 = createRelativeTimeRequest("08:00", "11:00");
+        request2.setExternalPromotions(List.of(freeRange));
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("\n第二次计算（CONTINUE）: 延伸位置 - 11:00");
+        System.out.println("  结果金额: " + result2.getFinalAmount());
+        System.out.println("  预期: 在免费时段内，金额应为 0");
+        printBillingDetail(result2);
         System.out.println();
     }
 

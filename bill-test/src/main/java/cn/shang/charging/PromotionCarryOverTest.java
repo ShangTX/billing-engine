@@ -158,6 +158,7 @@ public class PromotionCarryOverTest {
         System.out.println("第一次计算: 08:00 - 09:00 (60分钟)");
         System.out.println("  规则级别免费分钟: 45分钟");
         System.out.println("  结果金额: " + result1.getFinalAmount());
+        printBillingDetail(result1);
 
         var promo1 = getPromotionCarryOver(result1);
         if (promo1 != null && promo1.getRemainingMinutes() != null) {
@@ -171,6 +172,7 @@ public class PromotionCarryOverTest {
 
         System.out.println("\n第二次计算（CONTINUE）: 09:00 - 10:00 (60分钟)");
         System.out.println("  结果金额: " + result2.getFinalAmount());
+        printBillingDetail(result2);
 
         // 第三次: 继续 10:00 - 11:00
         var request3 = createRequest("08:00", "11:00");
@@ -179,6 +181,7 @@ public class PromotionCarryOverTest {
 
         System.out.println("\n第三次计算（CONTINUE）: 10:00 - 11:00 (60分钟)");
         System.out.println("  结果金额: " + result3.getFinalAmount());
+        printBillingDetail(result3);
 
         // 汇总
         System.out.println("\n三次计算累计金额: " +
@@ -212,6 +215,7 @@ public class PromotionCarryOverTest {
         System.out.println("第一次计算: 08:00 - 08:45 (45分钟)");
         System.out.println("  外部优惠券: 30分钟免费");
         System.out.println("  结果金额: " + result1.getFinalAmount());
+        printBillingDetail(result1);
 
         // 验证剩余
         var promo1 = getPromotionCarryOver(result1);
@@ -226,6 +230,7 @@ public class PromotionCarryOverTest {
         System.out.println("\n第二次计算（CONTINUE）: 08:45 - 10:00 (75分钟)");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 剩余0分钟免费额度已用完, 全部收费");
+        printBillingDetail(result2);
 
         System.out.println();
     }
@@ -313,6 +318,7 @@ public class PromotionCarryOverTest {
         System.out.println("第一次计算: 08:00 - 11:00");
         System.out.println("  免费时段: 10:00-14:00");
         System.out.println("  结果金额: " + result1.getFinalAmount() + " (08:00-10:00收费, 10:00-11:00免费)");
+        printBillingDetail(result1);
 
         // 第二次: 继续 11:00 - 13:00
         var request2 = createRequest("08:00", "13:00");
@@ -322,6 +328,7 @@ public class PromotionCarryOverTest {
 
         System.out.println("\n第二次计算（CONTINUE）: 11:00 - 13:00");
         System.out.println("  结果金额: " + result2.getFinalAmount() + " (11:00-13:00免费)");
+        printBillingDetail(result2);
 
         // 第三次: 继续 13:00 - 16:00
         var request3 = createRequest("08:00", "16:00");
@@ -331,6 +338,7 @@ public class PromotionCarryOverTest {
 
         System.out.println("\n第三次计算（CONTINUE）: 13:00 - 16:00");
         System.out.println("  结果金额: " + result3.getFinalAmount() + " (13:00-14:00免费, 14:00-16:00收费)");
+        printBillingDetail(result3);
 
         // 汇总
         var total = result1.getFinalAmount().add(result2.getFinalAmount()).add(result3.getFinalAmount());
@@ -365,6 +373,7 @@ public class PromotionCarryOverTest {
         System.out.println("第一次计算: 09:00 - 12:00 (恰好到免费时段边界)");
         System.out.println("  免费时段: 10:00-12:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
+        printBillingDetail(result1);
 
         var promo1 = getPromotionCarryOver(result1);
         if (promo1 != null && promo1.getUsedFreeRanges() != null) {
@@ -380,6 +389,7 @@ public class PromotionCarryOverTest {
         System.out.println("\n第二次计算（CONTINUE）: 12:00 - 14:00");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 免费时段已用完，全部收费");
+        printBillingDetail(result2);
 
         System.out.println();
     }
@@ -422,6 +432,7 @@ public class PromotionCarryOverTest {
         System.out.println("  优惠1: 30分钟免费");
         System.out.println("  优惠2: 免费时段 11:00-13:00");
         System.out.println("  结果金额: " + result1.getFinalAmount());
+        printBillingDetail(result1);
 
         var promo1 = getPromotionCarryOver(result1);
         if (promo1 != null) {
@@ -438,6 +449,7 @@ public class PromotionCarryOverTest {
         System.out.println("\n第二次计算（CONTINUE）: 12:00 - 15:00 (3小时)");
         System.out.println("  结果金额: " + result2.getFinalAmount());
         System.out.println("  预期: 12:00-13:00免费(时段), 13:00-15:00收费");
+        printBillingDetail(result2);
 
         System.out.println();
     }
@@ -479,6 +491,7 @@ public class PromotionCarryOverTest {
         System.out.println("  低优先级: 60分钟免费");
         System.out.println("  结果金额: " + result1.getFinalAmount());
         System.out.println("  预期: 08:00-10:00使用免费分钟, 10:00-11:00使用免费时段");
+        printBillingDetail(result1);
 
         var promo1 = getPromotionCarryOver(result1);
         if (promo1 != null && promo1.getRemainingMinutes() != null) {
@@ -545,6 +558,7 @@ public class PromotionCarryOverTest {
 
         System.out.println("计算: 08:00 - 10:00 (无优惠)");
         System.out.println("  结果金额: " + result.getFinalAmount());
+        printBillingDetail(result);
 
         var promoCarryOver = getPromotionCarryOver(result);
         System.out.println("  promotionState: " + (promoCarryOver != null ? "存在" : "null"));
