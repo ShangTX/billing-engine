@@ -91,8 +91,9 @@ public class FreeTimeRangeMerger {
                 continue;
             }
 
-            // 时间段完全在整体区间之后 → 作为边界参考保留
-            if (originalRange.getBeginTime().isAfter(overallEnd)) {
+            // 时间段完全在整体区间之后（包括从 overallEnd 开始的）→ 作为边界参考保留
+            // 注意：!isBefore 等价于 >=，这样 beginTime == overallEnd 的时段也进入边界参考
+            if (!originalRange.getBeginTime().isBefore(overallEnd)) {
                 FreeTimeRange boundaryRef = new FreeTimeRange()
                         .setId(originalRange.getId())
                         .setBeginTime(originalRange.getBeginTime())
@@ -114,15 +115,14 @@ public class FreeTimeRangeMerger {
                 result.addDiscardedRange(discarded);
             }
 
-            // 截取在整体区间内的部分（包括从 overallEnd 开始的时间段）
+            // 截取在整体区间内的部分（必须有正长度）
             LocalDateTime start = originalRange.getBeginTime().isBefore(overallStart) ?
                     overallStart : originalRange.getBeginTime();
             LocalDateTime end = originalRange.getEndTime().isAfter(overallEnd) ?
                     overallEnd : originalRange.getEndTime();
 
-            // 允许 start == end 的情况（从 overallEnd 开始的时间段）
-            // 这样 extendLastUnit 可以使用这些时间段作为边界
-            if (!start.isAfter(end)) {
+            // 必须有正长度 (start < end)，空时段不进入 mergedRanges
+            if (start.isBefore(end)) {
                 FreeTimeRange processedRange = new FreeTimeRange()
                         .setId(originalRange.getId())
                         .setBeginTime(start)
