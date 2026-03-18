@@ -180,3 +180,58 @@ The `DayNightRule` implements time-based billing with:
 - **Daily cap**: Maximum charge per 24-hour cycle
 - **Block weight threshold**: When a billing unit spans both day and night, use day price if day minutes ratio >= blockWeight (0.5), otherwise use night price
 - **Free time ranges**: Promotions that completely cover a billing unit make it free with `freePromotionId="DAILY_CAP"`
+
+---
+
+## 计费单元延伸机制
+
+### 延伸目的
+
+延伸是为了预测下次 CONTINUE 模式的起点，提供"费用稳定时间窗口"。
+
+### 延伸规则
+
+1. **普通情况**：延伸到完整单元长度，不超过下一个边界
+2. **封顶情况**：封顶免费单元（CYCLE_CAP/DAILY_CAP）可延伸到下一个周期边界
+3. **遇优惠边界**：延伸停在优惠边界，不进入未处理的优惠区域
+
+### 延伸与优惠交互
+
+**核心原则**：优惠分配在延伸之前，延伸不应"闯入"新的优惠区域。
+
+**典型场景**：
+```
+免费时段：09:20-09:50
+计算窗口：07:30-09:00
+单元长度：60分钟
+最后单元：08:30-09:00
+
+期望延伸到：09:20（停在免费时段边界）
+```
+
+**解决方案**：
+- `TimeRangeMergeResult.boundaryReferences`：存储窗口外的免费时段，作为延伸边界参考
+- 边界参考时段**不参与**当前窗口的优惠结算，**不影响** usedFreeRanges
+- 延伸时检查 `freeTimeRanges + boundaryReferences`，停在最近的优惠边界
+
+**实现要点**：
+- `FreeTimeRangeMerger.preprocessRanges()`：窗口后的时段记录到 boundaryReferences
+- `PromotionAggregate.boundaryReferences`：传递边界参考给规则层
+- `findNextFreeRangeBoundary()`：检查两个列表，找到最近的边界
+
+---
+
+## 优惠结算逻辑
+
+### usedFreeRanges 记录规则
+
+只记录在当前计算窗口内**实际使用**的免费时段部分：
+- 时段完全在窗口内：完整记录
+- 时段跨越窗口边界：只记录窗口内部分
+- 时段完全在窗口外：不记录（作为边界参考保留）
+
+### calculationEndTime 语义
+
+- 表示"已计算到哪里"
+- 可能延伸超过请求的计算窗口结束时间
+- 下次 CONTINUE 从此时间点开始
