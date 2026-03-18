@@ -14,12 +14,14 @@ public class TimeRangeMergeResult {
 
     private List<FreeTimeRange> mergedRanges;      // 合并后的时间段集合
     private List<FreeTimeRange> discardedRanges;   // 被舍弃的时间段集合
+    private List<FreeTimeRange> boundaryReferences; // 边界参考时段（窗口外，用于延伸边界判断）
     private Map<String, List<FreeTimeRange>> originalToDiscarded; // 原始时间段与被舍弃部分的映射
 
 
     public TimeRangeMergeResult() {
         this.mergedRanges = new ArrayList<>();
         this.discardedRanges = new ArrayList<>();
+        this.boundaryReferences = new ArrayList<>();
         this.originalToDiscarded = new HashMap<>();
     }
 
@@ -40,6 +42,10 @@ public class TimeRangeMergeResult {
         for (FreeTimeRange range : ranges) {
             addDiscardedRange(range);
         }
+    }
+
+    public void addBoundaryReference(FreeTimeRange range) {
+        this.boundaryReferences.add(range);
     }
 
     /**

@@ -85,11 +85,21 @@ public class FreeTimeRangeMerger {
                 continue;
             }
 
-            // 时间段完全在整体区间外（结束时间早于开始时间，或开始时间晚于结束时间）
-            // 注意：保留从 overallEnd 开始的时间段，所以用 isAfter 而不是 !isBefore
-            if (originalRange.getEndTime().isBefore(overallStart) ||
-                    originalRange.getBeginTime().isAfter(overallEnd)) {
+            // 时间段完全在整体区间之前 → 丢弃
+            if (originalRange.getEndTime().isBefore(overallStart)) {
                 result.addDiscardedRange(originalRange.copy());
+                continue;
+            }
+
+            // 时间段完全在整体区间之后 → 作为边界参考保留
+            if (originalRange.getBeginTime().isAfter(overallEnd)) {
+                FreeTimeRange boundaryRef = new FreeTimeRange()
+                        .setId(originalRange.getId())
+                        .setBeginTime(originalRange.getBeginTime())
+                        .setEndTime(originalRange.getEndTime())
+                        .setPriority(originalRange.getPriority())
+                        .setPromotionType(originalRange.getPromotionType());
+                result.addBoundaryReference(boundaryRef);
                 continue;
             }
 

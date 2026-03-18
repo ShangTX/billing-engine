@@ -192,6 +192,12 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             freeTimeRanges = List.of();
         }
 
+        // 获取边界参考时段（窗口外的优惠，用于延伸边界判断）
+        List<FreeTimeRange> boundaryReferences = promotionAggregate.getBoundaryReferences();
+        if (boundaryReferences == null) {
+            boundaryReferences = List.of();
+        }
+
         // 计算每个单元
         List<BillingUnit> billingUnits = new ArrayList<>();
         List<PromotionUsage> promotionUsages = new ArrayList<>();
@@ -224,7 +230,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         // 延伸最后一个计费单元（使用实际计算起点计算周期边界）
         // 在 CONTINUE 模式下，calcBegin 是实际计算起点，延伸应该在当前计算窗口的周期内
         // 延伸不能超过原始请求结束时间
-        LocalDateTime extendedCalculationEndTime = extendLastUnit(billingUnits, calcBegin, calcEnd, config, calcBegin, freeTimeRanges, lastCycleAccumulated, context.getEndTime());
+        LocalDateTime extendedCalculationEndTime = extendLastUnit(billingUnits, calcBegin, calcEnd, config, calcBegin, freeTimeRanges, boundaryReferences, lastCycleAccumulated, context.getEndTime());
 
         // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
         Map<String, Object> ruleOutputState = new HashMap<>();
@@ -677,6 +683,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
                                          DayNightConfig config,
                                          LocalDateTime cycleOriginBegin,
                                          List<FreeTimeRange> freeTimeRanges,
+                                         List<FreeTimeRange> boundaryReferences,
                                          BigDecimal accumulatedAmount,
                                          LocalDateTime requestEnd) {
         if (allUnits == null || allUnits.isEmpty()) {
@@ -718,7 +725,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         LocalDateTime fullUnitEnd = lastUnit.getBeginTime().plusMinutes(unitMinutes);
 
         // 查找下一个免费时段边界
-        LocalDateTime nextFreeRangeBoundary = findNextFreeRangeBoundary(calcEnd, fullUnitEnd, freeTimeRanges);
+        LocalDateTime nextFreeRangeBoundary = findNextFreeRangeBoundary(calcEnd, fullUnitEnd, freeTimeRanges, boundaryReferences);
 
         // 延伸后的结束时间 = min(完整单元结束时间, 下一个周期边界, 下一个免费时段边界)
         LocalDateTime extendedEnd = fullUnitEnd;
@@ -747,15 +754,23 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
      * @param calcEnd 当前计算结束时间
      * @param fullUnitEnd 完整单元结束时间（延伸上限）
      * @param freeTimeRanges 免费时段列表
+     * @param boundaryReferences 边界参考时段（窗口外的优惠，用于延伸边界判断）
      * @return 下一个免费时段的开始时间，如果不存在则返回 null
      */
-    private LocalDateTime findNextFreeRangeBoundary(LocalDateTime calcEnd, LocalDateTime fullUnitEnd, List<FreeTimeRange> freeTimeRanges) {
-        if (freeTimeRanges == null || freeTimeRanges.isEmpty()) {
+    private LocalDateTime findNextFreeRangeBoundary(LocalDateTime calcEnd, LocalDateTime fullUnitEnd,
+                                                     List<FreeTimeRange> freeTimeRanges,
+                                                     List<FreeTimeRange> boundaryReferences) {
+        // 合并两个列表进行查找
+        List<FreeTimeRange> allRanges = new ArrayList<>();
+        if (freeTimeRanges != null) allRanges.addAll(freeTimeRanges);
+        if (boundaryReferences != null) allRanges.addAll(boundaryReferences);
+
+        if (allRanges.isEmpty()) {
             return null;
         }
 
         LocalDateTime nextBoundary = null;
-        for (FreeTimeRange range : freeTimeRanges) {
+        for (FreeTimeRange range : allRanges) {
             // 查找第一个在 [calcEnd, fullUnitEnd] 范围内的免费时段开始时间
             // 注意：免费时段可能正好从 calcEnd 开始，所以用 !isBefore 而不是 isAfter
             if (!range.getBeginTime().isBefore(calcEnd) && !range.getBeginTime().isAfter(fullUnitEnd)) {
@@ -803,6 +818,12 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             freeTimeRanges = List.of();
         }
 
+        // 获取边界参考时段（窗口外的优惠，用于延伸边界判断）
+        List<FreeTimeRange> boundaryReferences = promotionAggregate.getBoundaryReferences();
+        if (boundaryReferences == null) {
+            boundaryReferences = List.of();
+        }
+
         // 按免费时段边界切分时间轴
         List<TimeFragment> fragments = splitTimeAxis(calcBegin, calcEnd, freeTimeRanges);
 
@@ -846,7 +867,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
 
         // 延伸最后一个计费单元（使用原始计费起点计算周期边界）
         // 延伸不能超过原始请求结束时间
-        LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, config, cycleOriginBegin, freeTimeRanges, lastCycleAmount, context.getEndTime());
+        LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, config, cycleOriginBegin, freeTimeRanges, boundaryReferences, lastCycleAmount, context.getEndTime());
 
         // 如果延伸后的时间超过 effectiveEnd，更新 effectiveEnd
         if (extendedCalculationEndTime.isAfter(feeEffectiveEnd)) {

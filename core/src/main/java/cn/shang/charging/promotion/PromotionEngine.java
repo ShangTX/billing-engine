@@ -102,6 +102,7 @@ public class PromotionEngine {
                 window.getCalculationEnd()
         );
         List<FreeTimeRange> finalFreeRanges = finalMergeResult.getMergedRanges();
+        List<FreeTimeRange> boundaryReferences = finalMergeResult.getBoundaryReferences();
 
         // 7️⃣ 构建优惠结转输出状态
         PromotionCarryOver outputCarryOver = buildPromotionCarryOver(
@@ -112,6 +113,7 @@ public class PromotionEngine {
 
         return PromotionAggregate.builder()
                 .freeTimeRanges(finalFreeRanges)
+                .boundaryReferences(boundaryReferences)
                 .usages(minuteResult.getPromotionUsages())
                 .promotionCarryOver(outputCarryOver)
                 .build();
