@@ -49,6 +49,13 @@ public class CompositeTimeTest {
         testCycleCap_ReductionNeeded();
         testCycleCap_PeriodCapUnitsNotReduced();
 
+        // === 延伸逻辑测试 ===
+        testExtension_BasicExtension();
+        testExtension_StopAtRelativePeriodBoundary();
+        testExtension_StopAtCycleBoundary();
+        testExtension_CycleCapCanExtendToNextBoundary();
+        testExtension_NaturalPeriodBoundaryDoesNotStop();
+
         System.out.println("========== 所有测试完成 ==========\n");
     }
 
@@ -598,5 +605,168 @@ public class CompositeTimeTest {
         if (!expected.equals(actual)) {
             throw new AssertionError("Expected: " + expected + ", but was: " + actual);
         }
+    }
+
+    // ==================== 延伸逻辑测试 ====================
+
+    static void testExtension_BasicExtension() {
+        System.out.println("=== 测试: 延伸逻辑 - 基本延伸 ===");
+        // Unit length 60 min, last unit is 08:00-08:30 (30 min)
+        // Should extend to 08:00-09:00 (full 60 min)
+        CompositeTimeConfig config = createBaseConfig(); // 60 min units, 1 yuan each
+
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 8, 0),
+                                                   LocalDateTime.of(2026, 1, 1, 8, 30));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Should extend to full unit: 30 min extended to 60 min
+        // Still charges 1 yuan (one unit)
+        assertAmountEquals(BigDecimal.ONE, result.getChargedAmount());
+        assertEquals(60, result.getBillingUnits().get(0).getDurationMinutes());
+        // calculationEndTime should be extended
+        assertEquals(LocalDateTime.of(2026, 1, 1, 9, 0), result.getCalculationEndTime());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 延伸后结束时间 = " + result.getCalculationEndTime());
+        System.out.println();
+    }
+
+    static void testExtension_StopAtRelativePeriodBoundary() {
+        System.out.println("=== 测试: 延伸逻辑 - 停在相对时间段边界 ===");
+        // Two periods: Period 1 (0-120 min), Period 2 (120-1440 min)
+        // Period 2 starts at 10:00, last unit in Period 2 should NOT extend into Period 1 of next cycle
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(50))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(120).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build(),
+                        CompositePeriod.builder()
+                                .beginMinute(120).endMinute(1440).unitMinutes(30)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.valueOf(2)).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        // 08:00-10:10 - Period 1 ends at 10:00
+        // Period 1: 08:00-10:00 = 2 units × 1 yuan = 2 yuan
+        // Period 2: 10:00-10:10 = 10 min, should extend to 10:00-10:30 = 1 unit × 2 yuan = 2 yuan
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 8, 0),
+                                                   LocalDateTime.of(2026, 1, 1, 10, 10));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Period 1: 08:00-10:00 = 2 units × 1 yuan = 2 yuan
+        // Period 2: 10:00-10:10 = 10 min, extended to 10:00-10:30 = 1 unit × 2 yuan = 2 yuan
+        assertEquals(BigDecimal.valueOf(4), result.getChargedAmount());
+        assertEquals(LocalDateTime.of(2026, 1, 1, 10, 30), result.getCalculationEndTime());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 延伸后结束时间 = " + result.getCalculationEndTime());
+        System.out.println();
+    }
+
+    static void testExtension_StopAtCycleBoundary() {
+        System.out.println("=== 测试: 延伸逻辑 - 停在周期边界 ===");
+        // Last unit before cycle boundary (24 hours from billing origin)
+        // Should NOT extend into next cycle
+        CompositeTimeConfig config = createBaseConfig(); // 60 min units, 1 yuan each
+
+        // 08:00 - 08:00 next day = 24 hours = 1 cycle
+        // Last unit: next day 07:00-08:00, this is at cycle boundary
+        // If we calculate 08:00 - next day 07:30, last unit is 07:00-07:30 (30 min)
+        // Should extend to 07:00-08:00 (60 min) = cycle boundary
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 8, 0),
+                                                   LocalDateTime.of(2026, 1, 2, 7, 30));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Last unit should extend to cycle boundary (08:00 next day)
+        assertEquals(LocalDateTime.of(2026, 1, 2, 8, 0), result.getCalculationEndTime());
+        System.out.println("通过: 延伸后结束时间 = " + result.getCalculationEndTime());
+        System.out.println();
+    }
+
+    static void testExtension_CycleCapCanExtendToNextBoundary() {
+        System.out.println("=== 测试: 延伸逻辑 - 封顶免费单元可延伸到周期边界 ===");
+        // Cycle cap: 3 yuan
+        // After cap, remaining time should be free and can extend to cycle boundary
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(3)) // Low cap to trigger
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        // 08:00-12:00 = 4 units = 4 yuan, but cycle cap is 3 yuan
+        // Last unit should be free (CYCLE_CAP) and can extend to next cycle boundary (next day 08:00)
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 8, 0),
+                                                   LocalDateTime.of(2026, 1, 1, 12, 0));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // After cycle cap, remaining time in cycle is free
+        // Should extend to cycle boundary (next day 08:00)
+        assertAmountEquals(BigDecimal.valueOf(3), result.getChargedAmount());
+
+        // Last unit should be marked as CYCLE_CAP free
+        BillingUnit lastUnit = result.getBillingUnits().get(result.getBillingUnits().size() - 1);
+        assertTrue(lastUnit.isFree());
+        assertEquals("CYCLE_CAP", lastUnit.getFreePromotionId());
+
+        // Should extend to cycle boundary
+        assertEquals(LocalDateTime.of(2026, 1, 2, 8, 0), result.getCalculationEndTime());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 延伸后结束时间 = " + result.getCalculationEndTime());
+        System.out.println();
+    }
+
+    static void testExtension_NaturalPeriodBoundaryDoesNotStop() {
+        System.out.println("=== 测试: 延伸逻辑 - 自然时段边界不阻止延伸 ===");
+        // Natural periods: 00:00-08:00 (1 yuan), 08:00-20:00 (2 yuan), 20:00-24:00 (1 yuan)
+        // Last unit at 19:30-20:00 should extend past 20:00 boundary
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(50))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
+                                        NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
+                                        NaturalPeriod.builder().beginMinute(1200).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        // 19:30-20:10, last unit 19:30-20:10 (40 min)
+        // Should extend to 19:30-20:30 (60 min) - crossing natural period boundary at 20:00
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 19, 30),
+                                                   LocalDateTime.of(2026, 1, 1, 20, 10));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Should extend past natural period boundary
+        assertEquals(LocalDateTime.of(2026, 1, 1, 20, 30), result.getCalculationEndTime());
+        System.out.println("通过: 延伸后结束时间 = " + result.getCalculationEndTime() + " (跨过自然时段边界 20:00)");
+        System.out.println();
     }
 }
