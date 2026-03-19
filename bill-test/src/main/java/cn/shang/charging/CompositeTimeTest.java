@@ -34,6 +34,12 @@ public class CompositeTimeTest {
         testUnitBased_BasicCalculation();
         testUnitBased_TwoRelativePeriods();
 
+        // === CrossPeriodMode 测试 ===
+        testCrossPeriodMode_HigherPrice();
+        testCrossPeriodMode_LowerPrice();
+        testCrossPeriodMode_BeginTimePrice();
+        testCrossPeriodMode_EndTimePrice();
+
         System.out.println("========== 所有测试完成 ==========\n");
     }
 
@@ -221,6 +227,134 @@ public class CompositeTimeTest {
         // Period 2: 10:00-11:00 = 2 units × 2 yuan = 4 yuan
         // Total: 6 yuan
         assertAmountEquals(BigDecimal.valueOf(6), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    // ==================== CrossPeriodMode 测试 ====================
+
+    static void testCrossPeriodMode_HigherPrice() {
+        System.out.println("=== 测试: CrossPeriodMode.HIGHER_PRICE ===");
+        // Natural periods: 00:00-08:00 (1 yuan), 08:00-20:00 (2 yuan), 20:00-24:00 (1 yuan)
+        // Billing unit crosses boundary at 19:30-20:30, should use HIGHER_PRICE = 2 yuan
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(50))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.HIGHER_PRICE)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
+                                        NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
+                                        NaturalPeriod.builder().beginMinute(1200).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 19, 30),
+                                                   LocalDateTime.of(2026, 1, 1, 20, 30));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Crosses boundary: begin in 2-yuan period, end in 1-yuan period
+        // HIGHER_PRICE should use 2 yuan
+        assertAmountEquals(BigDecimal.valueOf(2), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    static void testCrossPeriodMode_LowerPrice() {
+        System.out.println("=== 测试: CrossPeriodMode.LOWER_PRICE ===");
+        // Same setup, but with LOWER_PRICE mode
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(50))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.LOWER_PRICE)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
+                                        NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
+                                        NaturalPeriod.builder().beginMinute(1200).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 19, 30),
+                                                   LocalDateTime.of(2026, 1, 1, 20, 30));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // LOWER_PRICE should use 1 yuan
+        assertAmountEquals(BigDecimal.valueOf(1), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    static void testCrossPeriodMode_BeginTimePrice() {
+        System.out.println("=== 测试: CrossPeriodMode.BEGIN_TIME_PRICE ===");
+        // BEGIN_TIME_PRICE uses the price of the period where unit begins
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(50))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.BEGIN_TIME_PRICE)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
+                                        NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
+                                        NaturalPeriod.builder().beginMinute(1200).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 19, 30),
+                                                   LocalDateTime.of(2026, 1, 1, 20, 30));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Unit begins in 2-yuan period, so charge 2 yuan
+        assertAmountEquals(BigDecimal.valueOf(2), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    static void testCrossPeriodMode_EndTimePrice() {
+        System.out.println("=== 测试: CrossPeriodMode.END_TIME_PRICE ===");
+        // END_TIME_PRICE uses the price of the period where unit ends
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(50))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.END_TIME_PRICE)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
+                                        NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
+                                        NaturalPeriod.builder().beginMinute(1200).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 19, 30),
+                                                   LocalDateTime.of(2026, 1, 1, 20, 30));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Unit ends in 1-yuan period (after 20:00), so charge 1 yuan
+        assertAmountEquals(BigDecimal.valueOf(1), result.getChargedAmount());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
