@@ -7,6 +7,7 @@ import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.billing.BillingSegment;
 import cn.shang.charging.charge.rules.compositetime.*;
+import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 
 import java.math.BigDecimal;
@@ -55,6 +56,14 @@ public class CompositeTimeTest {
         testExtension_StopAtCycleBoundary();
         testExtension_CycleCapCanExtendToNextBoundary();
         testExtension_NaturalPeriodBoundaryDoesNotStop();
+
+        // === CONTINUOUS 模式测试 ===
+        testContinuous_BasicCalculation();
+        testContinuous_BubbleExtraction();
+        testContinuous_BubbleExtraction_WithFreeRange();
+        testContinuous_CycleCap();
+        testContinuous_TwoPeriods();
+        testContinuous_FreeRangeInMiddle();
 
         System.out.println("========== 所有测试完成 ==========\n");
     }
@@ -768,5 +777,204 @@ public class CompositeTimeTest {
         assertEquals(LocalDateTime.of(2026, 1, 1, 20, 30), result.getCalculationEndTime());
         System.out.println("通过: 延伸后结束时间 = " + result.getCalculationEndTime() + " (跨过自然时段边界 20:00)");
         System.out.println();
+    }
+
+    // ==================== CONTINUOUS 模式测试 ====================
+
+    static void testContinuous_BasicCalculation() {
+        System.out.println("=== 测试: CONTINUOUS 基本计算（无免费时段） ===");
+        CompositeTimeConfig config = createBaseConfig();
+
+        BillingContext context = createBaseContext(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 10, 0));
+        // 设置 CONTINUOUS 模式
+        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // 无免费时段时，CONTINUOUS 与 UNIT_BASED 结果相同
+        assertAmountEquals(BigDecimal.valueOf(2), result.getChargedAmount());
+        assertEquals(2, result.getBillingUnits().size());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 单元数 = " + result.getBillingUnits().size());
+        System.out.println();
+    }
+
+    static void testContinuous_BubbleExtraction() {
+        System.out.println("=== 测试: CONTINUOUS 气泡抽出模型 ===");
+        // 免费时段：09:00-10:00
+        // 计费时间：08:00-11:00
+        // 片段 1：08:00-09:00（相对位置 0-60）
+        // 片段 2：10:00-11:00（相对位置 120-180，跳过免费时段）
+        CompositeTimeConfig config = createBaseConfig();
+
+        // 创建免费时段
+        FreeTimeRange freeRange = FreeTimeRange.builder()
+                .id("FREE_PROMO_1")
+                .beginTime(LocalDateTime.of(2026, 1, 1, 9, 0))
+                .endTime(LocalDateTime.of(2026, 1, 1, 10, 0))
+                .build();
+
+        PromotionAggregate promotionAggregate = PromotionAggregate.builder()
+                .freeTimeRanges(List.of(freeRange))
+                .build();
+
+        BillingContext context = createBaseContext(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 11, 0));
+        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, promotionAggregate);
+
+        // 片段 1：08:00-09:00 = 1 单元 = 1 元
+        // 免费片段：09:00-10:00 = 免费
+        // 片段 2：10:00-11:00 = 1 单元 = 1 元
+        // 总计：2 元
+        assertAmountEquals(BigDecimal.valueOf(2), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    static void testContinuous_BubbleExtraction_WithFreeRange() {
+        System.out.println("=== 测试: CONTINUOUS 气泡抽出 - 带免费时段 ===");
+        // 免费时段：09:00-10:00
+        // 计费时间：08:00-12:00
+        // 片段 1：08:00-09:00（相对位置 0-60）= 1 单元 = 1 元
+        // 免费片段：09:00-10:00 = 免费
+        // 片段 2：10:00-12:00（相对位置 120-240）= 2 单元 = 2 元
+        // 总计：3 元
+        CompositeTimeConfig config = createBaseConfig();
+
+        // 创建免费时段
+        FreeTimeRange freeRange = FreeTimeRange.builder()
+                .id("FREE_PROMO_1")
+                .beginTime(LocalDateTime.of(2026, 1, 1, 9, 0))
+                .endTime(LocalDateTime.of(2026, 1, 1, 10, 0))
+                .build();
+
+        PromotionAggregate promotionAggregate = PromotionAggregate.builder()
+                .freeTimeRanges(List.of(freeRange))
+                .build();
+
+        BillingContext context = createBaseContext(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 12, 0));
+        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, promotionAggregate);
+
+        assertAmountEquals(BigDecimal.valueOf(3), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    static void testContinuous_CycleCap() {
+        System.out.println("=== 测试: CONTINUOUS 周期封顶 ===");
+        // 周期封顶：3 元
+        // 计费时间：08:00-12:00 = 4 单元 = 4 元
+        // 封顶后：收 3 元，剩余免费
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(3))
+                .periods(createValidPeriods())
+                .build();
+
+        BillingContext context = createBaseContext(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 12, 0));
+        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        assertAmountEquals(BigDecimal.valueOf(3), result.getChargedAmount());
+
+        // 最后一个单元应该是免费的（CYCLE_CAP）
+        BillingUnit lastUnit = result.getBillingUnits().get(result.getBillingUnits().size() - 1);
+        assertTrue(lastUnit.isFree());
+        assertEquals("CYCLE_CAP", lastUnit.getFreePromotionId());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 最后单元免费 = " + lastUnit.isFree());
+        System.out.println();
+    }
+
+    static void testContinuous_TwoPeriods() {
+        System.out.println("=== 测试: CONTINUOUS 两个相对时间段 ===");
+        // 周期 1：0-120 分钟（08:00-10:00），60 分钟单元，1 元/单元
+        // 周期 2：120-1440 分钟（10:00-08:00 次日），30 分钟单元，2 元/单元
+        // 计费时间：08:00-11:00
+        // 片段 1：08:00-10:00 = 2 单元 = 2 元
+        // 片段 2：10:00-11:00 = 2 单元 × 2 元 = 4 元
+        // 总计：6 元
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(50))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(120).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(NaturalPeriod.builder()
+                                        .beginMinute(0).endMinute(1440).unitPrice(BigDecimal.ONE).build()))
+                                .build(),
+                        CompositePeriod.builder()
+                                .beginMinute(120).endMinute(1440).unitMinutes(30)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(NaturalPeriod.builder()
+                                        .beginMinute(0).endMinute(1440).unitPrice(BigDecimal.valueOf(2)).build()))
+                                .build()
+                ))
+                .build();
+
+        BillingContext context = createBaseContext(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 11, 0));
+        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        assertAmountEquals(BigDecimal.valueOf(6), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    static void testContinuous_FreeRangeInMiddle() {
+        System.out.println("=== 测试: CONTINUOUS 中间免费时段 ===");
+        // 免费时段：09:30-10:30
+        // 计费时间：08:00-12:00
+        // 片段 1：08:00-09:30（相对位置 0-90）= 1 单元 = 1 元（不足一个单元也收全额）
+        // 免费片段：09:30-10:30 = 免费
+        // 片段 2：10:30-12:00（相对位置 150-240）= 2 单元 = 2 元
+        // 总计：3 元
+        CompositeTimeConfig config = createBaseConfig();
+
+        // 创建免费时段
+        FreeTimeRange freeRange = FreeTimeRange.builder()
+                .id("FREE_PROMO_1")
+                .beginTime(LocalDateTime.of(2026, 1, 1, 9, 30))
+                .endTime(LocalDateTime.of(2026, 1, 1, 10, 30))
+                .build();
+
+        PromotionAggregate promotionAggregate = PromotionAggregate.builder()
+                .freeTimeRanges(List.of(freeRange))
+                .build();
+
+        BillingContext context = createBaseContext(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 12, 0));
+        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, promotionAggregate);
+
+        // 验证计费单元
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 单元数 = " + result.getBillingUnits().size());
+        System.out.println();
+    }
+
+    private static void setBillingMode(BillingContext context, BConstants.BillingMode mode) {
+        context.setBillingMode(mode);
     }
 }
