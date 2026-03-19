@@ -308,6 +308,9 @@ public class CompositeTimeRule implements BillingRule<CompositeTimeConfig> {
             return;
         }
 
+        // 记录时间段开始时的单元数量，用于后续封顶处理
+        int startIndex = cycle.units.size();
+
         // 按单元长度生成计费单元
         int unitMinutes = period.getUnitMinutes();
         LocalDateTime unitStart = periodStart;
@@ -352,6 +355,62 @@ public class CompositeTimeRule implements BillingRule<CompositeTimeConfig> {
 
             cycle.units.add(unit);
             unitStart = unitEnd;
+        }
+
+        // 应用时间段独立封顶
+        if (period.getMaxCharge() != null && period.getMaxCharge().compareTo(BigDecimal.ZERO) > 0) {
+            applyPeriodCap(cycle.units, startIndex, period.getMaxCharge());
+        }
+    }
+
+    /**
+     * 应用时间段独立封顶
+     * 从时间段内最后一个收费单元开始削减
+     */
+    private void applyPeriodCap(List<BillingUnit> allUnits, int startIndex, BigDecimal maxCharge) {
+        // 获取该时间段内的可收费单元（非免费单元）
+        List<BillingUnit> periodUnits = allUnits.subList(startIndex, allUnits.size());
+        List<BillingUnit> chargeableUnits = new ArrayList<>(periodUnits.stream()
+                .filter(u -> !u.isFree())
+                .toList());
+
+        if (chargeableUnits.isEmpty()) {
+            return;
+        }
+
+        // 计算时间段内的总收费
+        BigDecimal totalCharge = chargeableUnits.stream()
+                .map(BillingUnit::getChargedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 如果未超过封顶，无需处理
+        if (totalCharge.compareTo(maxCharge) <= 0) {
+            return;
+        }
+
+        // 计算超出金额
+        BigDecimal excess = totalCharge.subtract(maxCharge);
+
+        // 从最后一个单元开始削减
+        for (int i = chargeableUnits.size() - 1; i >= 0 && excess.compareTo(BigDecimal.ZERO) > 0; i--) {
+            BillingUnit unit = chargeableUnits.get(i);
+            BigDecimal charged = unit.getChargedAmount();
+
+            if (charged.compareTo(excess) >= 0) {
+                // 该单元可以完全抵消超出金额
+                unit.setChargedAmount(charged.subtract(excess).setScale(2, RoundingMode.HALF_UP));
+                if (unit.getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
+                    unit.setFree(true);
+                    unit.setFreePromotionId("PERIOD_CAP");
+                }
+                excess = BigDecimal.ZERO;
+            } else {
+                // 该单元金额不足，全部抵扣
+                unit.setChargedAmount(BigDecimal.ZERO);
+                unit.setFree(true);
+                unit.setFreePromotionId("PERIOD_CAP");
+                excess = excess.subtract(charged);
+            }
         }
     }
 

@@ -40,6 +40,10 @@ public class CompositeTimeTest {
         testCrossPeriodMode_BeginTimePrice();
         testCrossPeriodMode_EndTimePrice();
 
+        // === 封顶测试 ===
+        testPeriodCap_ReduceFromLastUnit();
+        testPeriodCap_TwoPeriods_CapOnFirst();
+
         System.out.println("========== 所有测试完成 ==========\n");
     }
 
@@ -357,6 +361,93 @@ public class CompositeTimeTest {
         assertAmountEquals(BigDecimal.valueOf(1), result.getChargedAmount());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
+    }
+
+    // ==================== 封顶测试 ====================
+
+    static void testPeriodCap_ReduceFromLastUnit() {
+        System.out.println("=== 测试: 时间段独立封顶 - 从最后一个单元削减 ===");
+        // Period cap: 5 yuan
+        // Actual: 3 units × 3 yuan = 9 yuan, need to reduce to 5 yuan
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(50))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(1440).unitMinutes(60)
+                                .maxCharge(BigDecimal.valueOf(5)) // Period cap
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.valueOf(3)).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        // 08:00-11:00 = 3 units × 3 yuan = 9 yuan, cap at 5 yuan
+        BillingContext context = createBaseContext(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 11, 0));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Cap at 5 yuan, last unit reduced
+        assertAmountEquals(BigDecimal.valueOf(5), result.getChargedAmount());
+
+        // Verify last unit is marked as free or reduced
+        BillingUnit lastUnit = result.getBillingUnits().get(result.getBillingUnits().size() - 1);
+        assertTrue(lastUnit.isFree() || lastUnit.getChargedAmount().compareTo(BigDecimal.valueOf(3)) < 0);
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 最后单元免费=" + lastUnit.isFree());
+        System.out.println();
+    }
+
+    static void testPeriodCap_TwoPeriods_CapOnFirst() {
+        System.out.println("=== 测试: 两个时间段 - 第一个时间段封顶 ===");
+        // First period (0-120 min): 60-min units, 2 yuan each, cap at 3 yuan
+        // Second period (120-1440 min): 30-min units, 1 yuan each, no cap
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(50))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(120).unitMinutes(60)
+                                .maxCharge(BigDecimal.valueOf(3)) // Period cap
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.valueOf(2)).build()
+                                ))
+                                .build(),
+                        CompositePeriod.builder()
+                                .beginMinute(120).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        // 08:00-12:00
+        // Period 1: 08:00-10:00 = 2 units × 2 yuan = 4 yuan, cap at 3 yuan
+        // Period 2: 10:00-12:00 = 2 units × 1 yuan = 2 yuan
+        // Total: 3 + 2 = 5 yuan
+        BillingContext context = createBaseContext(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 12, 0));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        assertAmountEquals(BigDecimal.valueOf(5), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    private static void assertTrue(boolean condition) {
+        if (!condition) {
+            throw new AssertionError("Expected condition to be true");
+        }
     }
 
     private static void assertEquals(Object expected, Object actual) {
