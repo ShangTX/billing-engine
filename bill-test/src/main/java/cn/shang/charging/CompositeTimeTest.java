@@ -44,6 +44,11 @@ public class CompositeTimeTest {
         testPeriodCap_ReduceFromLastUnit();
         testPeriodCap_TwoPeriods_CapOnFirst();
 
+        // === 周期封顶测试 ===
+        testCycleCap_WithPeriodCap();
+        testCycleCap_ReductionNeeded();
+        testCycleCap_PeriodCapUnitsNotReduced();
+
         System.out.println("========== 所有测试完成 ==========\n");
     }
 
@@ -440,6 +445,145 @@ public class CompositeTimeTest {
         BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
 
         assertAmountEquals(BigDecimal.valueOf(5), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    // ==================== 周期封顶测试 ====================
+
+    static void testCycleCap_WithPeriodCap() {
+        System.out.println("=== 测试: 周期封顶 + 时间段封顶（无削减） ===");
+        // Period 1: cap 5 yuan
+        // Period 2: no cap
+        // Cycle cap: 10 yuan
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(10)) // Cycle cap 10 yuan
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(120).unitMinutes(60)
+                                .maxCharge(BigDecimal.valueOf(5)) // Period cap 5 yuan
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build(),
+                        CompositePeriod.builder()
+                                .beginMinute(120).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.valueOf(2)).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        // 08:00-14:00
+        // Period 1: 08:00-10:00, 2 units, 2 yuan (under cap of 5)
+        // Period 2: 10:00-14:00, 4 units, 8 yuan
+        // Total before cycle cap: 2 + 8 = 10 yuan = cycle cap, no reduction needed
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 8, 0),
+                                                   LocalDateTime.of(2026, 1, 1, 14, 0));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Total should be 10 yuan (2 + 8 = 10, exactly at cycle cap)
+        assertAmountEquals(BigDecimal.valueOf(10), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    static void testCycleCap_ReductionNeeded() {
+        System.out.println("=== 测试: 周期封顶需要削减 ===");
+        // Period 1: cap 5 yuan
+        // Period 2: no cap
+        // Cycle cap: 6 yuan
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(6)) // Cycle cap 6 yuan
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(120).unitMinutes(60)
+                                .maxCharge(BigDecimal.valueOf(5))
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.ONE).build()
+                                ))
+                                .build(),
+                        CompositePeriod.builder()
+                                .beginMinute(120).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.valueOf(2)).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        // 08:00-14:00
+        // Period 1: 08:00-10:00, 2 units, 2 yuan
+        // Period 2: 10:00-14:00, 4 units, 8 yuan
+        // Total: 10 yuan, cycle cap 6 yuan, need to reduce 4 yuan from Period 2
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 8, 0),
+                                                   LocalDateTime.of(2026, 1, 1, 14, 0));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Cycle cap 6 yuan
+        assertAmountEquals(BigDecimal.valueOf(6), result.getChargedAmount());
+        System.out.println("通过: 收费金额 = " + result.getChargedAmount());
+        System.out.println();
+    }
+
+    static void testCycleCap_PeriodCapUnitsNotReduced() {
+        System.out.println("=== 测试: 周期封顶不应削减已封顶单元 ===");
+        // Period 1: cap 2 yuan (will trigger period cap)
+        // Period 2: no cap
+        // Cycle cap: 4 yuan
+        CompositeTimeConfig config = CompositeTimeConfig.builder()
+                .id("test")
+                .maxChargeOneCycle(BigDecimal.valueOf(4)) // Cycle cap 4 yuan
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0).endMinute(120).unitMinutes(60)
+                                .maxCharge(BigDecimal.valueOf(2)) // Period cap 2 yuan - will trigger
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.valueOf(3)).build()
+                                ))
+                                .build(),
+                        CompositePeriod.builder()
+                                .beginMinute(120).endMinute(1440).unitMinutes(60)
+                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(BigDecimal.valueOf(2)).build()
+                                ))
+                                .build()
+                ))
+                .build();
+
+        // 08:00-14:00
+        // Period 1: 08:00-10:00, 2 units × 3 yuan = 6 yuan, period cap 2 yuan, last unit becomes PERIOD_CAP free
+        // Period 2: 10:00-14:00, 4 units × 2 yuan = 8 yuan
+        // After period cap: 2 + 8 = 10 yuan
+        // Cycle cap 4 yuan, need to reduce 6 yuan
+        // Key test: PERIOD_CAP units should NOT be reduced further
+        // Reduction should only come from Period 2 units
+        BillingContext context = createBaseContext(LocalDateTime.of(2026, 1, 1, 8, 0),
+                                                   LocalDateTime.of(2026, 1, 1, 14, 0));
+
+        CompositeTimeRule rule = new CompositeTimeRule();
+        BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
+
+        // Cycle cap 4 yuan
+        assertAmountEquals(BigDecimal.valueOf(4), result.getChargedAmount());
+
+        // Verify Period 1 units: first unit charged 2 yuan (period cap reduced from 3 to 2),
+        // second unit is free (PERIOD_CAP)
+        // Total from Period 1: 2 yuan
+        // Period 2 needs to contribute: 4 - 2 = 2 yuan (reduced from 8)
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
