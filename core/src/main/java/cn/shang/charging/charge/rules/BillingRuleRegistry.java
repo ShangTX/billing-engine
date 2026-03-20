@@ -1,6 +1,7 @@
 package cn.shang.charging.charge.rules;
 
 import cn.shang.charging.billing.pojo.BConstants;
+import cn.shang.charging.charge.rules.compositetime.CompositeTimeRule;
 import cn.shang.charging.charge.rules.daynight.DayNightRule;
 
 import java.util.HashMap;
@@ -24,6 +25,8 @@ public class BillingRuleRegistry {
         ruleMap = new HashMap<>();
         // 日夜分段计费
         ruleMap.put(BConstants.ChargeRuleType.DAY_NIGHT, new DayNightRule());
+        // 混合时间计费
+        ruleMap.put(BConstants.ChargeRuleType.COMPOSITE_TIME, new CompositeTimeRule());
     }
 
     public BillingRule get(String ruleType) {
