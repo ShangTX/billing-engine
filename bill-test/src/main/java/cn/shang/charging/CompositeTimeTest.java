@@ -203,6 +203,30 @@ public class CompositeTimeTest {
         }
     }
 
+    private static void printBillingUnits(List<BillingUnit> units) {
+        System.out.println("计费单元详情:");
+        System.out.println("-------------------------------------------------------------------------");
+        System.out.printf("%-3s | %-10s -> %-10s | %4s | %6s | %8s | %-8s | %s%n",
+                "#", "开始", "结束", "时长", "单价", "原始金额", "收费金额", "备注");
+        System.out.println("-------------------------------------------------------------------------");
+        for (int i = 0; i < units.size(); i++) {
+            BillingUnit unit = units.get(i);
+            String begin = unit.getBeginTime().toLocalTime().toString();
+            String end = unit.getEndTime().toLocalTime().toString();
+            String note = unit.isFree() ? "免费(" + unit.getFreePromotionId() + ")" : "";
+            System.out.printf("%-3d | %-10s -> %-10s | %4d | %6.2f | %8.2f | %-8s | %s%n",
+                    i + 1,
+                    begin,
+                    end,
+                    unit.getDurationMinutes(),
+                    unit.getUnitPrice(),
+                    unit.getOriginalAmount(),
+                    unit.isFree() ? "免费" : String.format("%.2f", unit.getChargedAmount()),
+                    note);
+        }
+        System.out.println("-------------------------------------------------------------------------");
+    }
+
     // ==================== UNIT_BASED 模式测试 ====================
 
     static void testUnitBased_BasicCalculation() {
@@ -215,6 +239,7 @@ public class CompositeTimeTest {
         // 08:00-10:00 = 2 units, each 1 yuan = 2 yuan total
         assertAmountEquals(BigDecimal.valueOf(2), result.getChargedAmount());
         assertEquals(2, result.getBillingUnits().size());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 单元数 = " + result.getBillingUnits().size());
         System.out.println();
     }
@@ -252,6 +277,7 @@ public class CompositeTimeTest {
         // Period 2: 10:00-11:00 = 2 units × 2 yuan = 4 yuan
         // Total: 6 yuan
         assertAmountEquals(BigDecimal.valueOf(6), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -287,6 +313,7 @@ public class CompositeTimeTest {
         // Crosses boundary: begin in 2-yuan period, end in 1-yuan period
         // HIGHER_PRICE should use 2 yuan
         assertAmountEquals(BigDecimal.valueOf(2), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -318,6 +345,7 @@ public class CompositeTimeTest {
 
         // LOWER_PRICE should use 1 yuan
         assertAmountEquals(BigDecimal.valueOf(1), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -349,6 +377,7 @@ public class CompositeTimeTest {
 
         // Unit begins in 2-yuan period, so charge 2 yuan
         assertAmountEquals(BigDecimal.valueOf(2), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -380,6 +409,7 @@ public class CompositeTimeTest {
 
         // Unit ends in 1-yuan period (after 20:00), so charge 1 yuan
         assertAmountEquals(BigDecimal.valueOf(1), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -419,6 +449,7 @@ public class CompositeTimeTest {
         // Verify last unit is marked as free or reduced
         BillingUnit lastUnit = result.getBillingUnits().get(result.getBillingUnits().size() - 1);
         assertTrue(lastUnit.isFree() || lastUnit.getChargedAmount().compareTo(BigDecimal.valueOf(3)) < 0);
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 最后单元免费=" + lastUnit.isFree());
         System.out.println();
     }
@@ -461,6 +492,7 @@ public class CompositeTimeTest {
         BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
 
         assertAmountEquals(BigDecimal.valueOf(5), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -506,6 +538,7 @@ public class CompositeTimeTest {
 
         // Total should be 10 yuan (2 + 8 = 10, exactly at cycle cap)
         assertAmountEquals(BigDecimal.valueOf(10), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -549,6 +582,7 @@ public class CompositeTimeTest {
 
         // Cycle cap 6 yuan
         assertAmountEquals(BigDecimal.valueOf(6), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -600,6 +634,7 @@ public class CompositeTimeTest {
         // second unit is free (PERIOD_CAP)
         // Total from Period 1: 2 yuan
         // Period 2 needs to contribute: 4 - 2 = 2 yuan (reduced from 8)
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -636,6 +671,7 @@ public class CompositeTimeTest {
         assertEquals(60, result.getBillingUnits().get(0).getDurationMinutes());
         // calculationEndTime should be extended
         assertEquals(LocalDateTime.of(2026, 1, 1, 9, 0), result.getCalculationEndTime());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 延伸后结束时间 = " + result.getCalculationEndTime());
         System.out.println();
     }
@@ -678,6 +714,7 @@ public class CompositeTimeTest {
         // Period 2: 10:00-10:10 = 10 min, extended to 10:00-10:30 = 1 unit × 2 yuan = 2 yuan
         assertEquals(BigDecimal.valueOf(4), result.getChargedAmount());
         assertEquals(LocalDateTime.of(2026, 1, 1, 10, 30), result.getCalculationEndTime());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 延伸后结束时间 = " + result.getCalculationEndTime());
         System.out.println();
     }
@@ -700,6 +737,7 @@ public class CompositeTimeTest {
 
         // Last unit should extend to cycle boundary (08:00 next day)
         assertEquals(LocalDateTime.of(2026, 1, 2, 8, 0), result.getCalculationEndTime());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 延伸后结束时间 = " + result.getCalculationEndTime());
         System.out.println();
     }
@@ -741,6 +779,7 @@ public class CompositeTimeTest {
 
         // Should extend to cycle boundary
         assertEquals(LocalDateTime.of(2026, 1, 2, 8, 0), result.getCalculationEndTime());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 延伸后结束时间 = " + result.getCalculationEndTime());
         System.out.println();
     }
@@ -775,6 +814,7 @@ public class CompositeTimeTest {
 
         // Should extend past natural period boundary
         assertEquals(LocalDateTime.of(2026, 1, 1, 20, 30), result.getCalculationEndTime());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 延伸后结束时间 = " + result.getCalculationEndTime() + " (跨过自然时段边界 20:00)");
         System.out.println();
     }
@@ -797,6 +837,7 @@ public class CompositeTimeTest {
         // 无免费时段时，CONTINUOUS 与 UNIT_BASED 结果相同
         assertAmountEquals(BigDecimal.valueOf(2), result.getChargedAmount());
         assertEquals(2, result.getBillingUnits().size());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 单元数 = " + result.getBillingUnits().size());
         System.out.println();
     }
@@ -833,6 +874,7 @@ public class CompositeTimeTest {
         // 片段 2：10:00-11:00 = 1 单元 = 1 元
         // 总计：2 元
         assertAmountEquals(BigDecimal.valueOf(2), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -867,6 +909,7 @@ public class CompositeTimeTest {
         BillingSegmentResult result = rule.calculate(context, config, promotionAggregate);
 
         assertAmountEquals(BigDecimal.valueOf(3), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -896,6 +939,7 @@ public class CompositeTimeTest {
         BillingUnit lastUnit = result.getBillingUnits().get(result.getBillingUnits().size() - 1);
         assertTrue(lastUnit.isFree());
         assertEquals("CYCLE_CAP", lastUnit.getFreePromotionId());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 最后单元免费 = " + lastUnit.isFree());
         System.out.println();
     }
@@ -936,6 +980,7 @@ public class CompositeTimeTest {
         BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
 
         assertAmountEquals(BigDecimal.valueOf(6), result.getChargedAmount());
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount());
         System.out.println();
     }
@@ -970,6 +1015,7 @@ public class CompositeTimeTest {
         BillingSegmentResult result = rule.calculate(context, config, promotionAggregate);
 
         // 验证计费单元
+        printBillingUnits(result.getBillingUnits());
         System.out.println("通过: 收费金额 = " + result.getChargedAmount() + ", 单元数 = " + result.getBillingUnits().size());
         System.out.println();
     }
