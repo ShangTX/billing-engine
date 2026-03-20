@@ -16,7 +16,6 @@ import cn.shang.charging.promotion.pojo.PromotionGrant;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
 import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionConfig;
 import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
-import cn.shang.charging.promotion.rules.ranges.FreeTimeRangePromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
 
 import java.math.BigDecimal;
@@ -259,7 +258,6 @@ public class PromotionTest {
         };
 
         var promotionRegistry = new PromotionRuleRegistry();
-        promotionRegistry.register(BConstants.PromotionRuleType.FREE_TIME_RANGE, new FreeTimeRangePromotionRule());
         promotionRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
 
         var promotionEngine = new PromotionEngine(

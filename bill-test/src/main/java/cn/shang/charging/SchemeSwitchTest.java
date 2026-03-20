@@ -15,7 +15,6 @@ import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
 import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
-import cn.shang.charging.promotion.rules.ranges.FreeTimeRangePromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
 
 import java.math.BigDecimal;
@@ -365,7 +364,6 @@ public class SchemeSwitchTest {
         };
 
         var promotionRegistry = new PromotionRuleRegistry();
-        promotionRegistry.register(BConstants.PromotionRuleType.FREE_TIME_RANGE, new FreeTimeRangePromotionRule());
         promotionRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
 
         var promotionEngine = new PromotionEngine(
