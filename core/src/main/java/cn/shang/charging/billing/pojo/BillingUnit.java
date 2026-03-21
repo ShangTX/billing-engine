@@ -50,6 +50,12 @@ public class BillingUnit {
     private boolean free;
 
     /**
+     * 是否被 calcEndTime 截断
+     * 用于 CONTINUE 模式恢复截断单元
+     */
+    private Boolean isTruncated;
+
+    /**
      * 免费原因（优惠ID等）
      */
     private String freePromotionId;
