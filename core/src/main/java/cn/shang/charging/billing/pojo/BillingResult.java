@@ -19,7 +19,7 @@ import java.util.List;
 @AllArgsConstructor
 @NoArgsConstructor
 @Accessors(chain=true)
-@Builder
+@Builder(toBuilder = true)
 public class BillingResult {
     private List<BillingUnit> units; // 计费细节
     private List<PromotionUsage> promotionUsages; // 优惠使用情况
