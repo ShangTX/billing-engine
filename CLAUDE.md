@@ -160,7 +160,7 @@ BillingService.calculate()
 **Rule System:**
 - `BillingRuleRegistry` / `PromotionRuleRegistry` - Strategy pattern registries
 - Rules are resolved by type string constants in `BConstants.ChargeRuleType` / `PromotionRuleType`
-- Built-in rules: `DayNightRule` (charges by day/night time periods), `FreeMinutesPromotionRule`, `FreeTimeRangePromotionRule`
+- Built-in rules: `DayNightRule` (charges by day/night time periods), `RelativeTimeRule` (charges by relative time periods), `CompositeTimeRule` (combines multiple time rules), `FreeMinutesPromotionRule` (free minutes promotion)
 
 **Promotion Types:**
 - `FREE_RANGE` - Free time periods (e.g., 01:00-04:00 is free)
