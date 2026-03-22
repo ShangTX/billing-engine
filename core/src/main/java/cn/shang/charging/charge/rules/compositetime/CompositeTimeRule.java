@@ -5,6 +5,7 @@ import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
+import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
@@ -28,27 +29,39 @@ import java.util.*;
  * 3. 每个时间段内按自然时段配置不同的价格
  * 4. 支持时间段独立封顶和周期封顶
  */
-public class CompositeTimeRule implements BillingRule<CompositeTimeConfig> {
+public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig> {
 
     private static final int MINUTES_PER_DAY = 1440;
 
-    /**
-     * 规则状态结构（用于 CONTINUE 模式）
-     */
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class RuleState {
-        /** 当前周期索引 */
-        private int cycleIndex;
-        /** 当前周期累计金额 */
-        private BigDecimal cycleAccumulated;
-        /** 周期边界时间 */
-        private LocalDateTime cycleBoundary;
+    private static final String RULE_TYPE = "compositeTime";
+
+    @Override
+    protected String getRuleType() {
+        return RULE_TYPE;
     }
 
-    private static final String RULE_TYPE = "compositeTime";
+    @Override
+    protected boolean hasComplexFeatures(CompositeTimeConfig config) {
+        // CompositeTimeRule 支持时间段独立封顶
+        if (config.getPeriods() != null) {
+            for (CompositePeriod period : config.getPeriods()) {
+                if (period.getMaxCharge() != null && period.getMaxCharge().compareTo(BigDecimal.ZERO) > 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public Class<CompositeTimeConfig> configClass() {
+        return CompositeTimeConfig.class;
+    }
+
+    @Override
+    public Set<BConstants.BillingMode> supportedModes() {
+        return Set.of(BConstants.BillingMode.UNIT_BASED, BConstants.BillingMode.CONTINUOUS);
+    }
 
     @Override
     public BillingSegmentResult calculate(BillingContext context,
@@ -80,17 +93,17 @@ public class CompositeTimeRule implements BillingRule<CompositeTimeConfig> {
         // 恢复状态
         RuleState state = restoreState(context.getRuleState());
         if (state == null) {
-            state = RuleState.builder()
+            state = AbstractTimeBasedRule.RuleState.builder()
                     .cycleIndex(0)
                     .cycleAccumulated(BigDecimal.ZERO)
-                    .cycleBoundary(billingOrigin.plusMinutes(MINUTES_PER_DAY))
+                    .cycleBoundary(billingOrigin.plusMinutes(getCycleMinutes()))
                     .build();
         } else {
             // CONTINUE: 更新周期状态
             while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
                 state.setCycleIndex(state.getCycleIndex() + 1);
                 state.setCycleAccumulated(BigDecimal.ZERO);
-                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(MINUTES_PER_DAY));
+                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(getCycleMinutes()));
             }
         }
 
@@ -145,8 +158,7 @@ public class CompositeTimeRule implements BillingRule<CompositeTimeConfig> {
         }
 
         // 构建输出状态
-        Map<String, Object> ruleOutputState = new HashMap<>();
-        ruleOutputState.put(RULE_TYPE, toMap(state));
+        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
@@ -201,17 +213,17 @@ public class CompositeTimeRule implements BillingRule<CompositeTimeConfig> {
         // 恢复状态
         RuleState state = restoreState(context.getRuleState());
         if (state == null) {
-            state = RuleState.builder()
+            state = AbstractTimeBasedRule.RuleState.builder()
                     .cycleIndex(0)
                     .cycleAccumulated(BigDecimal.ZERO)
-                    .cycleBoundary(billingOrigin.plusMinutes(MINUTES_PER_DAY))
+                    .cycleBoundary(billingOrigin.plusMinutes(getCycleMinutes()))
                     .build();
         } else {
             // CONTINUE: 更新周期状态
             while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
                 state.setCycleIndex(state.getCycleIndex() + 1);
                 state.setCycleAccumulated(BigDecimal.ZERO);
-                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(MINUTES_PER_DAY));
+                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(getCycleMinutes()));
             }
         }
 
@@ -295,8 +307,7 @@ public class CompositeTimeRule implements BillingRule<CompositeTimeConfig> {
         }
 
         // 构建输出状态
-        Map<String, Object> ruleOutputState = new HashMap<>();
-        ruleOutputState.put(RULE_TYPE, toMap(state));
+        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
@@ -650,61 +661,6 @@ public class CompositeTimeRule implements BillingRule<CompositeTimeConfig> {
             this.cycleStart = cycleStart;
             this.cycleEnd = cycleEnd;
         }
-    }
-
-    /**
-     * 从 Map 恢复 RuleState
-     */
-    @SuppressWarnings("unchecked")
-    private RuleState restoreState(Map<String, Object> stateMap) {
-        if (stateMap == null) return null;
-        Object state = stateMap.get(RULE_TYPE);
-        if (state == null) return null;
-
-        if (state instanceof RuleState) {
-            return (RuleState) state;
-        }
-
-        if (state instanceof Map) {
-            Map<String, Object> map = (Map<String, Object>) state;
-            return RuleState.builder()
-                    .cycleIndex((Integer) map.getOrDefault("cycleIndex", 0))
-                    .cycleAccumulated(map.get("cycleAccumulated") instanceof BigDecimal
-                            ? (BigDecimal) map.get("cycleAccumulated")
-                            : new BigDecimal(map.getOrDefault("cycleAccumulated", "0").toString()))
-                    .cycleBoundary((LocalDateTime) map.get("cycleBoundary"))
-                    .build();
-        }
-        return null;
-    }
-
-    /**
-     * 序列化 RuleState 为 Map
-     */
-    private Map<String, Object> toMap(RuleState state) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("cycleIndex", state.getCycleIndex());
-        map.put("cycleAccumulated", state.getCycleAccumulated());
-        map.put("cycleBoundary", state.getCycleBoundary());
-        return map;
-    }
-
-    @Override
-    public Class<CompositeTimeConfig> configClass() {
-        return CompositeTimeConfig.class;
-    }
-
-    @Override
-    public Set<BConstants.BillingMode> supportedModes() {
-        return Set.of(BConstants.BillingMode.UNIT_BASED, BConstants.BillingMode.CONTINUOUS);
-    }
-
-    @Override
-    public Map<String, Object> buildCarryOverState(BillingSegmentResult result) {
-        if (result.getRuleOutputState() == null) {
-            return Collections.emptyMap();
-        }
-        return result.getRuleOutputState();
     }
 
     /**

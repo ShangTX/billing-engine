@@ -4,6 +4,7 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
@@ -29,26 +30,21 @@ import java.util.*;
  * 4. 跨日夜时段根据blockWeight判断使用白天价还是夜间价
  * 5. 免费时段完全覆盖计费单元则免费
  */
-public class DayNightRule implements BillingRule<DayNightConfig> {
-
-    /**
-     * 规则状态结构（用于 CONTINUE 模式）
-     */
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class RuleState {
-        /** 当前24小时周期索引 */
-        private int cycleIndex;
-        /** 当前周期累计金额 */
-        private BigDecimal cycleAccumulated;
-        /** 周期边界时间（beginTime + 24h） */
-        private LocalDateTime cycleBoundary;
-    }
+public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
     // 规则类型标识
     private static final String RULE_TYPE = "dayNight";
+
+    @Override
+    protected String getRuleType() {
+        return RULE_TYPE;
+    }
+
+    @Override
+    protected boolean hasComplexFeatures(DayNightConfig config) {
+        // DayNightRule 无时间段封顶等复杂特性
+        return false;
+    }
 
     @Override
     public Class<DayNightConfig> configClass() {
@@ -58,52 +54,6 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
     @Override
     public Set<BConstants.BillingMode> supportedModes() {
         return EnumSet.of(BConstants.BillingMode.CONTINUOUS, BConstants.BillingMode.UNIT_BASED);
-    }
-
-    /**
-     * 从 Map 恢复 RuleState
-     */
-    @SuppressWarnings("unchecked")
-    private RuleState restoreState(Map<String, Object> stateMap) {
-        if (stateMap == null) return null;
-        Object state = stateMap.get(RULE_TYPE);
-        if (state == null) return null;
-
-        if (state instanceof RuleState) {
-            return (RuleState) state;
-        }
-
-        // 从序列化的 Map 恢复
-        if (state instanceof Map) {
-            Map<String, Object> map = (Map<String, Object>) state;
-            return RuleState.builder()
-                    .cycleIndex((Integer) map.getOrDefault("cycleIndex", 0))
-                    .cycleAccumulated(map.get("cycleAccumulated") instanceof BigDecimal
-                            ? (BigDecimal) map.get("cycleAccumulated")
-                            : new BigDecimal(map.getOrDefault("cycleAccumulated", "0").toString()))
-                    .cycleBoundary((LocalDateTime) map.get("cycleBoundary"))
-                    .build();
-        }
-        return null;
-    }
-
-    /**
-     * 序列化 RuleState 为 Map
-     */
-    private Map<String, Object> toMap(RuleState state) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("cycleIndex", state.getCycleIndex());
-        map.put("cycleAccumulated", state.getCycleAccumulated());
-        map.put("cycleBoundary", state.getCycleBoundary());
-        return map;
-    }
-
-    @Override
-    public Map<String, Object> buildCarryOverState(BillingSegmentResult result) {
-        if (result.getRuleOutputState() == null) {
-            return Collections.emptyMap();
-        }
-        return result.getRuleOutputState();
     }
 
     /**
@@ -169,17 +119,13 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         RuleState state = restoreState(context.getRuleState());
         if (state == null) {
             // FROM_SCRATCH: 初始化状态
-            state = RuleState.builder()
-                    .cycleIndex(0)
-                    .cycleAccumulated(BigDecimal.ZERO)
-                    .cycleBoundary(calcBegin.plusHours(24))
-                    .build();
+            state = initializeState(calcBegin);
         } else {
             // CONTINUE: 更新周期状态
             while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
                 state.setCycleIndex(state.getCycleIndex() + 1);
                 state.setCycleAccumulated(BigDecimal.ZERO);
-                state.setCycleBoundary(state.getCycleBoundary().plusHours(24));
+                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(getCycleMinutes()));
             }
         }
 
@@ -231,8 +177,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         }
 
         // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
-        Map<String, Object> ruleOutputState = new HashMap<>();
-        ruleOutputState.put(RULE_TYPE, toMap(state));
+        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
@@ -676,17 +621,13 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         RuleState state = restoreState(context.getRuleState());
         if (state == null) {
             // FROM_SCRATCH: 初始化状态
-            state = RuleState.builder()
-                    .cycleIndex(0)
-                    .cycleAccumulated(BigDecimal.ZERO)
-                    .cycleBoundary(calcBegin.plusHours(24))
-                    .build();
+            state = initializeState(calcBegin);
         } else {
             // CONTINUE: 更新周期状态
             while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
                 state.setCycleIndex(state.getCycleIndex() + 1);
                 state.setCycleAccumulated(BigDecimal.ZERO);
-                state.setCycleBoundary(state.getCycleBoundary().plusHours(24));
+                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(getCycleMinutes()));
             }
         }
 
@@ -747,8 +688,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         }
 
         // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
-        Map<String, Object> ruleOutputState = new HashMap<>();
-        ruleOutputState.put(RULE_TYPE, toMap(state));
+        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
