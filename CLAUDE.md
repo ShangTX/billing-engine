@@ -61,6 +61,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `RuleConfig`: 只描述规则参数
 - `BillingRule`: 负责计算
 
+### 原则6：简单优先，高级特性隔离
+- 高级特性通过**配置化跳过**隔离，简单场景零判断开销
+- 复杂度判断集中在计费开始时，后续关键点直接跳过
+
+**简单场景定义**：
+- 计费模式：UNIT_BASED 或 CONTINUOUS
+- 继续模式：FROM_SCRATCH
+- 优惠状态：无优惠 或 单一优惠类型
+- 无特殊配置：无时间段封顶等
+
+**跳过点**：
+1. 状态恢复 - FROM_SCRATCH 模式跳过
+2. 优惠处理 - 无优惠时跳过
+3. 状态输出 - FROM_SCRATCH 模式简化
+
 ---
 
 ## 禁止事项

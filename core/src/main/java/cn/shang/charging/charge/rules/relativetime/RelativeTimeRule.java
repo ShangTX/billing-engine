@@ -154,11 +154,6 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
                 ? promotionAggregate.getFreeTimeRanges()
                 : List.of();
 
-        // 获取边界参考时段（窗口外的优惠，用于延伸边界判断）
-        List<FreeTimeRange> boundaryReferences = promotionAggregate != null && promotionAggregate.getBoundaryReferences() != null
-                ? promotionAggregate.getBoundaryReferences()
-                : List.of();
-
         // 构建计费单元（按周期组织），传入初始累计金额
         List<CycleUnits> cycles = buildBillingUnitsWithState(calcBegin, calcEnd, config, freeTimeRanges, state);
 
@@ -198,12 +193,17 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, freeTimeRanges, calcBegin, calcEnd);
 
-        // 延伸最后一个计费单元（使用原始计费起点计算周期边界）
-        LocalDateTime cycleOriginBegin = context.getBeginTime(); // 原始计费起点
-        // 获取最后一个周期的累计金额，用于判断是否达到封顶
-        BigDecimal lastCycleAccumulated = !cycles.isEmpty() ? cycles.get(cycles.size() - 1).accumulatedBeforeCap : null;
-        // 延伸不能超过原始请求结束时间
-        LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, config, cycleOriginBegin, freeTimeRanges, boundaryReferences, lastCycleAccumulated, context.getEndTime());
+        // 标记最后一个单元是否被截断
+        if (!allUnits.isEmpty()) {
+            BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
+            // 获取最后一个单元对应的单元长度
+            int minutesFromCalcBegin = (int) Duration.between(calcBegin, lastUnit.getBeginTime()).toMinutes();
+            RelativeTimePeriod period = findPeriodForMinute(minutesFromCalcBegin, config.getPeriods());
+            int unitMinutes = period.getUnitMinutes();
+            if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
+                lastUnit.setIsTruncated(true);
+            }
+        }
 
         // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
         Map<String, Object> ruleOutputState = new HashMap<>();
@@ -214,7 +214,7 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
-                .calculationEndTime(extendedCalculationEndTime)
+                .calculationEndTime(calcEnd)
                 .chargedAmount(totalAmount)
                 .billingUnits(allUnits)
                 .promotionUsages(new ArrayList<>())
@@ -665,149 +665,6 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
     }
 
     /**
-     * 计算延伸后的结束时间并更新最后一个计费单元
-     * 延伸规则：
-     * 1. 普通情况：恢复到完整单元长度，但不能超过下一个边界
-     * 2. 例外情况：如果因封顶而免费（CYCLE_CAP）或累计金额达到封顶，可延伸到下一个周期边界
-     *    但延伸不能超过请求结束时间（requestEnd）
-     * @param allUnits 所有计费单元
-     * @param calcBegin 计算窗口起点（可能是 CONTINUE 模式的继续起点）
-     * @param calcEnd 计算结束时间（原截断点）
-     * @param config 规则配置
-     * @param cycleOriginBegin 原始计费起点（用于计算周期边界）
-     * @param freeTimeRanges 免费时段列表
-     * @param accumulatedAmount 最后一个周期的累计金额（用于判断是否达到封顶）
-     * @param requestEnd 原始请求结束时间（用于限制延伸范围）
-     * @return 延伸后的 calculationEndTime
-     */
-    private LocalDateTime extendLastUnit(List<BillingUnit> allUnits,
-                                         LocalDateTime calcBegin,
-                                         LocalDateTime calcEnd,
-                                         RelativeTimeConfig config,
-                                         LocalDateTime cycleOriginBegin,
-                                         List<FreeTimeRange> freeTimeRanges,
-                                         List<FreeTimeRange> boundaryReferences,
-                                         BigDecimal accumulatedAmount,
-                                         LocalDateTime requestEnd) {
-        if (allUnits == null || allUnits.isEmpty()) {
-            return calcEnd;
-        }
-
-        BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
-
-        // 查找下一个周期边界（使用原始计费起点）
-        LocalDateTime nextCycleBoundary = findNextCycleBoundary(lastUnit.getEndTime(), cycleOriginBegin);
-
-        // 特殊处理：封顶免费单元（CYCLE_CAP）延伸到周期边界
-        // 当累计金额达到封顶时，封顶后的时间都应该是免费的
-        // 因此封顶免费单元可以延伸到下一个周期边界
-        if (lastUnit.isFree() && "CYCLE_CAP".equals(lastUnit.getFreePromotionId())) {
-            // 延伸到下一个周期边界
-            // 注意：封顶免费单元的延伸不受请求结束时间限制
-            // 因为封顶后的时间都是免费的，延伸到周期边界不会增加收费
-            LocalDateTime extendedEnd = nextCycleBoundary;
-
-            // 只有延伸后才更新
-            if (extendedEnd.isAfter(lastUnit.getEndTime())) {
-                lastUnit.setEndTime(extendedEnd);
-                lastUnit.setDurationMinutes((int) Duration.between(lastUnit.getBeginTime(), extendedEnd).toMinutes());
-            }
-            return lastUnit.getEndTime();
-        }
-
-        // 只有当结束时间等于 calcEnd 时才需要延伸
-        if (!lastUnit.getEndTime().equals(calcEnd)) {
-            // 单元已经被其他边界截断，不需要延伸
-            return lastUnit.getEndTime();
-        }
-
-        // 找到最后一个单元对应的 period，获取单元长度
-        int minutesFromCalcBegin = (int) Duration.between(calcBegin, lastUnit.getBeginTime()).toMinutes();
-        RelativeTimePeriod period = findPeriodForMinute(minutesFromCalcBegin, config.getPeriods());
-        int unitMinutes = period.getUnitMinutes();
-
-        // 计算完整单元结束时间
-        LocalDateTime fullUnitEnd = lastUnit.getBeginTime().plusMinutes(unitMinutes);
-
-        // 查找下一个时间段边界（不能超过边界）
-        // 注意：使用原始计费起点计算时间段边界
-        // 注意：如果时间段边界等于 calcEnd，则不应该作为限制条件
-        // 因为单元就是被 calcEnd 截断的，应该能延伸过这个边界
-        LocalDateTime nextPeriodBoundary = findNextPeriodBoundary(lastUnit.getBeginTime(), cycleOriginBegin, config);
-        if (nextPeriodBoundary != null && nextPeriodBoundary.equals(calcEnd)) {
-            nextPeriodBoundary = findNextPeriodBoundary(nextPeriodBoundary, cycleOriginBegin, config);
-        }
-
-        // 查找下一个免费时段边界
-        LocalDateTime nextFreeRangeBoundary = findNextFreeRangeBoundary(calcEnd, fullUnitEnd, freeTimeRanges, boundaryReferences);
-
-        // 取最近的边界
-        LocalDateTime nextBoundary = null;
-        if (nextPeriodBoundary != null && nextCycleBoundary != null) {
-            nextBoundary = nextPeriodBoundary.isBefore(nextCycleBoundary) ? nextPeriodBoundary : nextCycleBoundary;
-        } else if (nextPeriodBoundary != null) {
-            nextBoundary = nextPeriodBoundary;
-        } else if (nextCycleBoundary != null) {
-            nextBoundary = nextCycleBoundary;
-        }
-        // 加入免费时段边界作为限制
-        if (nextFreeRangeBoundary != null && (nextBoundary == null || nextFreeRangeBoundary.isBefore(nextBoundary))) {
-            nextBoundary = nextFreeRangeBoundary;
-        }
-
-        // 延伸后的结束时间 = min(完整单元结束时间, 下一个边界)
-        LocalDateTime extendedEnd = fullUnitEnd;
-        if (nextBoundary != null && nextBoundary.isBefore(fullUnitEnd)) {
-            extendedEnd = nextBoundary;
-        }
-
-        // 如果延伸后的时间不比当前结束时间晚，不需要延伸
-        if (!extendedEnd.isAfter(calcEnd)) {
-            return calcEnd;
-        }
-
-        // 更新最后一个单元
-        int extendedDuration = (int) Duration.between(lastUnit.getBeginTime(), extendedEnd).toMinutes();
-        lastUnit.setEndTime(extendedEnd);
-        lastUnit.setDurationMinutes(extendedDuration);
-
-        return extendedEnd;
-    }
-
-    /**
-     * 查找下一个免费时段边界
-     * @param calcEnd 当前计算结束时间
-     * @param fullUnitEnd 完整单元结束时间（延伸上限）
-     * @param freeTimeRanges 免费时段列表
-     * @param boundaryReferences 边界参考时段（窗口外的优惠，用于延伸边界判断）
-     * @return 下一个免费时段的开始时间，如果不存在则返回 null
-     */
-    private LocalDateTime findNextFreeRangeBoundary(LocalDateTime calcEnd, LocalDateTime fullUnitEnd,
-                                                     List<FreeTimeRange> freeTimeRanges,
-                                                     List<FreeTimeRange> boundaryReferences) {
-        // 合并两个列表进行查找
-        List<FreeTimeRange> allRanges = new ArrayList<>();
-        if (freeTimeRanges != null) allRanges.addAll(freeTimeRanges);
-        if (boundaryReferences != null) allRanges.addAll(boundaryReferences);
-
-        if (allRanges.isEmpty()) {
-            return null;
-        }
-
-        LocalDateTime nextBoundary = null;
-        for (FreeTimeRange range : allRanges) {
-            // 查找第一个在 [calcEnd, fullUnitEnd] 范围内的免费时段开始时间
-            // 注意：免费时段可能正好从 calcEnd 开始，所以用 !isBefore 而不是 isAfter
-            if (!range.getBeginTime().isBefore(calcEnd) && !range.getBeginTime().isAfter(fullUnitEnd)) {
-                if (nextBoundary == null || range.getBeginTime().isBefore(nextBoundary)) {
-                    nextBoundary = range.getBeginTime();
-                }
-            }
-        }
-        return nextBoundary;
-    }
-
-    /**
      * CONTINUOUS 模式计算
      * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
      */
@@ -838,11 +695,6 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
 
         List<FreeTimeRange> freeTimeRanges = promotionAggregate != null && promotionAggregate.getFreeTimeRanges() != null
                 ? promotionAggregate.getFreeTimeRanges()
-                : List.of();
-
-        // 获取边界参考时段（窗口外的优惠，用于延伸边界判断）
-        List<FreeTimeRange> boundaryReferences = promotionAggregate != null && promotionAggregate.getBoundaryReferences() != null
-                ? promotionAggregate.getBoundaryReferences()
                 : List.of();
 
         // 按免费时段边界切分时间轴
@@ -911,13 +763,16 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, freeTimeRanges, calcBegin, calcEnd);
 
-        // 延伸最后一个计费单元（使用原始计费起点计算周期边界）
-        // 延伸不能超过原始请求结束时间
-        LocalDateTime extendedCalculationEndTime = extendLastUnit(allUnits, calcBegin, calcEnd, config, cycleOriginBegin, freeTimeRanges, boundaryReferences, lastCycleAccumulated, context.getEndTime());
-
-        // 如果延伸后的时间超过 effectiveEnd，更新 effectiveEnd
-        if (extendedCalculationEndTime.isAfter(feeEffectiveEnd)) {
-            feeEffectiveEnd = extendedCalculationEndTime;
+        // 标记最后一个单元是否被截断
+        if (!allUnits.isEmpty()) {
+            BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
+            // 对于 CONTINUOUS 模式，使用最后一个单元的开始时间计算对应的单元长度
+            int minutesFromCalcBegin = (int) Duration.between(calcBegin, lastUnit.getBeginTime()).toMinutes();
+            RelativeTimePeriod period = findPeriodForMinute(minutesFromCalcBegin, config.getPeriods());
+            int unitMinutes = period.getUnitMinutes();
+            if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
+                lastUnit.setIsTruncated(true);
+            }
         }
 
         // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
@@ -929,7 +784,7 @@ public class RelativeTimeRule implements BillingRule<RelativeTimeConfig> {
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
-                .calculationEndTime(extendedCalculationEndTime)  // 使用延伸后的时间
+                .calculationEndTime(calcEnd)
                 .chargedAmount(totalAmount)
                 .billingUnits(allUnits)
                 .promotionUsages(new ArrayList<>())

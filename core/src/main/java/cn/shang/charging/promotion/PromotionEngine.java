@@ -83,7 +83,6 @@ public class PromotionEngine {
                 context.getBeginTime(),
                 context.getEndTime());
         List<FreeTimeRange> explicitFreeRanges = rangeMergeResult.getMergedRanges();
-        List<FreeTimeRange> firstBoundaryReferences = rangeMergeResult.getBoundaryReferences();
 
         // 免费分钟数转为时间段
         FreeMinuteAllocationResult minuteResult =
@@ -103,10 +102,6 @@ public class PromotionEngine {
                 window.getCalculationEnd()
         );
         List<FreeTimeRange> finalFreeRanges = finalMergeResult.getMergedRanges();
-        // 合并两次的边界参考
-        List<FreeTimeRange> boundaryReferences = new ArrayList<>();
-        boundaryReferences.addAll(firstBoundaryReferences);
-        boundaryReferences.addAll(finalMergeResult.getBoundaryReferences());
 
         // 7️⃣ 构建优惠结转输出状态
         PromotionCarryOver outputCarryOver = buildPromotionCarryOver(
@@ -117,7 +112,6 @@ public class PromotionEngine {
 
         return PromotionAggregate.builder()
                 .freeTimeRanges(finalFreeRanges)
-                .boundaryReferences(boundaryReferences)
                 .usages(minuteResult.getPromotionUsages())
                 .promotionCarryOver(outputCarryOver)
                 .build();

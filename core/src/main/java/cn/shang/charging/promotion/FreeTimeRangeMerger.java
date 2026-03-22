@@ -91,16 +91,9 @@ public class FreeTimeRangeMerger {
                 continue;
             }
 
-            // 时间段完全在整体区间之后（包括从 overallEnd 开始的）→ 作为边界参考保留
-            // 注意：!isBefore 等价于 >=，这样 beginTime == overallEnd 的时段也进入边界参考
+            // 时间段完全在整体区间之后 → 丢弃
             if (!originalRange.getBeginTime().isBefore(overallEnd)) {
-                FreeTimeRange boundaryRef = new FreeTimeRange()
-                        .setId(originalRange.getId())
-                        .setBeginTime(originalRange.getBeginTime())
-                        .setEndTime(originalRange.getEndTime())
-                        .setPriority(originalRange.getPriority())
-                        .setPromotionType(originalRange.getPromotionType());
-                result.addBoundaryReference(boundaryRef);
+                result.addDiscardedRange(originalRange.copy());
                 continue;
             }
 

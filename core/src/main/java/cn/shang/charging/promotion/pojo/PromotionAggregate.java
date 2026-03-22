@@ -20,7 +20,6 @@ public class PromotionAggregate {
 
     // 最终唯一生效的优惠表达
     List<FreeTimeRange> freeTimeRanges;
-    List<FreeTimeRange> boundaryReferences;  // 边界参考时段（窗口外，用于延伸边界判断）
     long freeMinutes;                     // 同化后的总免费分钟
 
     // 使用统计（来自规则 & 外部）
