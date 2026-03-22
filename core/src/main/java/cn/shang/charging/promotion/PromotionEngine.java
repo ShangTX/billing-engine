@@ -110,8 +110,14 @@ public class PromotionEngine {
                 window.getCalculationEnd()
         );
 
+        // 计算总免费分钟数（用于简化计算判断）
+        long totalFreeMinutes = freeMinutesPromotions.stream()
+                .mapToLong(fm -> fm.getMinutes())
+                .sum();
+
         return PromotionAggregate.builder()
                 .freeTimeRanges(finalFreeRanges)
+                .freeMinutes(totalFreeMinutes)
                 .usages(minuteResult.getPromotionUsages())
                 .promotionCarryOver(outputCarryOver)
                 .build();

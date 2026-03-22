@@ -123,6 +123,7 @@ public class BillingService {
                     .continueMode(isContinueMode ? BConstants.ContinueMode.CONTINUE : BConstants.ContinueMode.FROM_SCRATCH)
                     .ruleState(ruleState)
                     .promotionCarryOver(promotionCarryOver)
+                    .billingConfigResolver(billingConfigResolver)
                     .build();
 
             // 2.5 执行优惠聚合
