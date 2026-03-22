@@ -41,4 +41,12 @@ public interface BillingConfigResolver {
     List<PromotionRuleConfig> resolvePromotionRules(String schemeId,
                                                     LocalDateTime segmentStart,
                                                     LocalDateTime segmentEnd);
+
+    /**
+     * 获取简化计算的周期阈值
+     * @return 连续无优惠周期数超过此值时启用简化，0 表示禁用
+     */
+    default int getSimplifiedCycleThreshold() {
+        return 0; // 默认禁用
+    }
 }
