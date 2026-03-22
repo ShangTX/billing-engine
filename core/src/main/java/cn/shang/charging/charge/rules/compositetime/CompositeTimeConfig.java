@@ -29,6 +29,9 @@ public class CompositeTimeConfig implements RuleConfig {
     /** 周期封顶金额（必填） */
     private BigDecimal maxChargeOneCycle;
 
+    /** 是否支持简化计算，null 表示默认支持 */
+    private Boolean simplifiedSupported;
+
     /** 不足单元计费模式（默认全额） */
     @Builder.Default
     private InsufficientUnitMode insufficientUnitMode = InsufficientUnitMode.FULL;

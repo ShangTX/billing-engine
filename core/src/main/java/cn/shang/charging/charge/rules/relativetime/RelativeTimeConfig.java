@@ -45,4 +45,9 @@ public class RelativeTimeConfig implements RuleConfig {
      * 每周期封顶金额
      */
     private BigDecimal maxChargeOneCycle;
+
+    /**
+     * 是否支持简化计算，null 表示默认支持
+     */
+    private Boolean simplifiedSupported;
 }
