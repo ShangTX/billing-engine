@@ -1,5 +1,6 @@
 package cn.shang.charging.billing.pojo;
 
+import cn.shang.charging.billing.BillingConfigResolver;
 import cn.shang.charging.billing.BillingSegment;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
 import lombok.AllArgsConstructor;
@@ -70,5 +71,10 @@ public class BillingContext {
      * 计费规则
      */
     private RuleConfig chargingRule;
+
+    /**
+     * 计费配置解析器
+     */
+    private BillingConfigResolver billingConfigResolver;
 
 }
