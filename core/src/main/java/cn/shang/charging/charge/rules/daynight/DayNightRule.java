@@ -47,6 +47,17 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     }
 
     @Override
+    protected boolean isSimplifiedSupported(DayNightConfig config) {
+        // DayNightRule 支持简化计算
+        return true;
+    }
+
+    @Override
+    protected BigDecimal getCycleCapAmount(DayNightConfig config) {
+        return config.getMaxChargeOneDay();
+    }
+
+    @Override
     public Class<DayNightConfig> configClass() {
         return DayNightConfig.class;
     }

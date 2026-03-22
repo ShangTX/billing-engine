@@ -54,6 +54,17 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
     }
 
     @Override
+    protected boolean isSimplifiedSupported(CompositeTimeConfig config) {
+        // 当存在时间段独立封顶时不支持简化计算
+        return !hasComplexFeatures(config);
+    }
+
+    @Override
+    protected BigDecimal getCycleCapAmount(CompositeTimeConfig config) {
+        return config.getMaxChargeOneCycle();
+    }
+
+    @Override
     public Class<CompositeTimeConfig> configClass() {
         return CompositeTimeConfig.class;
     }

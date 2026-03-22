@@ -49,6 +49,17 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
     }
 
     @Override
+    protected boolean isSimplifiedSupported(RelativeTimeConfig config) {
+        // RelativeTimeRule 支持简化计算
+        return true;
+    }
+
+    @Override
+    protected BigDecimal getCycleCapAmount(RelativeTimeConfig config) {
+        return config.getMaxChargeOneCycle();
+    }
+
+    @Override
     public Class<RelativeTimeConfig> configClass() {
         return RelativeTimeConfig.class;
     }
