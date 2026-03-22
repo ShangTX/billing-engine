@@ -49,16 +49,22 @@
 
 ## 四、性能优化
 
-### O1. 长期计费简化计算
+### O1. 长期计费简化计算 ✅ 已确认设计
 - **场景**: 停车超过1周甚至几个月
 - **方案**: 中间部分按周期封顶金额简化计算，生成大型计费单元
-- **待评估**: 阈值、粒度、CONTINUE兼容性、状态结转
+- **设计文档**: `docs/superpowers/specs/2026-03-22-simplified-cycle-calculation-design.md`
+- **关键决策**:
+  - 阈值由 `BillingConfigResolver.getSimplifiedCycleThreshold()` 返回
+  - 规则可配置是否支持简化
+  - 简化单元信息存储在 `BillingUnit.ruleData` 中
+  - 支持 CONTINUE 模式状态恢复
+  - 预留多种简化方式扩展（按周、按月、按年）
 
 ---
 
 ## 五、待删除
 
-- `FreeTimeRangePromotionRule`（可能删除）
+- ~~`FreeTimeRangePromotionRule`~~ — 该类在代码中不存在，仅需从文档中移除引用
 
 ---
 
