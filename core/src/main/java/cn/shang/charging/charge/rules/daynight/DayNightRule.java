@@ -127,7 +127,8 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
 
         // 检查是否启用简化计算
-        boolean simplificationEnabled = isSimplificationEnabled(config, context.getBillingConfigResolver());
+        boolean simplificationEnabled = context.getBillingConfigResolver() != null
+            && isSimplificationEnabled(config, context.getBillingConfigResolver());
 
         // 计算总周期数
         long totalMinutes = Duration.between(calcBegin, calcEnd).toMinutes();
@@ -306,10 +307,38 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         // 应用封顶（简化单元已达封顶，但需要处理累计金额的逻辑）
         applyDailyCapWithCarryOver(billingUnits, config, state.getCycleAccumulated());
 
-        // 更新状态
-        state.setCycleIndex(totalCycles);
-        state.setCycleAccumulated(cycleCapAmount);
-        state.setCycleBoundary(getCycleBoundary(totalCycles + 1, calcBegin));
+        // 更新状态 - 使用实际处理的最后一个周期索引
+        if (!billingUnits.isEmpty()) {
+            BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
+            if (isSimplifiedUnit(lastUnit)) {
+                // 简化单元：从 ruleData 揎取周期信息
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> ruleData = (java.util.Map<String, Object>) lastUnit.getRuleData();
+                int beginCycleIndex = (Integer) ruleData.get("cycleIndex");
+                int cycleCount = (Integer) ruleData.get("simplifiedCycleCount");
+                BigDecimal cycleAmount = (BigDecimal) ruleData.get("simplifiedCycleAmount");
+                state.setCycleIndex(beginCycleIndex + cycleCount - 1);
+                state.setCycleAccumulated(cycleAmount);
+                state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin));
+            } else {
+                // 非简化单元：使用最后一个单元的周期索引
+                int lastCycleIndex = (Integer) lastUnit.getRuleData();
+                state.setCycleIndex(lastCycleIndex);
+                // 计算最后一个周期的累计金额
+                final int finalLastCycleIndex = lastCycleIndex;
+                BigDecimal lastCycleAccumulated = billingUnits.stream()
+                        .filter(u -> u.getRuleData() instanceof Integer && (Integer) u.getRuleData() == finalLastCycleIndex)
+                        .map(BillingUnit::getChargedAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                state.setCycleAccumulated(lastCycleAccumulated);
+                state.setCycleBoundary(getCycleBoundary(lastCycleIndex + 1, calcBegin));
+            }
+        } else {
+            // 没有单元，保持原状态
+            state.setCycleIndex(totalCycles);
+            state.setCycleAccumulated(cycleCapAmount);
+            state.setCycleBoundary(getCycleBoundary(totalCycles + 1, calcBegin));
+        }
 
         // 汇总结果
         BigDecimal totalAmount = billingUnits.stream()
@@ -837,8 +866,11 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
         // 检查是否启用简化计算
         List<BillingUnit> allUnits = new ArrayList<>();
-        boolean simplificationEnabled = isSimplificationEnabled(config, context.getBillingConfigResolver());
-        int threshold = context.getBillingConfigResolver().getSimplifiedCycleThreshold();
+        boolean simplificationEnabled = context.getBillingConfigResolver() != null
+            && isSimplificationEnabled(config, context.getBillingConfigResolver());
+        int threshold = context.getBillingConfigResolver() != null
+            ? context.getBillingConfigResolver().getSimplifiedCycleThreshold()
+            : 0;
 
         if (simplificationEnabled && cycles.size() > threshold) {
             Set<Integer> cyclesWithPromotion = findCyclesWithPromotion(calcBegin, calcEnd, promotionAggregate);
@@ -865,12 +897,23 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         // 更新最终状态（FROM_SCRATCH 结果也需要用于继续计算）
         BigDecimal lastCycleAmount = BigDecimal.ZERO;
         if (!cycles.isEmpty()) {
-            // 找到最后一个周期的非免费单元
-            LocalDateTime lastCycleEnd = cycles.get(cycles.size() - 1).cycleEnd;
-            lastCycleAmount = allUnits.stream()
-                    .filter(u -> !u.isFree() && u.getEndTime().compareTo(lastCycleEnd) <= 0 && u.getEndTime().compareTo(cycles.get(cycles.size() - 1).cycleStart) > 0)
-                    .map(BillingUnit::getChargedAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            // 检查最后一个单元是否为简化单元
+            if (!allUnits.isEmpty()) {
+                BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
+                if (isSimplifiedUnit(lastUnit)) {
+                    // 简化单元：使用 simplifiedCycleAmount 作为周期累计金额
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> ruleData = (java.util.Map<String, Object>) lastUnit.getRuleData();
+                    lastCycleAmount = (BigDecimal) ruleData.get("simplifiedCycleAmount");
+                } else {
+                    // 非简化单元：找最后一个周期的非免费单元
+                    LocalDateTime lastCycleEnd = cycles.get(cycles.size() - 1).cycleEnd;
+                    lastCycleAmount = allUnits.stream()
+                            .filter(u -> !u.isFree() && u.getEndTime().compareTo(lastCycleEnd) <= 0 && u.getEndTime().compareTo(cycles.get(cycles.size() - 1).cycleStart) > 0)
+                            .map(BillingUnit::getChargedAmount)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                }
+            }
             state.setCycleAccumulated(lastCycleAmount);
             // 更新周期索引
             state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
