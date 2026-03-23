@@ -63,44 +63,7 @@ public class ResultAssembler {
                 .carryOver(carryOver)
                 .build();
 
-        // 根据 queryTime 过滤（如果指定了 queryTime）
-        return filterByQueryTime(result, request.getQueryTime());
-    }
-
-    /**
-     * 根据 queryTime 过滤计费单元并重新计算金额
-     * <p>
-     * 用于返回指定时间点的费用状态，而非最终计算结果
-     *
-     * @param result    原始计费结果
-     * @param queryTime 查询时间点
-     * @return 过滤后的计费结果
-     */
-    private BillingResult filterByQueryTime(BillingResult result, LocalDateTime queryTime) {
-        if (queryTime == null) {
-            return result;
-        }
-
-        // 过滤单元：只保留 queryTime 之前完成的单元
-        List<BillingUnit> filteredUnits = result.getUnits().stream()
-                .filter(unit -> !unit.getEndTime().isAfter(queryTime))
-                .toList();
-
-        // 重新计算金额
-        BigDecimal filteredAmount = filteredUnits.stream()
-                .map(unit -> unit.getChargedAmount() != null ? unit.getChargedAmount() : BigDecimal.ZERO)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // 重新计算 effectiveFrom/effectiveTo
-        LocalDateTime effectiveFrom = filteredUnits.isEmpty() ? null : filteredUnits.get(0).getBeginTime();
-        LocalDateTime effectiveTo = filteredUnits.isEmpty() ? null : filteredUnits.get(filteredUnits.size() - 1).getEndTime();
-
-        return result.toBuilder()
-                .units(filteredUnits)
-                .finalAmount(filteredAmount)
-                .effectiveFrom(effectiveFrom)
-                .effectiveTo(effectiveTo)
-                .build();
+        return result;
     }
 
     /**
