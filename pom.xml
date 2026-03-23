@@ -12,6 +12,8 @@
 
     <modules>
         <module>core</module>
+        <module>billing-wrapper</module>
+        <module>billing-spring-boot-starter</module>
         <module>bill-test</module>
     </modules>
     <properties>
