@@ -86,7 +86,6 @@ Spring Boot 3.5 归入 v4 的原因：
 <artifactId>billing-v3-spring-boot-starter</artifactId>
 <properties>
     <spring-boot.version>3.2.0</spring-boot.version>
-    <java.version>21</java.version>
 </properties>
 <dependencies>
     <dependency>
@@ -97,10 +96,12 @@ Spring Boot 3.5 归入 v4 的原因：
     <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-autoconfigure</artifactId>
+        <version>${spring-boot.version}</version>
     </dependency>
     <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-configuration-processor</artifactId>
+        <version>${spring-boot.version}</version>
         <optional>true</optional>
     </dependency>
 </dependencies>
@@ -112,9 +113,6 @@ Spring Boot 3.5 归入 v4 的原因：
 <artifactId>billing-v4-spring-boot-starter</artifactId>
 <properties>
     <spring-boot.version>4.0.0</spring-boot.version>
-    <java.version>21</java.version>
-    <maven.compiler.source>21</maven.compiler.source>
-    <maven.compiler.target>21</maven.compiler.target>
 </properties>
 <dependencies>
     <dependency>
@@ -125,14 +123,18 @@ Spring Boot 3.5 归入 v4 的原因：
     <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-autoconfigure</artifactId>
+        <version>${spring-boot.version}</version>
     </dependency>
     <dependency>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-configuration-processor</artifactId>
+        <version>${spring-boot.version}</version>
         <optional>true</optional>
     </dependency>
 </dependencies>
 ```
+
+**说明：** `java.version`、`maven.compiler.source`、`maven.compiler.target` 从父 POM 继承，无需重复定义。
 
 ---
 
@@ -187,7 +189,7 @@ cn.shang.charging.spring.boot.autoconfigure.BillingAutoConfiguration
 | 新建 | `billing-v4-spring-boot-starter/src/.../BillingAutoConfiguration.java` | 自动配置类 |
 | 新建 | `billing-v4-spring-boot-starter/src/.../BillingProperties.java` | 属性配置类 |
 | 新建 | `billing-v4-spring-boot-starter/src/.../META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` | 自动配置注册 |
-| 修改 | `pom.xml`（根目录） | 添加新模块 |
+| 修改 | `pom.xml`（根目录） | 更新 modules：删除 `billing-spring-boot-starter`，添加 `billing-v3-spring-boot-starter` 和 `billing-v4-spring-boot-starter` |
 | 修改 | `CLAUDE.md` | 添加两个 starter 的文档说明 |
 
 ---
