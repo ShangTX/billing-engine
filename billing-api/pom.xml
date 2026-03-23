@@ -10,9 +10,9 @@
         <version>0.0.1-SNAPSHOT</version>
     </parent>
 
-    <artifactId>billing-wrapper</artifactId>
-    <name>billing-wrapper</name>
-    <description>封装核心计费引擎，提供便捷 API</description>
+    <artifactId>billing-api</artifactId>
+    <name>billing-api</name>
+    <description>计费引擎 API 层，提供便捷 API 和边缘功能</description>
 
     <dependencies>
         <dependency>

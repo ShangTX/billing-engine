@@ -21,7 +21,7 @@
     <dependencies>
         <dependency>
             <groupId>cn.shang</groupId>
-            <artifactId>billing-wrapper</artifactId>
+            <artifactId>billing-api</artifactId>
             <version>${project.version}</version>
         </dependency>
 

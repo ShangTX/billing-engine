@@ -12,7 +12,7 @@
 
     <modules>
         <module>core</module>
-        <module>billing-wrapper</module>
+        <module>billing-api</module>
         <module>billing-spring-boot-starter</module>
         <module>bill-test</module>
     </modules>
