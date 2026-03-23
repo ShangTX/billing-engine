@@ -141,4 +141,85 @@ public class BillingService {
         );
     }
 
+    /**
+     * 准备分段上下文
+     * 执行分段构建、规则解析、优惠聚合
+     *
+     * 注意：目前仅支持 FROM_SCRATCH 模式
+     *
+     * @param request 计费请求
+     * @return 分段上下文列表
+     */
+    public List<SegmentContext> prepareContexts(BillingRequest request) {
+        List<SegmentContext> contexts = new ArrayList<>();
+
+        List<BillingSegment> segments = segmentBuilder.buildSegments(request);
+
+        for (BillingSegment segment : segments) {
+            CalculationWindow window = CalculationWindowFactory.create(
+                request.getBeginTime(),
+                segment,
+                request.getSegmentCalculationMode()
+            );
+
+            RuleConfig chargingRule = billingConfigResolver.resolveChargingRule(
+                segment.getSchemeId(),
+                window.getCalculationBegin(),
+                window.getCalculationEnd());
+
+            List<PromotionRuleConfig> promotionRules = billingConfigResolver.resolvePromotionRules(
+                segment.getSchemeId(),
+                window.getCalculationBegin(),
+                window.getCalculationEnd());
+
+            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(segment.getSchemeId());
+
+            BillingContext billingContext = BillingContext.builder()
+                .id(request.getId())
+                .beginTime(request.getBeginTime())
+                .endTime(request.getEndTime())
+                .segment(segment)
+                .window(window)
+                .chargingRule(chargingRule)
+                .promotionRules(promotionRules)
+                .externalPromotions(request.getExternalPromotions())
+                .billingMode(billingMode)
+                .continueMode(BConstants.ContinueMode.FROM_SCRATCH)
+                .billingConfigResolver(billingConfigResolver)
+                .build();
+
+            PromotionAggregate promotionAggregate = promotionEngine.evaluate(billingContext);
+
+            contexts.add(SegmentContext.builder()
+                .segmentId(segment.getId())
+                .billingContext(billingContext)
+                .promotionAggregate(promotionAggregate)
+                .build());
+        }
+
+        return contexts;
+    }
+
+    /**
+     * 用分段上下文计算
+     * 只执行计费计算和结果汇总
+     *
+     * @param contexts 分段上下文列表
+     * @param request  原始请求（用于 assemble）
+     * @return 计费结果
+     */
+    public BillingResult calculateWithContexts(List<SegmentContext> contexts, BillingRequest request) {
+        List<BillingSegmentResult> segmentResults = new ArrayList<>();
+
+        for (SegmentContext ctx : contexts) {
+            BillingSegmentResult segmentResult = billingCalculator.calculate(
+                ctx.getBillingContext(),
+                ctx.getPromotionAggregate()
+            );
+            segmentResults.add(segmentResult);
+        }
+
+        return resultAssembler.assemble(request, segmentResults);
+    }
+
 }
