@@ -70,7 +70,6 @@ public class FreeTimeRangeMerger {
 
     /**
      * 预处理：截取时间段，记录被舍弃的区间外部分
-     * 注意：保留从 overallEnd 开始的时间段，用于 extendLastUnit 边界判断
      */
     private List<FreeTimeRange> preprocessRanges(List<FreeTimeRange> timeRanges,
                                                 LocalDateTime overallStart,
@@ -310,7 +309,7 @@ public class FreeTimeRangeMerger {
 
         result.add(current);
 
-        // 过滤掉空时间段（但保留 start == end 的边界时间段，用于 extendLastUnit）
+        // 过滤掉空时间段（但保留 start == end 的边界时间段）
         return result.stream()
                 .filter(tr -> !tr.getBeginTime().isAfter(tr.getEndTime()))
                 .collect(Collectors.toList());
