@@ -132,7 +132,21 @@ This is a parking billing system with a modular Maven multi-module structure:
 
 - **charge** (parent) - Root POM with shared dependencies (Lombok, Apache Commons, Jackson)
 - **core** - Core billing engine and business logic
+- **billing-api** - Convenient API wrapper, provides higher-level abstractions
 - **bill-test** - Test module that depends on core, contains integration tests
+
+### Module Responsibilities
+
+| 模块 | 职责 | 依赖 |
+|------|------|------|
+| **core** | 核心计费引擎，纯计算逻辑，无副作用 | 无外部依赖 |
+| **billing-api** | 便捷 API 封装，提供视图功能、等效金额计算等 | core |
+| **bill-test** | 集成测试、功能验证 | core, billing-api |
+
+**模块分层原则**：
+- `core` 模块只负责计算，不处理缓存、持久化、日志存储
+- `billing-api` 模块提供便捷封装，处理"视图层"逻辑（如 queryTime 截取）
+- 调用方应优先使用 `billing-api`，复杂场景可直接使用 `core`
 
 ### Core Architecture (core module)
 
@@ -180,6 +194,29 @@ Key POJOs in `billing.pojo` and `promotion.pojo`:
 - `BillingResult` - Output with billing units, promotion usages, final amount
 - `BillingContext` - Immutable context holding segment, window, rules for calculation
 - `PromotionAggregate` - Aggregated free time ranges and usage tracking
+
+### Billing-API Architecture (billing-api module)
+
+The billing-api module provides convenient wrappers and higher-level abstractions:
+
+```
+BillingTemplate
+├── calculate()                      # Basic billing calculation
+├── calculateWithQuery()             # Calculate with query time separation
+└── calculatePromotionEquivalents()  # Calculate promotion equivalent amounts
+```
+
+**Key Components:**
+
+- `BillingTemplate` - Main entry point for convenient API usage
+- `BillingResultViewer` - Handles query time filtering (view layer logic)
+- `PromotionEquivalentCalculator` - Calculates equivalent amounts using elimination method
+- `CalculationWithQueryResult` - Returns both calculation result and query result
+
+**Design Principle:**
+- `core` returns complete calculation results
+- `billing-api` handles "view layer" logic (e.g., queryTime filtering)
+- This separation keeps core pure while providing convenient APIs
 
 ### Implementation Notes
 
