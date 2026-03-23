@@ -31,8 +31,15 @@ charge/
 
 | Starter | Spring Boot | JDK | 状态 |
 |---------|-------------|-----|------|
-| billing-v3-spring-boot-starter | 3.x（3.5 以下） | 21 | 活跃维护 |
-| billing-v4-spring-boot-starter | 3.5/4.x | 21/23/25 | 活跃维护 |
+| billing-v3-spring-boot-starter | 3.0.x - 3.4.x | 21 | 活跃维护 |
+| billing-v4-spring-boot-starter | 3.5.x - 4.x | 21/23/25 | 活跃维护 |
+
+### 版本边界说明
+
+Spring Boot 3.5 归入 v4 的原因：
+1. **JDK 要求变更**：Spring Boot 3.5+ 支持 JDK 23/25，而 3.4 及以下仅支持 JDK 21
+2. **API 变更**：Spring Boot 3.5 引入了部分新 API，与 4.x 保持一致
+3. **命名简化**：避免命名混乱（如 billing-v3.5-spring-boot-starter）
 
 ---
 
@@ -56,6 +63,18 @@ charge/
 ### 3. 长期并行维护
 
 两个版本都会持续迭代，修复 bug、添加新功能。
+
+### 4. 每个模块独立管理 Spring Boot 版本
+
+各个 starter 在自己的 pom.xml 中定义 `spring-boot.version` 属性，不由父 POM 统一管理。
+
+**原因：** 不同 starter 需要不同版本的 Spring Boot，独立管理更灵活。
+
+### 5. 版本号与父项目一致
+
+两个 starter 的版本号与 `charge` 父项目保持一致（如 `0.0.1-SNAPSHOT`）。
+
+**原因：** 简化版本管理，用户只需关注选择哪个 starter，不需要关心版本号差异。
 
 ---
 
@@ -138,6 +157,25 @@ charge/
 
 ---
 
+## AutoConfiguration.imports 文件
+
+**路径：** `src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
+
+**内容：**
+```
+cn.shang.charging.spring.boot.autoconfigure.BillingAutoConfiguration
+```
+
+---
+
+## Spring Boot 版本差异
+
+两个 starter 的代码完全相同，不需要针对 Spring Boot 3.5/4.x 做特殊处理。
+
+**原因：** 当前使用的 Spring Boot API（`@Configuration`、`@Bean`、`@ConditionalOnClass` 等）在 3.x 和 4.x 中保持稳定，无破坏性变更。
+
+---
+
 ## 改动清单
 
 | 操作 | 文件/目录 | 说明 |
@@ -171,3 +209,48 @@ charge/
     <artifactId>billing-v4-spring-boot-starter</artifactId>
 </dependency>
 ```
+
+---
+
+## JDK 兼容性说明
+
+| Starter | 编译 JDK | 运行时 JDK |
+|---------|---------|-----------|
+| billing-v3-spring-boot-starter | JDK 21 | JDK 21 |
+| billing-v4-spring-boot-starter | JDK 21 | JDK 21/23/25 |
+
+**说明：**
+- v4 starter 使用 JDK 21 编译，确保 class 文件兼容性
+- 运行时可使用更高版本 JDK（JVM 向后兼容）
+
+---
+
+## 维护流程
+
+### 功能同步
+
+新功能开发流程：
+1. 在 `billing-api` 模块实现功能
+2. 两个 starter 无需修改（自动获得新功能）
+3. 如需新的配置项，同步修改两个 starter 的 `BillingProperties`
+
+### Bug 修复
+
+1. `billing-api` 或 `core` 的 bug：修复后两个 starter 自动生效
+2. starter 特有 bug（如配置问题）：分别修复
+
+---
+
+## 测试策略
+
+### 当前阶段
+
+- `bill-test` 模块继续使用 `core` 和 `billing-api` 进行测试
+- 两个 starter 主要在用户项目中验证
+
+### 未来扩展
+
+如需针对不同 Spring Boot 版本的集成测试：
+1. 创建 `billing-starter-test-v3` 和 `billing-starter-test-v4` 模块
+2. 使用不同的 Spring Boot 版本运行集成测试
+3. CI 中并行执行两套测试
