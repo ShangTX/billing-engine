@@ -49,12 +49,14 @@ public class PromotionEngine {
         }
 
         // 2️⃣ 来自外部优惠
-        for (PromotionGrant externalPromotion : context.getExternalPromotions()) {
-            if (externalPromotion.getType() == BConstants.PromotionType.FREE_RANGE) {
-                timeRangePromotions.add(convertTimeRangeFromRule(externalPromotion));
-            }
-            if (externalPromotion.getType() == BConstants.PromotionType.FREE_MINUTES) {
-                freeMinutesPromotions.add(convertMinutesFromRule(externalPromotion));
+        if (context.getExternalPromotions() != null) {
+            for (PromotionGrant externalPromotion : context.getExternalPromotions()) {
+                if (externalPromotion.getType() == BConstants.PromotionType.FREE_RANGE) {
+                    timeRangePromotions.add(convertTimeRangeFromRule(externalPromotion));
+                }
+                if (externalPromotion.getType() == BConstants.PromotionType.FREE_MINUTES) {
+                    freeMinutesPromotions.add(convertMinutesFromRule(externalPromotion));
+                }
             }
         }
 
@@ -187,6 +189,7 @@ public class PromotionEngine {
                         .endTime(used.getBeginTime())
                         .priority(range.getPriority())
                         .promotionType(range.getPromotionType())
+                        .rangeType(range.getRangeType())
                         .build());
             }
 
@@ -198,6 +201,7 @@ public class PromotionEngine {
                         .endTime(range.getEndTime())
                         .priority(range.getPriority())
                         .promotionType(range.getPromotionType())
+                        .rangeType(range.getRangeType())
                         .build());
             }
         }
@@ -234,6 +238,7 @@ public class PromotionEngine {
                             .beginTime(range.getBeginTime())
                             .endTime(range.getEndTime())
                             .promotionType(range.getPromotionType())
+                            .rangeType(range.getRangeType()) // 保留类型信息
                             .build());
                 }
             }
