@@ -625,7 +625,8 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             // 更新最终状态
             if (!cycles.isEmpty()) {
                 state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_DAY));
+                int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_DAY).plusMinutes(bubbleExtension));
                 state.setCycleAccumulated(lastCycleAccumulated);
             }
         } else {
@@ -641,12 +642,14 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                     int beginCycleIndex = (Integer) ruleData.get("cycleIndex");
                     int cycleCount = (Integer) ruleData.get("simplifiedCycleCount");
                     state.setCycleIndex(beginCycleIndex + cycleCount - 1);
-                    state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin));
+                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                    state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin).plusMinutes(bubbleExtension));
                 } else {
                     // 非简化单元
                     state.setCycleAccumulated(BigDecimal.ZERO);
                     state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_DAY));
+                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_DAY).plusMinutes(bubbleExtension));
                 }
             }
         }
