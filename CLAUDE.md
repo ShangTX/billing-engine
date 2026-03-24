@@ -141,12 +141,41 @@ This is a parking billing system with a modular Maven multi-module structure:
 |------|------|------|
 | **core** | 核心计费引擎，纯计算逻辑，无副作用 | 无外部依赖 |
 | **billing-api** | 便捷 API 封装，提供视图功能、等效金额计算等 | core |
+| **billing-v3-spring-boot-starter** | Spring Boot 3.x Starter (3.0.x - 3.4.x) | billing-api |
+| **billing-v4-spring-boot-starter** | Spring Boot 3.5/4.x Starter (3.5.x - 4.x) | billing-api |
 | **bill-test** | 集成测试、功能验证 | core, billing-api |
 
 **模块分层原则**：
 - `core` 模块只负责计算，不处理缓存、持久化、日志存储
 - `billing-api` 模块提供便捷封装，处理"视图层"逻辑（如 queryTime 截取）
 - 调用方应优先使用 `billing-api`，复杂场景可直接使用 `core`
+
+### Spring Boot Starters
+
+提供两个独立的 Spring Boot Starter，支持不同版本的 Spring Boot：
+
+| Starter | Spring Boot | JDK | 状态 |
+|---------|-------------|-----|------|
+| billing-v3-spring-boot-starter | 3.0.x - 3.4.x | 21 | 活跃维护 |
+| billing-v4-spring-boot-starter | 3.5.x - 4.x | 21/23/25 | 活跃维护 |
+
+**使用方式：**
+
+```xml
+<!-- v3 版本 (Spring Boot 3.0.x - 3.4.x) -->
+<dependency>
+    <groupId>cn.shang</groupId>
+    <artifactId>billing-v3-spring-boot-starter</artifactId>
+</dependency>
+
+<!-- v4 版本 (Spring Boot 3.5.x - 4.x) -->
+<dependency>
+    <groupId>cn.shang</groupId>
+    <artifactId>billing-v4-spring-boot-starter</artifactId>
+</dependency>
+```
+
+**迁移说明：** 两个 starter API 完全相同，迁移只需更换 Maven 依赖的 artifactId。
 
 ### Core Architecture (core module)
 
