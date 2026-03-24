@@ -33,4 +33,10 @@ public class PromotionGrant {
 
     Integer priority; // 优先级
 
+    /**
+     * 免费时间段类型：NORMAL（普通）/ BUBBLE（气泡型，延长周期边界）
+     * 仅对 FREE_RANGE 类型有效
+     */
+    FreeTimeRangeType rangeType;
+
 }

@@ -283,6 +283,7 @@ public class PromotionEngine {
                 .beginTime(grant.getBeginTime())
                 .endTime(grant.getEndTime())
                 .priority(grant.getPriority())
+                .rangeType(grant.getRangeType())
                 .build();
     }
 
