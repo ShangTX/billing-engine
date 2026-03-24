@@ -1029,7 +1029,12 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                 // 更新周期索引和边界
                 state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
                 int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE).plusMinutes(bubbleExtension));
+                // 如果 cycleBoundary 已存在（CONTINUE 模式），在其基础上延长
+                if (state.getCycleBoundary() != null) {
+                    state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                } else {
+                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE).plusMinutes(bubbleExtension));
+                }
                 // 使用返回的累计金额
                 state.setCycleAccumulated(lastCycleAccumulated);
             }
@@ -1047,13 +1052,21 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                     int cycleCount = (Integer) ruleData.get("simplifiedCycleCount");
                     state.setCycleIndex(beginCycleIndex + cycleCount - 1);
                     int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                    state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin).plusMinutes(bubbleExtension));
+                    if (state.getCycleBoundary() != null) {
+                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                    } else {
+                        state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin).plusMinutes(bubbleExtension));
+                    }
                 } else {
                     // 非简化单元
                     state.setCycleAccumulated(BigDecimal.ZERO);
                     state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
                     int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE).plusMinutes(bubbleExtension));
+                    if (state.getCycleBoundary() != null) {
+                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                    } else {
+                        state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE).plusMinutes(bubbleExtension));
+                    }
                 }
             }
         }

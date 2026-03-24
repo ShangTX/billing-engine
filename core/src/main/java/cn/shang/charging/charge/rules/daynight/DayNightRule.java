@@ -897,9 +897,15 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             if (!cycles.isEmpty()) {
                 state.setCycleAccumulated(lastCycleAccumulated);
                 state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                // 计算气泡延长
+                // 计算气泡延长并累加到当前 cycleBoundary
                 int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                // 如果 cycleBoundary 已存在（CONTINUE 模式），在其基础上延长
+                // 否则（FROM_SCRATCH 模式），从周期终点开始延长
+                if (state.getCycleBoundary() != null) {
+                    state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                } else {
+                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                }
             }
         } else {
             // 简化计算模式：更新状态
@@ -911,9 +917,13 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                     java.util.Map<String, Object> ruleData = (java.util.Map<String, Object>) lastUnit.getRuleData();
                     state.setCycleAccumulated((BigDecimal) ruleData.get("simplifiedCycleAmount"));
                     state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                    // 计算气泡延长
+                    // 计算气泡延长并累加到当前 cycleBoundary
                     int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                    if (state.getCycleBoundary() != null) {
+                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                    } else {
+                        state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                    }
                 } else {
                     // 非简化单元：找最后一个周期的非免费单元
                     LocalDateTime lastCycleEnd = cycles.get(cycles.size() - 1).cycleEnd;
@@ -923,9 +933,13 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
                     state.setCycleAccumulated(lastCycleAmount);
                     state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                    // 计算气泡延长
+                    // 计算气泡延长并累加到当前 cycleBoundary
                     int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                    if (state.getCycleBoundary() != null) {
+                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                    } else {
+                        state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                    }
                 }
             }
         }
