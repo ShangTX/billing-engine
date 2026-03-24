@@ -26,6 +26,13 @@ public class FreeTimeRange {
 
     private BConstants.PromotionType promotionType;
 
+    /**
+     * 免费时间段类型：NORMAL（普通）/ BUBBLE（气泡型，延长周期边界）
+     * 默认为 NORMAL
+     */
+    @Builder.Default
+    private FreeTimeRangeType rangeType = FreeTimeRangeType.NORMAL;
+
     private Object data; // 其他数据
 
     // TODO 免费时间段特性
@@ -63,7 +70,8 @@ public class FreeTimeRange {
                 .setBeginTime(beginTime)
                 .setEndTime(endTime)
                 .setPriority(priority)
-                .setPromotionType(promotionType);
+                .setPromotionType(promotionType)
+                .setRangeType(rangeType);
         copy.data = this.data;
         return copy;
     }
@@ -73,6 +81,7 @@ public class FreeTimeRange {
                 .setBeginTime(this.beginTime)
                 .setEndTime(this.endTime)
                 .setPriority(this.priority)
-                .setPromotionType(this.promotionType);
+                .setPromotionType(this.promotionType)
+                .setRangeType(this.rangeType);
     }
 }
