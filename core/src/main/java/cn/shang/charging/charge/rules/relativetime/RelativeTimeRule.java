@@ -1028,7 +1028,8 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             if (!cycles.isEmpty()) {
                 // 更新周期索引和边界
                 state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE));
+                int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE).plusMinutes(bubbleExtension));
                 // 使用返回的累计金额
                 state.setCycleAccumulated(lastCycleAccumulated);
             }
@@ -1045,12 +1046,14 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                     int beginCycleIndex = (Integer) ruleData.get("cycleIndex");
                     int cycleCount = (Integer) ruleData.get("simplifiedCycleCount");
                     state.setCycleIndex(beginCycleIndex + cycleCount - 1);
-                    state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin));
+                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                    state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin).plusMinutes(bubbleExtension));
                 } else {
                     // 非简化单元
                     state.setCycleAccumulated(BigDecimal.ZERO);
                     state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE));
+                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE).plusMinutes(bubbleExtension));
                 }
             }
         }
