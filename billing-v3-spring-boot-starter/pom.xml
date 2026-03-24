@@ -10,9 +10,9 @@
         <version>0.0.1-SNAPSHOT</version>
     </parent>
 
-    <artifactId>billing-spring-boot-starter</artifactId>
-    <name>billing-spring-boot-starter</name>
-    <description>Spring Boot Starter for billing engine</description>
+    <artifactId>billing-v3-spring-boot-starter</artifactId>
+    <name>billing-v3-spring-boot-starter</name>
+    <description>Spring Boot 3.x Starter for billing engine (3.0.x - 3.4.x)</description>
 
     <properties>
         <spring-boot.version>3.2.0</spring-boot.version>
