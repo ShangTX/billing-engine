@@ -885,39 +885,49 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         // 如果未使用简化，使用原有逻辑
         if (allUnits.isEmpty()) {
             BigDecimal carryOverAccumulated = state.getCycleAccumulated();
+            BigDecimal lastCycleAccumulated = BigDecimal.ZERO;
             for (CycleFragments cycle : cycles) {
                 List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
-                applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneDay(), carryOverAccumulated);
+                lastCycleAccumulated = applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneDay(), carryOverAccumulated);
                 allUnits.addAll(cycleUnits);
                 // 新周期重置累计金额
                 carryOverAccumulated = BigDecimal.ZERO;
             }
-        }
-
-        // 更新最终状态（FROM_SCRATCH 结果也需要用于继续计算）
-        BigDecimal lastCycleAmount = BigDecimal.ZERO;
-        if (!cycles.isEmpty()) {
-            // 检查最后一个单元是否为简化单元
-            if (!allUnits.isEmpty()) {
+            // 更新最终状态（FROM_SCRATCH 结果也需要用于继续计算）
+            if (!cycles.isEmpty()) {
+                state.setCycleAccumulated(lastCycleAccumulated);
+                state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+                // 计算气泡延长
+                int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+            }
+        } else {
+            // 简化计算模式：更新状态
+            if (!cycles.isEmpty()) {
                 BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
                 if (isSimplifiedUnit(lastUnit)) {
                     // 简化单元：使用 simplifiedCycleAmount 作为周期累计金额
                     @SuppressWarnings("unchecked")
                     java.util.Map<String, Object> ruleData = (java.util.Map<String, Object>) lastUnit.getRuleData();
-                    lastCycleAmount = (BigDecimal) ruleData.get("simplifiedCycleAmount");
+                    state.setCycleAccumulated((BigDecimal) ruleData.get("simplifiedCycleAmount"));
+                    state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+                    // 计算气泡延长
+                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
                 } else {
                     // 非简化单元：找最后一个周期的非免费单元
                     LocalDateTime lastCycleEnd = cycles.get(cycles.size() - 1).cycleEnd;
-                    lastCycleAmount = allUnits.stream()
+                    BigDecimal lastCycleAmount = allUnits.stream()
                             .filter(u -> !u.isFree() && u.getEndTime().compareTo(lastCycleEnd) <= 0 && u.getEndTime().compareTo(cycles.get(cycles.size() - 1).cycleStart) > 0)
                             .map(BillingUnit::getChargedAmount)
                             .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    state.setCycleAccumulated(lastCycleAmount);
+                    state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+                    // 计算气泡延长
+                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
                 }
             }
-            state.setCycleAccumulated(lastCycleAmount);
-            // 更新周期索引
-            state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-            state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24));
         }
 
         // 汇总结果
@@ -1221,8 +1231,9 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
     /**
      * CONTINUOUS 模式封顶处理（考虑结转的累计金额）
+     * @return 返回处理后的累计金额
      */
-    private void applyContinuousCapWithCarryOver(List<BillingUnit> units, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
+    private BigDecimal applyContinuousCapWithCarryOver(List<BillingUnit> units, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
         // 如果继承的累计金额已达到封顶，将所有收费单元合并为一个免费单元
         if (carryOverAccumulated.compareTo(maxCharge) >= 0) {
             List<BillingUnit> chargeableUnits = units.stream()
@@ -1249,7 +1260,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                         .build();
                 units.add(mergedFreeUnit);
             }
-            return;
+            return maxCharge; // 返回封顶金额
         }
 
         BigDecimal accumulated = carryOverAccumulated;
@@ -1276,7 +1287,8 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         }
 
         if (capIndex < 0) {
-            return; // 未超过封顶
+            // 未超过封顶，返回累计金额
+            return accumulated;
         }
 
         // 调整封顶单元的金额
@@ -1306,6 +1318,8 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             units.subList(capIndex + 1, units.size()).clear();
             units.add(mergedFreeUnit);
         }
+
+        return maxCharge; // 返回封顶金额
     }
 
     /**
