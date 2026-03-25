@@ -185,7 +185,6 @@
                 <extensions>true</extensions>
                 <configuration>
                     <publishingServerId>central-portal</publishingServerId>
-                    <tokenAuth>true</tokenAuth>
                 </configuration>
             </plugin>
         </plugins>
