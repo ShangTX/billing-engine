@@ -18,6 +18,20 @@ public class BillingRequest {
     private LocalDateTime beginTime;
     private LocalDateTime endTime;
 
+    /**
+     * 查询时间点（可选）
+     * 用于返回该时刻的费用状态
+     * 不提供时，默认使用 calcEndTime
+     */
+    private LocalDateTime queryTime;
+
+    /**
+     * 计算结束时间（可选）
+     * 用于控制计算进度
+     * 不提供时，使用 endTime
+     */
+    private LocalDateTime calcEndTime;
+
     // 外部优惠
     private List<PromotionGrant> externalPromotions;
 
@@ -33,7 +47,9 @@ public class BillingRequest {
     private List<SchemeChange> schemeChanges;
 
     /**
-     * 上一次计费结果 TODO
+     * 上一次计费的结转状态（用于 CONTINUE 模式）
+     * 如果不为 null，则从 previousCarryOver.calculatedUpTo 继续计算
      */
+    private BillingCarryOver previousCarryOver;
 
 }

@@ -26,6 +26,13 @@ public class FreeTimeRange {
 
     private BConstants.PromotionType promotionType;
 
+    /**
+     * 免费时间段类型：NORMAL（普通）/ BUBBLE（气泡型，延长周期边界）
+     * 默认为 NORMAL
+     */
+    @Builder.Default
+    private FreeTimeRangeType rangeType = FreeTimeRangeType.NORMAL;
+
     private Object data; // 其他数据
 
     // TODO 免费时间段特性
@@ -58,12 +65,23 @@ public class FreeTimeRange {
 
     // 复制构造方法
     public FreeTimeRange copy() {
-        FreeTimeRange copy = new FreeTimeRange().setId(id).setBeginTime(beginTime).setEndTime(endTime).setPriority(priority);
+        FreeTimeRange copy = new FreeTimeRange()
+                .setId(id)
+                .setBeginTime(beginTime)
+                .setEndTime(endTime)
+                .setPriority(priority)
+                .setPromotionType(promotionType)
+                .setRangeType(rangeType);
         copy.data = this.data;
         return copy;
     }
 
     public FreeTimeRange copyWithNewId() {
-        return new FreeTimeRange().setBeginTime(this.beginTime).setEndTime(this.endTime).setPriority(this.priority);
+        return new FreeTimeRange()
+                .setBeginTime(this.beginTime)
+                .setEndTime(this.endTime)
+                .setPriority(this.priority)
+                .setPromotionType(this.promotionType)
+                .setRangeType(this.rangeType);
     }
 }

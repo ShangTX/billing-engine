@@ -6,11 +6,19 @@ package cn.shang.charging.billing.pojo;
 public class BConstants {
 
     /**
-     * 计费模式
+     * 继续模式（是否从上次结果继续计算）
+     */
+    public enum ContinueMode {
+        FROM_SCRATCH, // 从开始时间计算
+        CONTINUE      // 从上一次的结果继续计算
+    }
+
+    /**
+     * 计费模式（计费单位如何划分）
      */
     public enum BillingMode {
-        FROM_SCRATCH, // 从开始时间计算
-        CONTINUE // 从上一次的结果继续计算
+        CONTINUOUS, // 连续时间计费模式
+        UNIT_BASED  // 计费单位模式
     }
 
     /**
@@ -49,11 +57,11 @@ public class BConstants {
         public static String NATURAL_TIME = "naturalTime"; // 按自然时间段计费
         public static String RELATIVE_TIME = "relativeTime"; // 按相对时间段计费
         public static String NR_TIME_MIX = "nrTimeMix"; // 按自然时间、相对时间混合时间段计费
+        public static String COMPOSITE_TIME = "compositeTime"; // 混合时间计费
     }
 
     public static class PromotionRuleType {
         public static String FREE_MINUTES = "freeMinutes"; // 免费分钟数
-        public static String FREE_TIME_RANGE = "freeTimeRange"; // 免费时间段
     }
 
 }

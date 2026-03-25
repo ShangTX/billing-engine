@@ -19,7 +19,7 @@ import java.util.List;
 @AllArgsConstructor
 @NoArgsConstructor
 @Accessors(chain=true)
-@Builder
+@Builder(toBuilder = true)
 public class BillingResult {
     private List<BillingUnit> units; // 计费细节
     private List<PromotionUsage> promotionUsages; // 优惠使用情况
@@ -28,6 +28,17 @@ public class BillingResult {
     // 价格的有效时间
     private LocalDateTime effectiveFrom;
     private LocalDateTime effectiveTo;
+
+    /**
+     * 实际计算到的时间点（延伸后，用于缓存有效性判断和 CONTINUE 起点）
+     * 最后一个计费单元延伸后的结束时间
+     */
+    private LocalDateTime calculationEndTime;
+
+    /**
+     * 本次计算后的结转状态（供下次 CONTINUE 使用）
+     */
+    private BillingCarryOver carryOver;
 
 
     public static BillingResult of(ChargingResult chargingResult, SettlementResult settlementResult) {

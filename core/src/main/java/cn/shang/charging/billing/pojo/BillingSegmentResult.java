@@ -11,6 +11,7 @@ import lombok.experimental.Accessors;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 分段计费结果
@@ -81,7 +82,12 @@ public class BillingSegmentResult {
      * 本分段结束后的结转状态
      * 用于下一个分段 or 下次继续计算
      */
-//    private BillingCarryOver carryOverAfter;
+    private BillingCarryOver carryOverAfter;
+
+    /**
+     * 规则计算过程中的输出状态（供 buildCarryOverState 提取）
+     */
+    private Map<String, Object> ruleOutputState;
 
     private List<PromotionUsage> promotionUsages;
 

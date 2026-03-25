@@ -10,7 +10,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * 计费单元 - 最小计费粒度
+ * 计费单元 - 最小计费单位，通用结构
  */
 @Data
 @Builder
@@ -19,27 +19,54 @@ import java.time.LocalDateTime;
 @Accessors(chain = true)
 public class BillingUnit {
 
-    /** 计费单元开始时间 */
+    /**
+     * 单元开始时间
+     */
     private LocalDateTime beginTime;
 
-    /** 计费单元结束时间 */
+    /**
+     * 单元结束时间
+     */
     private LocalDateTime endTime;
 
-    /** 计费时长（分钟） */
-    private Integer durationMinutes;
+    /**
+     * 单元时长（分钟）
+     */
+    private int durationMinutes;
 
-    /** 计费类型：DAY / NIGHT */
-    private String chargeType;
-
-    /** 单价 */
+    /**
+     * 单元单价（由具体规则解释）
+     */
     private BigDecimal unitPrice;
 
-    /** 本单元应收金额 */
-    private BigDecimal amount;
+    /**
+     * 原始金额（应用优惠前）
+     */
+    private BigDecimal originalAmount;
 
-    /** 是否免费（被优惠覆盖） */
-    private Boolean isFree;
+    /**
+     * 是否免费（被优惠完全覆盖）
+     */
+    private boolean free;
 
-    /** 关联的优惠 ID（如果免费） */
+    /**
+     * 是否被 calcEndTime 截断
+     * 用于 CONTINUE 模式恢复截断单元
+     */
+    private Boolean isTruncated;
+
+    /**
+     * 免费原因（优惠ID等）
+     */
     private String freePromotionId;
+
+    /**
+     * 实际金额（应用优惠后）
+     */
+    private BigDecimal chargedAmount;
+
+    /**
+     * 规则扩展数据，由具体规则使用
+     */
+    private Object ruleData;
 }

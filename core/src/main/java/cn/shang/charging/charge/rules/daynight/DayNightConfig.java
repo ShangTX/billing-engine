@@ -53,4 +53,9 @@ public class DayNightConfig implements RuleConfig {
      */
     BigDecimal maxChargeOneDay;
 
+    /**
+     * 是否支持简化计算，null 表示默认支持
+     */
+    Boolean simplifiedSupported;
+
 }

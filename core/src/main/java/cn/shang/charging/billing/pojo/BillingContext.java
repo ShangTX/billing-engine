@@ -1,5 +1,6 @@
 package cn.shang.charging.billing.pojo;
 
+import cn.shang.charging.billing.BillingConfigResolver;
 import cn.shang.charging.billing.BillingSegment;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
 import lombok.AllArgsConstructor;
@@ -9,6 +10,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @NoArgsConstructor
 @AllArgsConstructor
@@ -23,7 +25,12 @@ public class BillingContext {
     private LocalDateTime endTime;
 
     /**
-     * 三种模式：STATELESS / CACHE / PERSIST
+     * 继续模式：是否从上次结果继续计算
+     */
+    private BConstants.ContinueMode continueMode;
+
+    /**
+     * 计费模式：计费单位如何划分
      */
     private BConstants.BillingMode billingMode;
 
@@ -43,9 +50,17 @@ public class BillingContext {
     private List<PromotionGrant> externalPromotions;
 
     /**
-     * 已计算进度（仅缓存 / 持久化模式使用）
+     * 从 carryOver 恢复的规则状态
+     * key: 规则类型（如 "relativeTime", "dayNight"）
+     * value: 规则自定义的状态结构
      */
-    private BillingProgress progress;
+    private Map<String, Object> ruleState;
+
+    /**
+     * 从 carryOver 恢复的优惠结转状态
+     * 包含剩余免费分钟数和已使用免费时段
+     */
+    private PromotionCarryOver promotionCarryOver;
 
     /**
      * 优惠规则
@@ -57,8 +72,9 @@ public class BillingContext {
      */
     private RuleConfig chargingRule;
 
-
-
-
+    /**
+     * 计费配置解析器
+     */
+    private BillingConfigResolver billingConfigResolver;
 
 }

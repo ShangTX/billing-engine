@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn exec:java:*)",
+      "Bash(mvn:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(mvn clean:*)",
+      "Bash(cd D:/dev/code/park-bill/charge && mvn exec:java -pl bill-test -Dexec.mainClass=\"cn.shang.charging.ContinueModeTest\" -q 2>&1 > /tmp/test_output.txt && cat /tmp/test_output.txt | iconv -f GBK -t UTF-8 2>/dev/null | grep -A 80 \"RelativeTimeRule - 封顶+优惠+继续\" | head -100)",
+      "Bash(cd D:/dev/code/park-bill/charge && mvn exec:java -pl bill-test -Dexec.mainClass=\"cn.shang.charging.ContinueModeTest\" -q 2>&1 > /tmp/test_output.txt && cat /tmp/test_output.txt | iconv -f GBK -t UTF-8 2>/dev/null | grep -A 50 \"DayNightRule - 封顶+优惠+继续\" | head -60)",
+      "Bash(cd D:/dev/code/park-bill/charge && mvn exec:java -pl bill-test -Dexec.mainClass=\"cn.shang.charging.ContinueModeTest\" -q 2>&1 > /tmp/test_output.txt && cat /tmp/test_output.txt | iconv -f GBK -t UTF-8 2>/dev/null | grep -A 30 \"DayNightRule - 封顶+优惠+继续\" | head -35)",
+      "Bash(cd:*)",
+      "Read(//d/dev/code/park-bill/charge/**)",
+      "Bash(chmod +x D:/dev/code/park-bill/charge/.git/hooks/prepare-commit-msg)",
+      "Bash(.git/hooks/prepare-commit-msg /tmp/test-commit-msg.txt message)",
+      "Read(//tmp/**)"
+    ]
+  }
+}

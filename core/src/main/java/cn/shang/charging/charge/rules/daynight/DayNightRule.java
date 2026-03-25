@@ -1,34 +1,61 @@
 package cn.shang.charging.charge.rules.daynight;
 
-import cn.shang.charging.billing.pojo.*;
+import cn.shang.charging.billing.pojo.BConstants;
+import cn.shang.charging.billing.pojo.BillingContext;
+import cn.shang.charging.billing.pojo.BillingSegmentResult;
+import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
- * 日夜计费规则
+ * 日夜分时段计费规则
  * <p>
- * 计费逻辑：
- * - 每 24 小时为一个计费周期，从计费开始时间算起
- * - 白天和夜晚价格不同，由 DayNightConfig 配置
- * - 每日限额：每 24 小时的最高收费
- * - 白天黑夜比例：当单位时间跨越白天黑夜时，按白天分钟数占比决定使用哪种价格（0-1）
+ * 核心逻辑：
+ * 1. 从计费起点开始，按24小时划分周期
+ * 2. 每个周期内独立计算封顶
+ * 3. 按unitMinutes划分计费单元，跨周期边界截断
+ * 4. 跨日夜时段根据blockWeight判断使用白天价还是夜间价
+ * 5. 免费时段完全覆盖计费单元则免费
  */
-public class DayNightRule implements BillingRule<DayNightConfig> {
+public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
-    private static final String DAY_TYPE = "DAY";
-    private static final String NIGHT_TYPE = "NIGHT";
+    // 规则类型标识
+    private static final String RULE_TYPE = "dayNight";
+
+    @Override
+    protected String getRuleType() {
+        return RULE_TYPE;
+    }
+
+    @Override
+    protected boolean hasComplexFeatures(DayNightConfig config) {
+        // DayNightRule 无时间段封顶等复杂特性
+        return false;
+    }
+
+    @Override
+    protected boolean isSimplifiedSupported(DayNightConfig config) {
+        // DayNightRule 支持简化计算
+        return true;
+    }
+
+    @Override
+    protected BigDecimal getCycleCapAmount(DayNightConfig config) {
+        return config.getMaxChargeOneDay();
+    }
 
     @Override
     public Class<DayNightConfig> configClass() {
@@ -36,174 +63,745 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
     }
 
     @Override
-    public BillingSegmentResult calculate(BillingContext context, DayNightConfig ruleConfig, PromotionAggregate promotionAggregate) {
+    public Set<BConstants.BillingMode> supportedModes() {
+        return EnumSet.of(BConstants.BillingMode.CONTINUOUS, BConstants.BillingMode.UNIT_BASED);
+    }
+
+    /**
+     * 验证配置有效性
+     */
+    private void validateConfig(DayNightConfig config) {
+        // 检查每日封顶金额（必填）
+        if (config.getMaxChargeOneDay() == null) {
+            throw new IllegalArgumentException("maxChargeOneDay is required");
+        }
+        if (config.getMaxChargeOneDay().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("maxChargeOneDay must be positive");
+        }
+
+        // 检查单元长度
+        if (config.getUnitMinutes() == null || config.getUnitMinutes() <= 0) {
+            throw new IllegalArgumentException("unitMinutes must be positive");
+        }
+
+        // 检查单价
+        if (config.getDayUnitPrice() == null || config.getDayUnitPrice().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("dayUnitPrice must be non-negative");
+        }
+        if (config.getNightUnitPrice() == null || config.getNightUnitPrice().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("nightUnitPrice must be non-negative");
+        }
+
+        // 检查日夜时段配置
+        if (config.getDayBeginMinute() == null || config.getDayEndMinute() == null) {
+            throw new IllegalArgumentException("dayBeginMinute and dayEndMinute are required");
+        }
+
+        // 检查 blockWeight
+        if (config.getBlockWeight() == null ||
+            config.getBlockWeight().compareTo(BigDecimal.ZERO) < 0 ||
+            config.getBlockWeight().compareTo(BigDecimal.ONE) > 0) {
+            throw new IllegalArgumentException("blockWeight must be between 0 and 1");
+        }
+    }
+
+    @Override
+    public BillingSegmentResult calculate(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
+        if (context.getBillingMode() == BConstants.BillingMode.UNIT_BASED) {
+            return calculateUnitBased(context, config, promotionAggregate);
+        } else {
+            return calculateContinuous(context, config, promotionAggregate);
+        }
+    }
+
+    /**
+     * UNIT_BASED 模式计算
+     * 固定从计费起点对齐，免费时段必须完全覆盖整个单元才免费
+     */
+    private BillingSegmentResult calculateUnitBased(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
+        // 验证配置
+        validateConfig(config);
+
         // 获取计算窗口
-        CalculationWindow window = context.getWindow();
-        LocalDateTime calcBegin = window.getCalculationBegin();
-        LocalDateTime calcEnd = window.getCalculationEnd();
+        LocalDateTime calcBegin = context.getWindow().getCalculationBegin();
+        LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
 
-        // 获取免费时间段列表
-        List<FreeTimeRange> freeRanges = promotionAggregate.getFreeTimeRanges();
+        // 检查是否启用简化计算
+        boolean simplificationEnabled = context.getBillingConfigResolver() != null
+            && isSimplificationEnabled(config, context.getBillingConfigResolver());
 
-        // 计费单元列表
-        List<BillingUnit> billingUnits = new ArrayList<>();
+        // 计算总周期数
+        long totalMinutes = Duration.between(calcBegin, calcEnd).toMinutes();
+        int totalCycles = (int) (totalMinutes / getCycleMinutes());
 
-        // 总金额
-        BigDecimal totalAmount = BigDecimal.ZERO;
+        if (simplificationEnabled && totalCycles > context.getBillingConfigResolver().getSimplifiedCycleThreshold()) {
+            // 预计算有优惠的周期
+            Set<Integer> cyclesWithPromotion = findCyclesWithPromotion(calcBegin, calcEnd, promotionAggregate);
 
-        // 已计费时长（分钟）
-        int chargedDuration = 0;
-
-        // 每日限额跟踪：key=周期起始日期，value=已累积金额
-        // 由于是从计费开始时间算 24 小时周期，需要特殊处理
-        Map<LocalDateTime, BigDecimal> dailyCapUsed = new HashMap<>();
-
-        // 当前处理时间
-        LocalDateTime cursor = calcBegin;
-
-        // 单位时间长度（分钟）
-        int unitMinutes = ruleConfig.getUnitMinutes();
-
-        // 白天开始/结束分钟数
-        int dayBeginMinute = ruleConfig.getDayBeginMinute();
-        int dayEndMinute = ruleConfig.getDayEndMinute();
-
-        // 白天价格/夜晚价格
-        BigDecimal dayUnitPrice = ruleConfig.getDayUnitPrice();
-        BigDecimal nightUnitPrice = ruleConfig.getNightUnitPrice();
-
-        // 每日限额
-        BigDecimal maxChargeOneDay = ruleConfig.getMaxChargeOneDay();
-
-        // 白天黑夜比例阈值
-        BigDecimal blockWeight = ruleConfig.getBlockWeight();
-
-        // 按单位时间逐步计算
-        boolean shouldContinue = true;
-        while (cursor.isBefore(calcEnd) && shouldContinue) {
-            // 计算当前单位的结束时间
-            LocalDateTime unitEnd = cursor.plusMinutes(unitMinutes);
-            if (unitEnd.isAfter(calcEnd)) {
-                unitEnd = calcEnd;
-            }
-
-            // 实际时长（可能最后一个单位不足 unitMinutes）
-            int actualMinutes = (int) Duration.between(cursor, unitEnd).toMinutes();
-            if (actualMinutes <= 0) {
-                shouldContinue = false;
+            // 如果所有周期都有优惠（freeMinutes > 0），不简化
+            if (cyclesWithPromotion == null) {
+                simplificationEnabled = false;
             } else {
-
-                // 检查当前时间段是否完全在免费时间段内
-                FreeTimeRange coveringFreeRange = findCoveringFreeRange(cursor, unitEnd, freeRanges);
-
-                if (coveringFreeRange != null) {
-                    // 整个单位时间免费
-                    BillingUnit unit = BillingUnit.builder()
-                            .beginTime(cursor)
-                            .endTime(unitEnd)
-                            .durationMinutes(actualMinutes)
-                            .chargeType(DAY_TYPE) // 免费时段不区分日夜
-                            .unitPrice(BigDecimal.ZERO)
-                            .amount(BigDecimal.ZERO)
-                            .isFree(true)
-                            .freePromotionId(coveringFreeRange.getId())
-                            .build();
-                    billingUnits.add(unit);
-                } else {
-                    // 需要计费：判断日夜类型
-                    DayNightChargeResult chargeResult = calculateDayNightCharge(
-                            cursor, unitEnd, actualMinutes,
-                            dayBeginMinute, dayEndMinute,
-                            dayUnitPrice, nightUnitPrice,
-                            blockWeight
-                    );
-
-                    // 检查每日限额
-                    BigDecimal chargeAmount = chargeResult.amount;
-
-                    // 计算当前单位所属的 24 小时周期起始时间
-                    LocalDateTime cycleStart = getCycleStart(cursor, calcBegin, unitMinutes);
-                    BigDecimal usedInCycle = dailyCapUsed.getOrDefault(cycleStart, BigDecimal.ZERO);
-                    BigDecimal remainingInCycle = maxChargeOneDay.subtract(usedInCycle);
-
-                    if (remainingInCycle.compareTo(BigDecimal.ZERO) <= 0) {
-                        // 已达到每日限额，本单元免费
-                        BillingUnit unit = BillingUnit.builder()
-                                .beginTime(cursor)
-                                .endTime(unitEnd)
-                                .durationMinutes(actualMinutes)
-                                .chargeType(chargeResult.chargeType)
-                                .unitPrice(chargeResult.unitPrice)
-                                .amount(BigDecimal.ZERO)
-                                .isFree(true)
-                                .freePromotionId("DAILY_CAP")
-                                .build();
-                        billingUnits.add(unit);
-                        chargedDuration += actualMinutes;
-                    } else if (remainingInCycle.compareTo(chargeAmount) < 0) {
-                        // 部分超出限额
-                        BigDecimal actualCharge = remainingInCycle;
-                        BillingUnit unit = BillingUnit.builder()
-                                .beginTime(cursor)
-                                .endTime(unitEnd)
-                                .durationMinutes(actualMinutes)
-                                .chargeType(chargeResult.chargeType)
-                                .unitPrice(chargeResult.unitPrice)
-                                .amount(actualCharge)
-                                .isFree(false)
-                                .build();
-                        billingUnits.add(unit);
-                        totalAmount = totalAmount.add(actualCharge);
-                        chargedDuration += actualMinutes;
-                        dailyCapUsed.put(cycleStart, maxChargeOneDay); // 标记为已用满
-                    } else {
-                        // 未超出限额，正常计费
-                        BillingUnit unit = BillingUnit.builder()
-                                .beginTime(cursor)
-                                .endTime(unitEnd)
-                                .durationMinutes(actualMinutes)
-                                .chargeType(chargeResult.chargeType)
-                                .unitPrice(chargeResult.unitPrice)
-                                .amount(chargeAmount)
-                                .isFree(false)
-                                .build();
-                        billingUnits.add(unit);
-                        totalAmount = totalAmount.add(chargeAmount);
-                        chargedDuration += actualMinutes;
-                        dailyCapUsed.put(cycleStart, usedInCycle.add(chargeAmount));
-                    }
-
-                }
-
-                // 移动到下一个单位
-                cursor = unitEnd;
+                // 执行简化计算
+                return calculateWithSimplification(context, config, promotionAggregate,
+                    calcBegin, calcEnd, context.getBillingConfigResolver().getSimplifiedCycleThreshold(),
+                    cyclesWithPromotion, totalCycles);
             }
         }
 
-        // 构建结果
+        // 恢复状态
+        RuleState state = restoreState(context.getRuleState());
+        if (state == null) {
+            // FROM_SCRATCH: 初始化状态
+            state = initializeState(calcBegin);
+        } else {
+            // CONTINUE: 更新周期状态
+            while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
+                state.setCycleIndex(state.getCycleIndex() + 1);
+                state.setCycleAccumulated(BigDecimal.ZERO);
+                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(getCycleMinutes()));
+            }
+        }
+
+        // 按周期和单元划分，生成计费单元（传入初始周期索引）
+        List<UnitWithContext> unitsWithContext = buildUnitsWithContextWithState(calcBegin, calcEnd, config, state);
+
+        // 获取免费时段
+        List<FreeTimeRange> freeTimeRanges = promotionAggregate.getFreeTimeRanges();
+        if (freeTimeRanges == null) {
+            freeTimeRanges = List.of();
+        }
+
+        // 计算每个单元
+        List<BillingUnit> billingUnits = new ArrayList<>();
+        List<PromotionUsage> promotionUsages = new ArrayList<>();
+
+        for (UnitWithContext unitCtx : unitsWithContext) {
+            BillingUnit unit = calculateUnit(unitCtx, config, freeTimeRanges);
+            billingUnits.add(unit);
+        }
+
+        // 按周期应用封顶（考虑结转的累计金额），返回最后一个周期的累计金额
+        BigDecimal lastCycleAccumulated = applyDailyCapWithCarryOver(billingUnits, config, state.getCycleAccumulated());
+
+        // 更新最终状态（FROM_SCRATCH 结果也需要用于继续计算）
+        int maxCycleIndex = billingUnits.stream()
+                .mapToInt(u -> (Integer) u.getRuleData())
+                .max().orElse(0);
+        state.setCycleIndex(maxCycleIndex);
+        // 使用返回的累计金额（包含之前累计的）
+        state.setCycleAccumulated(lastCycleAccumulated);
+
+        // 汇总结果
+        BigDecimal totalAmount = billingUnits.stream()
+                .map(BillingUnit::getChargedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 计算费用稳定时间窗口
+        LocalDateTime feeEffectiveStart = calculateEffectiveFrom(billingUnits);
+        LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
+
+        // 标记最后一个单元是否被截断
+        if (!billingUnits.isEmpty()) {
+            BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
+            int unitMinutes = config.getUnitMinutes();
+            if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
+                lastUnit.setIsTruncated(true);
+            }
+        }
+
+        // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
+        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
+
         return BillingSegmentResult.builder()
-                .segmentId(context.getSegment().getSchemeId())
+                .segmentId(context.getSegment().getId())
                 .segmentStartTime(context.getSegment().getBeginTime())
                 .segmentEndTime(context.getSegment().getEndTime())
-                .calculationStartTime(window.getCalculationBegin())
-                .calculationEndTime(window.getCalculationEnd())
+                .calculationStartTime(calcBegin)
+                .calculationEndTime(calcEnd)
                 .chargedAmount(totalAmount)
-                .chargedDuration(chargedDuration)
                 .billingUnits(billingUnits)
-                .promotionUsages(promotionAggregate.getUsages())
+                .promotionUsages(promotionUsages)
+                .promotionAggregate(promotionAggregate)
+                .feeEffectiveStart(feeEffectiveStart)
+                .feeEffectiveEnd(feeEffectiveEnd)
+                .ruleOutputState(ruleOutputState)
                 .build();
     }
 
     /**
-     * 查找覆盖给定时间段的免费时间段
+     * 带简化计算的方法
      */
-    private FreeTimeRange findCoveringFreeRange(LocalDateTime begin, LocalDateTime end, List<FreeTimeRange> freeRanges) {
-        if (freeRanges == null || freeRanges.isEmpty()) {
+    private BillingSegmentResult calculateWithSimplification(
+            BillingContext context,
+            DayNightConfig config,
+            PromotionAggregate promotionAggregate,
+            LocalDateTime calcBegin,
+            LocalDateTime calcEnd,
+            int threshold,
+            Set<Integer> cyclesWithPromotion,
+            int totalCycles) {
+
+        List<BillingUnit> billingUnits = new ArrayList<>();
+        BigDecimal cycleCapAmount = getCycleCapAmount(config);
+        List<FreeTimeRange> freeTimeRanges = promotionAggregate != null ? promotionAggregate.getFreeTimeRanges() : null;
+        if (freeTimeRanges == null) {
+            freeTimeRanges = List.of();
+        }
+
+        // 恢复状态
+        RuleState state = restoreState(context.getRuleState());
+        if (state == null) {
+            state = initializeState(calcBegin);
+        }
+
+        // 从 state 恢复周期索引
+        int startCycleIndex = state.getCycleIndex();
+
+        int consecutiveSimplified = 0;
+        int simplifiedStartIndex = -1;
+
+        for (int cycleIndex = startCycleIndex; cycleIndex <= totalCycles; cycleIndex++) {
+            boolean hasPromotion = cyclesWithPromotion.contains(cycleIndex);
+
+            if (!hasPromotion) {
+                // 无优惠周期，累计
+                if (consecutiveSimplified == 0) {
+                    simplifiedStartIndex = cycleIndex;
+                }
+                consecutiveSimplified++;
+            } else {
+                // 遇到有优惠周期，先处理之前的简化段
+                if (consecutiveSimplified > threshold) {
+                    // 生成简化单元
+                    BillingUnit simplifiedUnit = buildSimplifiedUnit(
+                        simplifiedStartIndex, consecutiveSimplified, cycleCapAmount, calcBegin);
+                    billingUnits.add(simplifiedUnit);
+                } else if (consecutiveSimplified > 0) {
+                    // 不足阈值，逐周期生成
+                    for (int i = simplifiedStartIndex; i < simplifiedStartIndex + consecutiveSimplified; i++) {
+                        List<BillingUnit> cycleUnits = generateUnitsForSingleCycle(i, calcBegin, calcEnd, config, freeTimeRanges);
+                        billingUnits.addAll(cycleUnits);
+                    }
+                }
+                consecutiveSimplified = 0;
+
+                // 生成当前有优惠周期的详细单元
+                List<BillingUnit> cycleUnits = generateUnitsForSingleCycle(cycleIndex, calcBegin, calcEnd, config, freeTimeRanges);
+                billingUnits.addAll(cycleUnits);
+            }
+        }
+
+        // 处理最后的简化段
+        if (consecutiveSimplified > threshold) {
+            BillingUnit simplifiedUnit = buildSimplifiedUnit(
+                simplifiedStartIndex, consecutiveSimplified, cycleCapAmount, calcBegin);
+            billingUnits.add(simplifiedUnit);
+        } else if (consecutiveSimplified > 0) {
+            for (int i = simplifiedStartIndex; i < simplifiedStartIndex + consecutiveSimplified; i++) {
+                List<BillingUnit> cycleUnits = generateUnitsForSingleCycle(i, calcBegin, calcEnd, config, freeTimeRanges);
+                billingUnits.addAll(cycleUnits);
+            }
+        }
+
+        // 应用封顶（简化单元已达封顶，但需要处理累计金额的逻辑）
+        applyDailyCapWithCarryOver(billingUnits, config, state.getCycleAccumulated());
+
+        // 更新状态 - 使用实际处理的最后一个周期索引
+        if (!billingUnits.isEmpty()) {
+            BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
+            if (isSimplifiedUnit(lastUnit)) {
+                // 简化单元：从 ruleData 揎取周期信息
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> ruleData = (java.util.Map<String, Object>) lastUnit.getRuleData();
+                int beginCycleIndex = (Integer) ruleData.get("cycleIndex");
+                int cycleCount = (Integer) ruleData.get("simplifiedCycleCount");
+                BigDecimal cycleAmount = (BigDecimal) ruleData.get("simplifiedCycleAmount");
+                state.setCycleIndex(beginCycleIndex + cycleCount - 1);
+                state.setCycleAccumulated(cycleAmount);
+                state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin));
+            } else {
+                // 非简化单元：使用最后一个单元的周期索引
+                int lastCycleIndex = (Integer) lastUnit.getRuleData();
+                state.setCycleIndex(lastCycleIndex);
+                // 计算最后一个周期的累计金额
+                final int finalLastCycleIndex = lastCycleIndex;
+                BigDecimal lastCycleAccumulated = billingUnits.stream()
+                        .filter(u -> u.getRuleData() instanceof Integer && (Integer) u.getRuleData() == finalLastCycleIndex)
+                        .map(BillingUnit::getChargedAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                state.setCycleAccumulated(lastCycleAccumulated);
+                state.setCycleBoundary(getCycleBoundary(lastCycleIndex + 1, calcBegin));
+            }
+        } else {
+            // 没有单元，保持原状态
+            state.setCycleIndex(totalCycles);
+            state.setCycleAccumulated(cycleCapAmount);
+            state.setCycleBoundary(getCycleBoundary(totalCycles + 1, calcBegin));
+        }
+
+        // 汇总结果
+        BigDecimal totalAmount = billingUnits.stream()
+                .map(BillingUnit::getChargedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 标记最后单元截断
+        if (!billingUnits.isEmpty()) {
+            BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
+            if (!isSimplifiedUnit(lastUnit)) {
+                int unitMinutes = config.getUnitMinutes();
+                if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
+                    lastUnit.setIsTruncated(true);
+                }
+            }
+        }
+
+        return BillingSegmentResult.builder()
+                .segmentId(context.getSegment().getId())
+                .segmentStartTime(context.getSegment().getBeginTime())
+                .segmentEndTime(context.getSegment().getEndTime())
+                .calculationStartTime(calcBegin)
+                .calculationEndTime(calcEnd)
+                .chargedAmount(totalAmount)
+                .billingUnits(billingUnits)
+                .promotionUsages(new ArrayList<>())
+                .promotionAggregate(promotionAggregate)
+                .feeEffectiveStart(calculateEffectiveFrom(billingUnits))
+                .feeEffectiveEnd(calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd))
+                .ruleOutputState(buildRuleOutputState(state))
+                .build();
+    }
+
+    /**
+     * 生成单个周期的计费单元
+     */
+    private List<BillingUnit> generateUnitsForSingleCycle(
+            int cycleIndex,
+            LocalDateTime calcBegin,
+            LocalDateTime calcEnd,
+            DayNightConfig config,
+            List<FreeTimeRange> freeTimeRanges) {
+
+        LocalDateTime cycleStart = getCycleBoundary(cycleIndex, calcBegin);
+        LocalDateTime cycleEnd = getCycleBoundary(cycleIndex + 1, calcBegin);
+
+        // 限制在计算窗口内
+        if (cycleStart.isBefore(calcBegin)) {
+            cycleStart = calcBegin;
+        }
+        if (cycleEnd.isAfter(calcEnd)) {
+            cycleEnd = calcEnd;
+        }
+
+        if (!cycleStart.isBefore(cycleEnd)) {
+            return List.of();
+        }
+
+        // 使用现有的 buildUnitsWithContextWithState 逻辑
+        RuleState tempState = RuleState.builder()
+                .cycleIndex(cycleIndex)
+                .cycleAccumulated(BigDecimal.ZERO)
+                .cycleBoundary(cycleEnd)
+                .build();
+
+        List<UnitWithContext> unitsWithContext = buildUnitsWithContextWithState(cycleStart, cycleEnd, config, tempState);
+
+        List<BillingUnit> units = new ArrayList<>();
+        for (UnitWithContext unitCtx : unitsWithContext) {
+            BillingUnit unit = calculateUnit(unitCtx, config, freeTimeRanges);
+            units.add(unit);
+        }
+
+        return units;
+    }
+
+    /**
+     * 构建带上下文的计费单元列表（支持状态恢复）
+     */
+    private List<UnitWithContext> buildUnitsWithContextWithState(LocalDateTime begin, LocalDateTime end, DayNightConfig config, RuleState state) {
+        List<UnitWithContext> units = new ArrayList<>();
+        int unitMinutes = config.getUnitMinutes();
+
+        LocalDateTime current = begin;
+        int cycleIndex = state.getCycleIndex();
+        LocalDateTime cycleStart = state.getCycleBoundary() != null
+                ? state.getCycleBoundary().minusHours(24)
+                : begin;
+
+        while (current.isBefore(end)) {
+            // 计算当前周期结束时间
+            LocalDateTime cycleEnd = cycleStart.plusHours(24);
+
+            // 当前单元结束时间：取 min(当前+unitMinutes, 周期结束, 计费结束)
+            LocalDateTime unitEnd = current.plusMinutes(unitMinutes);
+            if (unitEnd.isAfter(cycleEnd)) {
+                unitEnd = cycleEnd;
+            }
+            if (unitEnd.isAfter(end)) {
+                unitEnd = end;
+            }
+
+            // 判断时段类型
+            PeriodType periodType = determinePeriodType(current, unitEnd, config);
+
+            // 计算白天夜间分钟数
+            int dayMins = 0, nightMins = 0;
+            if (periodType == PeriodType.MIXED) {
+                int[] mins = calculateDayNightMinutes(current, unitEnd, config);
+                dayMins = mins[0];
+                nightMins = mins[1];
+            } else if (periodType == PeriodType.DAY) {
+                dayMins = (int) Duration.between(current, unitEnd).toMinutes();
+            } else {
+                nightMins = (int) Duration.between(current, unitEnd).toMinutes();
+            }
+
+            UnitWithContext unitCtx = new UnitWithContext();
+            unitCtx.beginTime = current;
+            unitCtx.endTime = unitEnd;
+            unitCtx.cycleIndex = cycleIndex;
+            unitCtx.periodType = periodType;
+            unitCtx.dayMinutes = dayMins;
+            unitCtx.nightMinutes = nightMins;
+
+            units.add(unitCtx);
+
+            // 更新当前时间和周期
+            current = unitEnd;
+
+            // 如果跨越到新周期
+            if (!current.isBefore(cycleEnd) && current.isBefore(end)) {
+                cycleIndex++;
+                cycleStart = cycleEnd;
+            }
+        }
+
+        return units;
+    }
+
+    /**
+     * 判断时段类型
+     */
+    private PeriodType determinePeriodType(LocalDateTime begin, LocalDateTime end, DayNightConfig config) {
+        int dayBeginMin = config.getDayBeginMinute();
+        int dayEndMin = config.getDayEndMinute();
+
+        // 获取开始时间在当天内的分钟数
+        int beginDayMin = begin.getHour() * 60 + begin.getMinute();
+        int endDayMin = end.getHour() * 60 + end.getMinute();
+
+        // 是否跨天
+        boolean crossDay = !begin.toLocalDate().equals(end.toLocalDate());
+
+        if (crossDay) {
+            // 跨天一定是MIXED
+            return PeriodType.MIXED;
+        }
+
+        // 同一天内，判断是否跨越日夜边界
+        boolean beginInDay = isInDayPeriod(beginDayMin, dayBeginMin, dayEndMin);
+        boolean endInDay = isInDayPeriod(endDayMin, dayBeginMin, dayEndMin);
+
+        // 检查是否跨越日夜边界
+        boolean crossesBoundary = crossesDayNightBoundary(beginDayMin, endDayMin, dayBeginMin, dayEndMin);
+
+        if (!crossesBoundary) {
+            if (beginInDay) {
+                return PeriodType.DAY;
+            } else {
+                return PeriodType.NIGHT;
+            }
+        }
+
+        return PeriodType.MIXED;
+    }
+
+    /**
+     * 判断分钟数是否在白天时段
+     */
+    private boolean isInDayPeriod(int minute, int dayBeginMin, int dayEndMin) {
+        if (dayBeginMin < dayEndMin) {
+            // 白天在一天内，如 12:20-19:00
+            return minute >= dayBeginMin && minute < dayEndMin;
+        } else {
+            // 白天跨天，如 22:00-06:00（较少见）
+            return minute >= dayBeginMin || minute < dayEndMin;
+        }
+    }
+
+    /**
+     * 判断是否跨越日夜边界
+     */
+    private boolean crossesDayNightBoundary(int beginMin, int endMin, int dayBeginMin, int dayEndMin) {
+        // 检查时段内是否包含日夜边界点
+        if (dayBeginMin < dayEndMin) {
+            // 白天时段不跨天
+            // 检查是否跨越 dayBeginMin 或 dayEndMin
+            boolean crossesDayBegin = beginMin < dayBeginMin && endMin > dayBeginMin;
+            boolean crossesDayEnd = beginMin < dayEndMin && endMin > dayEndMin;
+            return crossesDayBegin || crossesDayEnd;
+        } else {
+            // 白天时段跨天（较少见的情况）
+            return true;
+        }
+    }
+
+    /**
+     * 计算时段内的白天和夜间分钟数
+     */
+    private int[] calculateDayNightMinutes(LocalDateTime begin, LocalDateTime end, DayNightConfig config) {
+        int dayMins = 0, nightMins = 0;
+        int dayBeginMin = config.getDayBeginMinute();
+        int dayEndMin = config.getDayEndMinute();
+
+        LocalDateTime current = begin;
+        while (current.isBefore(end)) {
+            // 每次前进1分钟计算
+            int curMin = current.getHour() * 60 + current.getMinute();
+            boolean inDay = isInDayPeriod(curMin, dayBeginMin, dayEndMin);
+            if (inDay) {
+                dayMins++;
+            } else {
+                nightMins++;
+            }
+            current = current.plusMinutes(1);
+        }
+
+        return new int[]{dayMins, nightMins};
+    }
+
+    /**
+     * 计算单个计费单元
+     */
+    private BillingUnit calculateUnit(UnitWithContext unitCtx, DayNightConfig config, List<FreeTimeRange> freeTimeRanges) {
+        int duration = (int) Duration.between(unitCtx.beginTime, unitCtx.endTime).toMinutes();
+
+        // 确定单价
+        BigDecimal unitPrice;
+        if (unitCtx.periodType == PeriodType.DAY) {
+            unitPrice = config.getDayUnitPrice();
+        } else if (unitCtx.periodType == PeriodType.NIGHT) {
+            unitPrice = config.getNightUnitPrice();
+        } else {
+            // MIXED: 根据blockWeight判断
+            BigDecimal ratio = BigDecimal.valueOf(unitCtx.dayMinutes)
+                    .divide(BigDecimal.valueOf(duration), 4, RoundingMode.HALF_UP);
+            if (ratio.compareTo(config.getBlockWeight()) >= 0) {
+                unitPrice = config.getDayUnitPrice();
+            } else {
+                unitPrice = config.getNightUnitPrice();
+            }
+        }
+
+        // 计算原始金额：不足单元也收全额
+        BigDecimal originalAmount = unitPrice;
+
+        // 检查是否被免费时段覆盖
+        String freePromotionId = findFreePromotionId(unitCtx.beginTime, unitCtx.endTime, freeTimeRanges);
+        boolean isFree = freePromotionId != null;
+
+        BillingUnit unit = BillingUnit.builder()
+                .beginTime(unitCtx.beginTime)
+                .endTime(unitCtx.endTime)
+                .durationMinutes(duration)
+                .unitPrice(unitPrice)
+                .originalAmount(originalAmount)
+                .free(isFree)
+                .freePromotionId(freePromotionId)
+                .chargedAmount(isFree ? BigDecimal.ZERO : originalAmount)
+                .ruleData(unitCtx.cycleIndex) // 用ruleData存储周期序号
+                .build();
+
+        return unit;
+    }
+
+    /**
+     * 查找完全覆盖该时段的免费优惠
+     */
+    private String findFreePromotionId(LocalDateTime begin, LocalDateTime end, List<FreeTimeRange> freeTimeRanges) {
+        for (FreeTimeRange range : freeTimeRanges) {
+            if (!range.getBeginTime().isAfter(begin) && !range.getEndTime().isBefore(end)) {
+                return range.getId();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 应用每日封顶
+     */
+    private void applyDailyCap(List<BillingUnit> units, DayNightConfig config) {
+        BigDecimal maxCharge = config.getMaxChargeOneDay();
+
+        // 按周期分组
+        int maxCycleIndex = units.stream()
+                .mapToInt(u -> (Integer) u.getRuleData())
+                .max().orElse(0);
+
+        for (int cycle = 0; cycle <= maxCycleIndex; cycle++) {
+            final int cycleIdx = cycle;
+            List<BillingUnit> cycleUnits = units.stream()
+                    .filter(u -> (Integer) u.getRuleData() == cycleIdx)
+                    .toList();
+
+            BigDecimal cycleTotal = cycleUnits.stream()
+                    .map(BillingUnit::getChargedAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            if (cycleTotal.compareTo(maxCharge) > 0) {
+                // 超过封顶，按比例削减
+                BigDecimal ratio = maxCharge.divide(cycleTotal, 6, RoundingMode.HALF_UP);
+                for (BillingUnit unit : cycleUnits) {
+                    if (!unit.isFree()) {
+                        BigDecimal newAmount = unit.getChargedAmount().multiply(ratio)
+                                .setScale(2, RoundingMode.HALF_UP);
+                        unit.setChargedAmount(newAmount);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 应用每日封顶（考虑结转的累计金额）
+     * @return 最后一个周期的累计金额
+     */
+    private BigDecimal applyDailyCapWithCarryOver(List<BillingUnit> units, DayNightConfig config, BigDecimal carryOverAccumulated) {
+        BigDecimal maxCharge = config.getMaxChargeOneDay();
+
+        // 按周期分组
+        int maxCycleIndex = units.stream()
+                .mapToInt(u -> (Integer) u.getRuleData())
+                .max().orElse(0);
+
+        BigDecimal accumulated = carryOverAccumulated;
+        BigDecimal lastCycleAccumulated = BigDecimal.ZERO;
+
+        for (int cycle = 0; cycle <= maxCycleIndex; cycle++) {
+            final int cycleIdx = cycle;
+            List<BillingUnit> cycleUnits = units.stream()
+                    .filter(u -> (Integer) u.getRuleData() == cycleIdx)
+                    .toList();
+
+            // 本周期新增金额
+            BigDecimal cycleNewAmount = cycleUnits.stream()
+                    .map(BillingUnit::getChargedAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // 总累计金额 = 结转金额 + 新增金额
+            BigDecimal totalAccumulated = accumulated.add(cycleNewAmount);
+
+            if (totalAccumulated.compareTo(maxCharge) > 0) {
+                // 超过封顶
+                BigDecimal maxAllowed = maxCharge.subtract(accumulated).max(BigDecimal.ZERO);
+                if (maxAllowed.compareTo(BigDecimal.ZERO) <= 0) {
+                    // 已达封顶，全部免费
+                    for (BillingUnit unit : cycleUnits) {
+                        if (!unit.isFree()) {
+                            unit.setChargedAmount(BigDecimal.ZERO);
+                            unit.setFree(true);
+                            unit.setFreePromotionId("DAILY_CAP");
+                        }
+                    }
+                    // 触发封顶，累计 = 封顶金额
+                    lastCycleAccumulated = maxCharge;
+                } else {
+                    // 按比例削减
+                    BigDecimal ratio = maxAllowed.divide(cycleNewAmount, 6, RoundingMode.HALF_UP);
+                    for (BillingUnit unit : cycleUnits) {
+                        if (!unit.isFree()) {
+                            BigDecimal newAmount = unit.getChargedAmount().multiply(ratio)
+                                    .setScale(2, RoundingMode.HALF_UP);
+                            unit.setChargedAmount(newAmount);
+                            if (newAmount.compareTo(BigDecimal.ZERO) == 0) {
+                                unit.setFree(true);
+                                unit.setFreePromotionId("DAILY_CAP");
+                            }
+                        }
+                    }
+                    // 触发封顶，累计 = 封顶金额
+                    lastCycleAccumulated = maxCharge;
+                }
+            } else {
+                // 未超过封顶，累计 = 总累计金额
+                lastCycleAccumulated = totalAccumulated;
+            }
+
+            // 重置累计金额（新周期）
+            accumulated = BigDecimal.ZERO;
+        }
+
+        return lastCycleAccumulated;
+    }
+
+    /**
+     * 计算费用确定开始时间
+     * = 最后一个计费单元的开始时间
+     */
+    private LocalDateTime calculateEffectiveFrom(List<BillingUnit> billingUnits) {
+        if (billingUnits == null || billingUnits.isEmpty()) {
             return null;
         }
-        for (FreeTimeRange range : freeRanges) {
-            // 检查免费时间段是否完全覆盖当前计费单元
-            if (!range.getBeginTime().isAfter(begin) && !range.getEndTime().isBefore(end)) {
+        return billingUnits.getLast().getBeginTime();
+    }
+
+    /**
+     * 计算费用稳定结束时间
+     * 取以下因素的最小值：
+     * 1. 最后一个计费单元结束时间
+     * 2. 如果最后一个单元在免费时段内，延伸到免费时段结束
+     * 3. 下一个24小时周期边界
+     * 4. 分段结束时间
+     */
+    private LocalDateTime calculateEffectiveTo(List<BillingUnit> billingUnits,
+                                                List<FreeTimeRange> freeTimeRanges,
+                                                LocalDateTime calcBegin,
+                                                LocalDateTime calcEnd) {
+        if (billingUnits == null || billingUnits.isEmpty()) {
+            return null;
+        }
+
+        BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
+        LocalDateTime effectiveTo = lastUnit.getEndTime();
+
+        // 如果最后一个单元在免费时段内，延伸到免费时段结束
+        if (lastUnit.isFree() && lastUnit.getFreePromotionId() != null) {
+            FreeTimeRange coveringRange = findFreeTimeRangeById(lastUnit.getFreePromotionId(), freeTimeRanges);
+            if (coveringRange != null && coveringRange.getEndTime().isAfter(effectiveTo)) {
+                effectiveTo = coveringRange.getEndTime();
+            }
+        }
+
+        // 检查下一个24小时周期边界
+        // 周期从 calcBegin 开始，每个周期24小时
+        LocalDateTime currentCycleEnd = calcBegin;
+        while (currentCycleEnd.isBefore(effectiveTo) || currentCycleEnd.equals(effectiveTo)) {
+            LocalDateTime nextCycleEnd = currentCycleEnd.plusHours(24);
+            if (nextCycleEnd.isAfter(effectiveTo)) {
+                // 找到下一个周期边界
+                effectiveTo = nextCycleEnd.isBefore(effectiveTo) ? nextCycleEnd : effectiveTo;
+                break;
+            }
+            currentCycleEnd = nextCycleEnd;
+        }
+
+        // 不超过分段结束时间
+        if (calcEnd != null && effectiveTo.isAfter(calcEnd)) {
+            effectiveTo = calcEnd;
+        }
+
+        return effectiveTo;
+    }
+
+    /**
+     * 根据ID查找免费时段
+     */
+    private FreeTimeRange findFreeTimeRangeById(String id, List<FreeTimeRange> freeTimeRanges) {
+        if (freeTimeRanges == null || id == null) {
+            return null;
+        }
+        for (FreeTimeRange range : freeTimeRanges) {
+            if (id.equals(range.getId())) {
                 return range;
             }
         }
@@ -211,120 +809,580 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
     }
 
     /**
-     * 计算日夜计费结果
+     * 查找下一个周期边界
+     * @param current 当前时间点
+     * @param calcBegin 计费起点
+     * @return 下一个周期边界时间（24小时后）
      */
-    private DayNightChargeResult calculateDayNightCharge(
-            LocalDateTime begin, LocalDateTime end, int totalMinutes,
-            int dayBeginMinute, int dayEndMinute,
-            BigDecimal dayUnitPrice, BigDecimal nightUnitPrice,
-            BigDecimal blockWeight) {
-
-        // 计算白天分钟数和夜晚分钟数
-        int dayMinutes = calculateDayMinutes(begin, end, dayBeginMinute, dayEndMinute);
-        int nightMinutes = totalMinutes - dayMinutes;
-
-        // 判断使用哪种价格
-        // 如果白天分钟数占比 >= blockWeight，使用白天价格；否则使用夜晚价格
-        BigDecimal dayRatio = BigDecimal.valueOf(dayMinutes).divide(BigDecimal.valueOf(totalMinutes), 4, RoundingMode.HALF_UP);
-
-        String chargeType;
-        BigDecimal unitPrice;
-
-        if (dayRatio.compareTo(blockWeight) >= 0) {
-            chargeType = DAY_TYPE;
-            unitPrice = dayUnitPrice;
-        } else {
-            chargeType = NIGHT_TYPE;
-            unitPrice = nightUnitPrice;
+    private LocalDateTime findNextCycleBoundary(LocalDateTime current, LocalDateTime calcBegin) {
+        // 找到包含 current 的周期起点
+        LocalDateTime cycleStart = calcBegin;
+        while (cycleStart.plusHours(24).isBefore(current) ||
+               cycleStart.plusHours(24).equals(current)) {
+            cycleStart = cycleStart.plusHours(24);
         }
-
-        // 计算金额（按单位价格，不考虑时长比例，因为单位时间已经标准化）
-        BigDecimal amount = unitPrice;
-
-        return new DayNightChargeResult(chargeType, unitPrice, amount);
+        // 下一个周期边界
+        return cycleStart.plusHours(24);
     }
 
     /**
-     * 计算时间段内的白天分钟数
+     * CONTINUOUS 模式计算
+     * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
      */
-    private int calculateDayMinutes(LocalDateTime begin, LocalDateTime end, int dayBeginMinute, int dayEndMinute) {
-        int totalDayMinutes = 0;
+    private BillingSegmentResult calculateContinuous(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
+        // 验证配置
+        validateConfig(config);
 
-        // 处理跨天情况
-        LocalDate startDate = begin.toLocalDate();
-        LocalDate endDate = end.toLocalDate();
+        // 获取计算窗口
+        LocalDateTime calcBegin = context.getWindow().getCalculationBegin();
+        LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
 
-        if (startDate.equals(endDate)) {
-            // 同一天内
-            return calculateDayMinutesSingleDay(begin, end, dayBeginMinute, dayEndMinute);
+        // 恢复状态
+        RuleState state = restoreState(context.getRuleState());
+        if (state == null) {
+            // FROM_SCRATCH: 初始化状态
+            state = initializeState(calcBegin);
         } else {
-            // 跨天：分段计算
-            // 第一段：begin 到当天结束
-            LocalDateTime dayEnd = startDate.atTime(23, 59, 59);
-            totalDayMinutes += calculateDayMinutesSingleDay(begin, dayEnd, dayBeginMinute, dayEndMinute);
+            // CONTINUE: 更新周期状态
+            while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
+                state.setCycleIndex(state.getCycleIndex() + 1);
+                state.setCycleAccumulated(BigDecimal.ZERO);
+                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(getCycleMinutes()));
+            }
+        }
 
-            // 中间完整的天
-            LocalDate current = startDate.plusDays(1);
-            while (current.isBefore(endDate)) {
-                // 完整一天的白天分钟数
-                totalDayMinutes += (dayEndMinute - dayBeginMinute);
-                current = current.plusDays(1);
+        // 获取免费时段
+        List<FreeTimeRange> freeTimeRanges = promotionAggregate.getFreeTimeRanges();
+        if (freeTimeRanges == null) {
+            freeTimeRanges = List.of();
+        }
+
+        // 按免费时段边界切分时间轴
+        List<TimeFragment> fragments = splitTimeAxis(calcBegin, calcEnd, freeTimeRanges);
+
+        // 按周期组织片段（使用原始计费起点确定周期边界）
+        LocalDateTime cycleOriginBegin = context.getBeginTime(); // 原始计费起点
+        List<CycleFragments> cycles = organizeByCycle(calcBegin, calcEnd, fragments, cycleOriginBegin);
+
+        // 检查是否启用简化计算
+        List<BillingUnit> allUnits = new ArrayList<>();
+        boolean simplificationEnabled = context.getBillingConfigResolver() != null
+            && isSimplificationEnabled(config, context.getBillingConfigResolver());
+        int threshold = context.getBillingConfigResolver() != null
+            ? context.getBillingConfigResolver().getSimplifiedCycleThreshold()
+            : 0;
+
+        if (simplificationEnabled && cycles.size() > threshold) {
+            Set<Integer> cyclesWithPromotion = findCyclesWithPromotion(calcBegin, calcEnd, promotionAggregate);
+
+            if (cyclesWithPromotion != null) {
+                // 使用简化计算
+                allUnits = generateSimplifiedUnitsForContinuous(cycles, cyclesWithPromotion,
+                    threshold, config, calcBegin, cycleOriginBegin, state);
+            }
+        }
+
+        // 如果未使用简化，使用原有逻辑
+        if (allUnits.isEmpty()) {
+            BigDecimal carryOverAccumulated = state.getCycleAccumulated();
+            BigDecimal lastCycleAccumulated = BigDecimal.ZERO;
+            for (CycleFragments cycle : cycles) {
+                List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
+                lastCycleAccumulated = applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneDay(), carryOverAccumulated);
+                allUnits.addAll(cycleUnits);
+                // 新周期重置累计金额
+                carryOverAccumulated = BigDecimal.ZERO;
+            }
+            // 更新最终状态（FROM_SCRATCH 结果也需要用于继续计算）
+            if (!cycles.isEmpty()) {
+                state.setCycleAccumulated(lastCycleAccumulated);
+                state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+                // 计算气泡延长并累加到当前 cycleBoundary
+                int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                // 如果 cycleBoundary 已存在（CONTINUE 模式），在其基础上延长
+                // 否则（FROM_SCRATCH 模式），从周期终点开始延长
+                if (state.getCycleBoundary() != null) {
+                    state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                } else {
+                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                }
+            }
+        } else {
+            // 简化计算模式：更新状态
+            if (!cycles.isEmpty()) {
+                BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
+                if (isSimplifiedUnit(lastUnit)) {
+                    // 简化单元：使用 simplifiedCycleAmount 作为周期累计金额
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> ruleData = (java.util.Map<String, Object>) lastUnit.getRuleData();
+                    state.setCycleAccumulated((BigDecimal) ruleData.get("simplifiedCycleAmount"));
+                    state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+                    // 计算气泡延长并累加到当前 cycleBoundary
+                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                    if (state.getCycleBoundary() != null) {
+                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                    } else {
+                        state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                    }
+                } else {
+                    // 非简化单元：找最后一个周期的非免费单元
+                    LocalDateTime lastCycleEnd = cycles.get(cycles.size() - 1).cycleEnd;
+                    BigDecimal lastCycleAmount = allUnits.stream()
+                            .filter(u -> !u.isFree() && u.getEndTime().compareTo(lastCycleEnd) <= 0 && u.getEndTime().compareTo(cycles.get(cycles.size() - 1).cycleStart) > 0)
+                            .map(BillingUnit::getChargedAmount)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    state.setCycleAccumulated(lastCycleAmount);
+                    state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+                    // 计算气泡延长并累加到当前 cycleBoundary
+                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                    if (state.getCycleBoundary() != null) {
+                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                    } else {
+                        state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                    }
+                }
+            }
+        }
+
+        // 汇总结果
+        BigDecimal totalAmount = allUnits.stream()
+                .map(BillingUnit::getChargedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
+        LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, freeTimeRanges, calcBegin, calcEnd);
+
+        // 标记最后一个单元是否被截断
+        if (!allUnits.isEmpty()) {
+            BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
+            int unitMinutes = config.getUnitMinutes();
+            if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
+                lastUnit.setIsTruncated(true);
+            }
+        }
+
+        // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
+        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
+
+        return BillingSegmentResult.builder()
+                .segmentId(context.getSegment().getId())
+                .segmentStartTime(context.getSegment().getBeginTime())
+                .segmentEndTime(context.getSegment().getEndTime())
+                .calculationStartTime(calcBegin)
+                .calculationEndTime(calcEnd)
+                .chargedAmount(totalAmount)
+                .billingUnits(allUnits)
+                .promotionUsages(new ArrayList<>())
+                .promotionAggregate(promotionAggregate)
+                .feeEffectiveStart(feeEffectiveStart)
+                .feeEffectiveEnd(feeEffectiveEnd)
+                .ruleOutputState(ruleOutputState)
+                .build();
+    }
+
+    /**
+     * 为 CONTINUOUS 模式生成简化单元
+     */
+    private List<BillingUnit> generateSimplifiedUnitsForContinuous(
+            List<CycleFragments> cycles,
+            Set<Integer> cyclesWithPromotion,
+            int threshold,
+            DayNightConfig config,
+            LocalDateTime calcBegin,
+            LocalDateTime cycleOriginBegin,
+            RuleState state) {
+
+        List<BillingUnit> allUnits = new ArrayList<>();
+        BigDecimal cycleCapAmount = getCycleCapAmount(config);
+        int cycleMinutes = getCycleMinutes();
+
+        int consecutiveSimplified = 0;
+        int simplifiedStartIndex = -1;
+        BigDecimal carryOverAccumulated = state.getCycleAccumulated();
+
+        for (int cycleIdx = 0; cycleIdx < cycles.size(); cycleIdx++) {
+            CycleFragments cycle = cycles.get(cycleIdx);
+            // 计算周期索引（基于原始计费起点）
+            int cycleIndex = (int) Duration.between(cycleOriginBegin, cycle.cycleStart).toMinutes() / cycleMinutes;
+
+            boolean hasPromotion = cyclesWithPromotion.contains(cycleIndex);
+
+            if (!hasPromotion) {
+                // 无优惠周期，累计
+                if (consecutiveSimplified == 0) {
+                    simplifiedStartIndex = cycleIndex;
+                }
+                consecutiveSimplified++;
+            } else {
+                // 处理之前的简化段
+                if (consecutiveSimplified > threshold) {
+                    BillingUnit simplifiedUnit = buildSimplifiedUnit(
+                        simplifiedStartIndex, consecutiveSimplified, cycleCapAmount, calcBegin);
+                    allUnits.add(simplifiedUnit);
+                    carryOverAccumulated = BigDecimal.ZERO; // 简化后重置
+                } else if (consecutiveSimplified > 0) {
+                    // 不足阈值，正常生成
+                    for (int i = simplifiedStartIndex; i < simplifiedStartIndex + consecutiveSimplified; i++) {
+                        List<BillingUnit> cycleUnits = generateUnitsForSingleCycle(i, calcBegin, cycle.cycleEnd, config, List.of());
+                        allUnits.addAll(cycleUnits);
+                    }
+                }
+                consecutiveSimplified = 0;
+
+                // 生成当前有优惠周期的详细单元
+                List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
+                applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneDay(), carryOverAccumulated);
+                allUnits.addAll(cycleUnits);
+                carryOverAccumulated = BigDecimal.ZERO;
+            }
+        }
+
+        // 处理最后的简化段
+        if (consecutiveSimplified > threshold) {
+            BillingUnit simplifiedUnit = buildSimplifiedUnit(
+                simplifiedStartIndex, consecutiveSimplified, cycleCapAmount, calcBegin);
+            allUnits.add(simplifiedUnit);
+        } else if (consecutiveSimplified > 0) {
+            for (int i = simplifiedStartIndex; i < simplifiedStartIndex + consecutiveSimplified; i++) {
+                List<BillingUnit> cycleUnits = generateUnitsForSingleCycle(i, calcBegin, cycles.get(cycles.size() - 1).cycleEnd, config, List.of());
+                allUnits.addAll(cycleUnits);
+            }
+        }
+
+        return allUnits;
+    }
+
+    /**
+     * 按免费时段边界切分时间轴
+     */
+    private List<TimeFragment> splitTimeAxis(LocalDateTime begin, LocalDateTime end, List<FreeTimeRange> freeTimeRanges) {
+        List<TimeFragment> fragments = new ArrayList<>();
+
+        // 收集所有切分点（免费时段边界）
+        List<LocalDateTime> cutPoints = new ArrayList<>();
+        cutPoints.add(begin);
+
+        for (FreeTimeRange range : freeTimeRanges) {
+            // 只处理在计费范围内的免费时段
+            if (range.getBeginTime().isAfter(end) || range.getEndTime().isBefore(begin)) {
+                continue;
+            }
+            if (range.getBeginTime().isAfter(begin) && range.getBeginTime().isBefore(end)) {
+                cutPoints.add(range.getBeginTime());
+            }
+            if (range.getEndTime().isAfter(begin) && range.getEndTime().isBefore(end)) {
+                cutPoints.add(range.getEndTime());
+            }
+        }
+
+        cutPoints.add(end);
+
+        // 去重并排序
+        cutPoints = cutPoints.stream().distinct().sorted().toList();
+
+        // 生成片段
+        for (int i = 0; i < cutPoints.size() - 1; i++) {
+            LocalDateTime fragBegin = cutPoints.get(i);
+            LocalDateTime fragEnd = cutPoints.get(i + 1);
+
+            TimeFragment fragment = new TimeFragment(fragBegin, fragEnd);
+
+            // 检查是否匹配某个免费时段
+            for (FreeTimeRange range : freeTimeRanges) {
+                if (!range.getBeginTime().isAfter(fragBegin) && !range.getEndTime().isBefore(fragEnd)) {
+                    fragment.isFree = true;
+                    fragment.freePromotionId = range.getId();
+                    break;
+                }
             }
 
-            // 最后一段：当天开始到 end
-            LocalDateTime dayStart = endDate.atTime(0, 0, 0);
-            totalDayMinutes += calculateDayMinutesSingleDay(dayStart, end, dayBeginMinute, dayEndMinute);
+            fragments.add(fragment);
         }
 
-        return totalDayMinutes;
+        return fragments;
     }
 
     /**
-     * 计算单天内的白天分钟数
+     * 按周期组织片段
+     * @param calcBegin 计算窗口起点（可能是 CONTINUE 模式的继续起点）
+     * @param calcEnd 计算窗口终点
+     * @param fragments 时间片段列表
+     * @param cycleOriginBegin 原始计费起点（用于确定周期边界）
      */
-    private int calculateDayMinutesSingleDay(LocalDateTime begin, LocalDateTime end, int dayBeginMinute, int dayEndMinute) {
-        // 将时间转换为分钟数（从 0 点开始）
-        int beginMinuteOfDay = begin.getHour() * 60 + begin.getMinute();
-        int endMinuteOfDay = end.getHour() * 60 + end.getMinute();
+    private List<CycleFragments> organizeByCycle(LocalDateTime calcBegin, LocalDateTime calcEnd, List<TimeFragment> fragments, LocalDateTime cycleOriginBegin) {
+        List<CycleFragments> cycles = new ArrayList<>();
 
-        // 白天时间段 [dayBeginMinute, dayEndMinute]
-        // 计算重叠部分
-        int overlapStart = Math.max(beginMinuteOfDay, dayBeginMinute);
-        int overlapEnd = Math.min(endMinuteOfDay, dayEndMinute);
+        // 使用原始计费起点计算周期边界
+        LocalDateTime cycleStart = cycleOriginBegin;
+        LocalDateTime cycleEnd = cycleOriginBegin.plusHours(24);
 
-        if (overlapStart < overlapEnd) {
-            return overlapEnd - overlapStart;
+        // 找到包含 calcBegin 的周期
+        while (cycleEnd.isBefore(calcBegin) || cycleEnd.equals(calcBegin)) {
+            cycleStart = cycleEnd;
+            cycleEnd = cycleStart.plusHours(24);
         }
-        return 0;
+
+        CycleFragments currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
+
+        for (TimeFragment fragment : fragments) {
+            // 检查片段是否跨越周期边界
+            while (fragment.endTime.isAfter(currentCycle.cycleEnd)) {
+                // 切分片段
+                TimeFragment beforeBoundary = new TimeFragment(fragment.beginTime, currentCycle.cycleEnd);
+                beforeBoundary.isFree = fragment.isFree;
+                beforeBoundary.freePromotionId = fragment.freePromotionId;
+
+                currentCycle.fragments.add(beforeBoundary);
+                cycles.add(currentCycle);
+
+                // 开始新周期
+                cycleStart = currentCycle.cycleEnd;
+                cycleEnd = cycleStart.plusHours(24);
+                currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
+
+                // 更新原片段
+                fragment.beginTime = currentCycle.cycleStart;
+            }
+
+            currentCycle.fragments.add(fragment);
+        }
+
+        if (!currentCycle.fragments.isEmpty()) {
+            cycles.add(currentCycle);
+        }
+
+        return cycles;
     }
 
     /**
-     * 获取给定时间所属的 24 小时周期起始时间
-     * 周期从计费开始时间 calcBegin 算起
+     * 为一个周期生成计费单元
      */
-    private LocalDateTime getCycleStart(LocalDateTime currentTime, LocalDateTime calcBegin, int unitMinutes) {
-        // 计算从 calcBegin 到 currentTime 经过了多少分钟
-        long minutesFromBegin = Duration.between(calcBegin, currentTime).toMinutes();
+    private List<BillingUnit> generateUnitsForCycle(CycleFragments cycle, DayNightConfig config) {
+        List<BillingUnit> units = new ArrayList<>();
+        int unitMinutes = config.getUnitMinutes();
 
-        // 计算这是第几个周期（每 24 小时=1440 分钟为一个周期）
-        long cycleIndex = minutesFromBegin / 1440;
+        for (TimeFragment fragment : cycle.fragments) {
+            if (fragment.isFree) {
+                // 免费片段直接生成一个免费单元
+                BillingUnit unit = BillingUnit.builder()
+                        .beginTime(fragment.beginTime)
+                        .endTime(fragment.endTime)
+                        .durationMinutes((int) Duration.between(fragment.beginTime, fragment.endTime).toMinutes())
+                        .unitPrice(BigDecimal.ZERO)
+                        .originalAmount(BigDecimal.ZERO)
+                        .free(true)
+                        .freePromotionId(fragment.freePromotionId)
+                        .chargedAmount(BigDecimal.ZERO)
+                        .build();
+                units.add(unit);
+            } else {
+                // 收费片段按单元长度划分
+                LocalDateTime current = fragment.beginTime;
+                while (current.isBefore(fragment.endTime)) {
+                    LocalDateTime unitEnd = current.plusMinutes(unitMinutes);
+                    if (unitEnd.isAfter(fragment.endTime)) {
+                        unitEnd = fragment.endTime;
+                    }
 
-        // 返回周期起始时间
-        return calcBegin.plusMinutes(cycleIndex * 1440);
+                    int duration = (int) Duration.between(current, unitEnd).toMinutes();
+
+                    // 确定单价
+                    BigDecimal unitPrice = determineUnitPriceForContinuous(current, unitEnd, config);
+
+                    // 不足单元也收全额
+                    BigDecimal originalAmount = unitPrice;
+
+                    BillingUnit unit = BillingUnit.builder()
+                            .beginTime(current)
+                            .endTime(unitEnd)
+                            .durationMinutes(duration)
+                            .unitPrice(unitPrice)
+                            .originalAmount(originalAmount)
+                            .free(false)
+                            .chargedAmount(originalAmount)
+                            .build();
+
+                    units.add(unit);
+                    current = unitEnd;
+                }
+            }
+        }
+
+        return units;
     }
 
     /**
-     * 内部类：日夜计费结果
+     * 确定时段单价（CONTINUOUS模式专用）
      */
-    private static class DayNightChargeResult {
-        String chargeType;
-        BigDecimal unitPrice;
-        BigDecimal amount;
+    private BigDecimal determineUnitPriceForContinuous(LocalDateTime begin, LocalDateTime end, DayNightConfig config) {
+        PeriodType periodType = determinePeriodType(begin, end, config);
 
-        DayNightChargeResult(String chargeType, BigDecimal unitPrice, BigDecimal amount) {
-            this.chargeType = chargeType;
-            this.unitPrice = unitPrice;
-            this.amount = amount;
+        if (periodType == PeriodType.DAY) {
+            return config.getDayUnitPrice();
+        } else if (periodType == PeriodType.NIGHT) {
+            return config.getNightUnitPrice();
+        } else {
+            // MIXED: 根据时长比例判断
+            int[] mins = calculateDayNightMinutes(begin, end, config);
+            int duration = (int) Duration.between(begin, end).toMinutes();
+            BigDecimal ratio = BigDecimal.valueOf(mins[0])
+                    .divide(BigDecimal.valueOf(duration), 4, RoundingMode.HALF_UP);
+            if (ratio.compareTo(config.getBlockWeight()) >= 0) {
+                return config.getDayUnitPrice();
+            } else {
+                return config.getNightUnitPrice();
+            }
+        }
+    }
+
+    /**
+     * CONTINUOUS 模式封顶处理
+     * 封顶后截止，剩余时间合并为免费单元
+     */
+    private void applyContinuousCap(List<BillingUnit> units, BigDecimal maxCharge) {
+        applyContinuousCapWithCarryOver(units, maxCharge, BigDecimal.ZERO);
+    }
+
+    /**
+     * CONTINUOUS 模式封顶处理（考虑结转的累计金额）
+     * @return 返回处理后的累计金额
+     */
+    private BigDecimal applyContinuousCapWithCarryOver(List<BillingUnit> units, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
+        // 如果继承的累计金额已达到封顶，将所有收费单元合并为一个免费单元
+        if (carryOverAccumulated.compareTo(maxCharge) >= 0) {
+            List<BillingUnit> chargeableUnits = units.stream()
+                    .filter(u -> !u.isFree())
+                    .toList();
+
+            if (!chargeableUnits.isEmpty()) {
+                BillingUnit firstChargeable = chargeableUnits.get(0);
+                BillingUnit lastChargeable = chargeableUnits.get(chargeableUnits.size() - 1);
+
+                // 移除所有收费单元
+                units.removeIf(u -> !u.isFree());
+
+                // 添加一个合并的免费单元
+                BillingUnit mergedFreeUnit = BillingUnit.builder()
+                        .beginTime(firstChargeable.getBeginTime())
+                        .endTime(lastChargeable.getEndTime())
+                        .durationMinutes((int) Duration.between(firstChargeable.getBeginTime(), lastChargeable.getEndTime()).toMinutes())
+                        .unitPrice(BigDecimal.ZERO)
+                        .originalAmount(BigDecimal.ZERO)
+                        .free(true)
+                        .freePromotionId("DAILY_CAP")
+                        .chargedAmount(BigDecimal.ZERO)
+                        .build();
+                units.add(mergedFreeUnit);
+            }
+            return maxCharge; // 返回封顶金额
+        }
+
+        BigDecimal accumulated = carryOverAccumulated;
+        int capIndex = -1;
+        BigDecimal lastChargeAmount = null;
+
+        // 找到封顶位置
+        for (int i = 0; i < units.size(); i++) {
+            BillingUnit unit = units.get(i);
+            if (unit.isFree()) {
+                continue;
+            }
+
+            BigDecimal newAccumulated = accumulated.add(unit.getChargedAmount());
+
+            if (newAccumulated.compareTo(maxCharge) >= 0) {
+                // 超过封顶
+                capIndex = i;
+                lastChargeAmount = maxCharge.subtract(accumulated);
+                break;
+            }
+
+            accumulated = newAccumulated;
+        }
+
+        if (capIndex < 0) {
+            // 未超过封顶，返回累计金额
+            return accumulated;
+        }
+
+        // 调整封顶单元的金额
+        units.get(capIndex).setChargedAmount(lastChargeAmount.setScale(2, RoundingMode.HALF_UP));
+        if (units.get(capIndex).getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
+            units.get(capIndex).setFree(true);
+            units.get(capIndex).setFreePromotionId("DAILY_CAP");
+        }
+
+        // 封顶后的单元合并为一个免费单元
+        if (capIndex < units.size() - 1) {
+            BillingUnit firstAfterCap = units.get(capIndex + 1);
+            BillingUnit lastAfterCap = units.get(units.size() - 1);
+
+            BillingUnit mergedFreeUnit = BillingUnit.builder()
+                    .beginTime(firstAfterCap.getBeginTime())
+                    .endTime(lastAfterCap.getEndTime())
+                    .durationMinutes((int) Duration.between(firstAfterCap.getBeginTime(), lastAfterCap.getEndTime()).toMinutes())
+                    .unitPrice(BigDecimal.ZERO)
+                    .originalAmount(BigDecimal.ZERO)
+                    .free(true)
+                    .freePromotionId("DAILY_CAP")
+                    .chargedAmount(BigDecimal.ZERO)
+                    .build();
+
+            // 移除封顶后的单元，添加合并后的免费单元
+            units.subList(capIndex + 1, units.size()).clear();
+            units.add(mergedFreeUnit);
+        }
+
+        return maxCharge; // 返回封顶金额
+    }
+
+    /**
+     * 时段类型
+     */
+    private enum PeriodType {
+        DAY, NIGHT, MIXED
+    }
+
+    /**
+     * 内部上下文类，存放计算过程中的专用数据
+     */
+    private static class UnitWithContext {
+        LocalDateTime beginTime;
+        LocalDateTime endTime;
+        int cycleIndex;
+        PeriodType periodType;
+        int dayMinutes;
+        int nightMinutes;
+    }
+
+    /**
+     * 时间片段（切分后的时间范围）- CONTINUOUS模式专用
+     */
+    private static class TimeFragment {
+        LocalDateTime beginTime;
+        LocalDateTime endTime;
+        boolean isFree;
+        String freePromotionId;  // 如果是免费片段，记录优惠ID
+
+        TimeFragment(LocalDateTime beginTime, LocalDateTime endTime) {
+            this.beginTime = beginTime;
+            this.endTime = endTime;
+            this.isFree = false;
+            this.freePromotionId = null;
+        }
+    }
+
+    /**
+     * 周期片段容器 - CONTINUOUS模式专用
+     */
+    private static class CycleFragments {
+        final LocalDateTime cycleStart;
+        final LocalDateTime cycleEnd;
+        final List<TimeFragment> fragments = new ArrayList<>();
+
+        CycleFragments(LocalDateTime cycleStart, LocalDateTime cycleEnd) {
+            this.cycleStart = cycleStart;
+            this.cycleEnd = cycleEnd;
         }
     }
 }

@@ -2,6 +2,116 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+## 项目愿景
+
+实现一个**可扩展、可追溯、可组合规则**的时间计费引擎（Time-based Billing Engine）。
+
+适用场景：停车收费、场地使用费、设备租赁、按时间计费的服务费用。
+
+**核心设计思想**：
+```
+时间轴 → 计费单元切割 → 应用优惠 → 应用收费规则 → 生成计费明细 → 汇总费用
+```
+
+---
+
+## 系统目标
+
+### 1. 可扩展规则系统
+- 新增规则时**不修改核心计费引擎**，只需新增规则实现类
+- 规则通过配置启用
+
+### 2. 可追溯计费过程
+- 必须输出完整的计费过程明细
+- 方便用户查看账单、排查问题、调试
+
+### 3. 支持继续计算
+- 支持从已有计算结果继续计算
+- 避免重复计算
+
+### 4. 支持计费分段
+- 收费规则可能随时间变化，每个 `BillingSegment` 独立计算
+
+### 5. 支持多种优惠规则
+- **FREE_RANGE**: 免费时间段
+- **FREE_MINUTES**: 免费分钟数（避开已有免费时间段，像水流入石头缝隙）
+
+---
+
+## 开发原则（必须遵守）
+
+### 原则1：核心引擎只负责计算
+- ✅ 计费计算
+- ❌ 缓存、数据库、持久化、日志存储（这些在外层实现）
+
+### 原则2：规则必须是纯计算
+- ✅ 无副作用：输入 BillingContext + RuleConfig + PromotionAggregate → 输出 BillingSegmentResult
+- ❌ 访问数据库、调用远程接口、依赖外部状态
+
+### 原则3：时间计算必须可重复
+- 同样输入必须得到完全相同的结果（确定性）
+
+### 原则4：规则不应相互依赖
+- ❌ 规则 A 调用规则 B
+- ✅ Engine → RuleA, Engine → RuleB（所有规则通过 Engine 统一执行）
+
+### 原则5：规则配置与规则实现分离
+- `RuleConfig`: 只描述规则参数
+- `BillingRule`: 负责计算
+
+### 原则6：简单优先，高级特性隔离
+- 高级特性通过**配置化跳过**隔离，简单场景零判断开销
+- 复杂度判断集中在计费开始时，后续关键点直接跳过
+
+**简单场景定义**：
+- 计费模式：UNIT_BASED 或 CONTINUOUS
+- 继续模式：FROM_SCRATCH
+- 优惠状态：无优惠 或 单一优惠类型
+- 无特殊配置：无时间段封顶等
+
+**跳过点**：
+1. 状态恢复 - FROM_SCRATCH 模式跳过
+2. 优惠处理 - 无优惠时跳过
+3. 状态输出 - FROM_SCRATCH 模式简化
+
+---
+
+## 禁止事项
+
+| 禁止行为 | 错误示例 |
+|---------|---------|
+| 在规则中访问数据库 | `rule.calculate()` 内部查询数据库 |
+| 规则修改全局状态 | 修改全局变量、修改共享对象 |
+| 规则改变计费流程 | 改变引擎执行顺序 |
+| 规则之间相互调用 | RuleA → 调用 RuleB |
+
+---
+
+## 核心代码修改原则
+
+当新计费规则无法通过现有核心计算逻辑满足时，**允许修改核心计算代码**，但必须满足：
+
+1. **经过评估**：确认无法通过扩展规则实现
+2. **不影响其他规则**：现有规则的测试必须全部通过
+3. **向后兼容**：已有方案的计算结果保持不变
+
+---
+
+## 计费模式（BillingMode）
+
+| 模式 | 说明 |
+|------|------|
+| CONTINUOUS | 连续时间模式，时间单位不固定，可被优惠/规则打断 |
+| UNIT_BASED | 计费单位模式，时间被切分为固定单位，每个单位独立计算 |
+
+**注意**：不同模式可能产生不同结果。规则必须通过 `supportedModes()` 声明支持的模式，不支持时抛异常。
+
+计费模式由 `ChargingScheme` 决定，计费请求不允许直接指定 BillingMode。
+
+---
+
 ## Build & Test
 
 ```bash
@@ -22,7 +132,50 @@ This is a parking billing system with a modular Maven multi-module structure:
 
 - **charge** (parent) - Root POM with shared dependencies (Lombok, Apache Commons, Jackson)
 - **core** - Core billing engine and business logic
+- **billing-api** - Convenient API wrapper, provides higher-level abstractions
 - **bill-test** - Test module that depends on core, contains integration tests
+
+### Module Responsibilities
+
+| 模块 | 职责 | 依赖 |
+|------|------|------|
+| **core** | 核心计费引擎，纯计算逻辑，无副作用 | 无外部依赖 |
+| **billing-api** | 便捷 API 封装，提供视图功能、等效金额计算等 | core |
+| **billing-v3-spring-boot-starter** | Spring Boot 3.x Starter (3.0.x - 3.4.x) | billing-api |
+| **billing-v4-spring-boot-starter** | Spring Boot 3.5/4.x Starter (3.5.x - 4.x) | billing-api |
+| **bill-test** | 集成测试、功能验证 | core, billing-api |
+
+**模块分层原则**：
+- `core` 模块只负责计算，不处理缓存、持久化、日志存储
+- `billing-api` 模块提供便捷封装，处理"视图层"逻辑（如 queryTime 截取）
+- 调用方应优先使用 `billing-api`，复杂场景可直接使用 `core`
+
+### Spring Boot Starters
+
+提供两个独立的 Spring Boot Starter，支持不同版本的 Spring Boot：
+
+| Starter | Spring Boot | JDK | 状态 |
+|---------|-------------|-----|------|
+| billing-v3-spring-boot-starter | 3.0.x - 3.4.x | 21 | 活跃维护 |
+| billing-v4-spring-boot-starter | 3.5.x - 4.x | 21/23/25 | 活跃维护 |
+
+**使用方式：**
+
+```xml
+<!-- v3 版本 (Spring Boot 3.0.x - 3.4.x) -->
+<dependency>
+    <groupId>cn.shang</groupId>
+    <artifactId>billing-v3-spring-boot-starter</artifactId>
+</dependency>
+
+<!-- v4 版本 (Spring Boot 3.5.x - 4.x) -->
+<dependency>
+    <groupId>cn.shang</groupId>
+    <artifactId>billing-v4-spring-boot-starter</artifactId>
+</dependency>
+```
+
+**迁移说明：** 两个 starter API 完全相同，迁移只需更换 Maven 依赖的 artifactId。
 
 ### Core Architecture (core module)
 
@@ -50,7 +203,7 @@ BillingService.calculate()
 **Rule System:**
 - `BillingRuleRegistry` / `PromotionRuleRegistry` - Strategy pattern registries
 - Rules are resolved by type string constants in `BConstants.ChargeRuleType` / `PromotionRuleType`
-- Built-in rules: `DayNightRule` (charges by day/night time periods), `FreeMinutesPromotionRule`, `FreeTimeRangePromotionRule`
+- Built-in rules: `DayNightRule` (charges by day/night time periods), `RelativeTimeRule` (charges by relative time periods), `CompositeTimeRule` (combines multiple time rules), `FreeMinutesPromotionRule` (free minutes promotion)
 
 **Promotion Types:**
 - `FREE_RANGE` - Free time periods (e.g., 01:00-04:00 is free)
@@ -71,6 +224,29 @@ Key POJOs in `billing.pojo` and `promotion.pojo`:
 - `BillingContext` - Immutable context holding segment, window, rules for calculation
 - `PromotionAggregate` - Aggregated free time ranges and usage tracking
 
+### Billing-API Architecture (billing-api module)
+
+The billing-api module provides convenient wrappers and higher-level abstractions:
+
+```
+BillingTemplate
+├── calculate()                      # Basic billing calculation
+├── calculateWithQuery()             # Calculate with query time separation
+└── calculatePromotionEquivalents()  # Calculate promotion equivalent amounts
+```
+
+**Key Components:**
+
+- `BillingTemplate` - Main entry point for convenient API usage
+- `BillingResultViewer` - Handles query time filtering (view layer logic)
+- `PromotionEquivalentCalculator` - Calculates equivalent amounts using elimination method
+- `CalculationWithQueryResult` - Returns both calculation result and query result
+
+**Design Principle:**
+- `core` returns complete calculation results
+- `billing-api` handles "view layer" logic (e.g., queryTime filtering)
+- This separation keeps core pure while providing convenient APIs
+
 ### Implementation Notes
 
 - `ChargingEngine` is a placeholder (returns null)
@@ -84,5 +260,59 @@ The `DayNightRule` implements time-based billing with:
 - **Day/night pricing**: Different unit prices for day period (e.g., 12:20-19:00) vs night period
 - **Daily cap**: Maximum charge per 24-hour cycle
 - **Block weight threshold**: When a billing unit spans both day and night, use day price if day minutes ratio >= blockWeight (0.5), otherwise use night price
-- **Free time ranges**: Promotions that completely cover a billing unit make it free
-- **Daily cap handling**: Units after reaching the daily cap are marked as free with `freePromotionId="DAILY_CAP"`
+- **Free time ranges**: Promotions that completely cover a billing unit make it free with `freePromotionId="DAILY_CAP"`
+
+---
+
+## 计费单元延伸机制
+
+### 延伸目的
+
+延伸是为了预测下次 CONTINUE 模式的起点，提供"费用稳定时间窗口"。
+
+### 延伸规则
+
+1. **普通情况**：延伸到完整单元长度，不超过下一个边界
+2. **封顶情况**：封顶免费单元（CYCLE_CAP/DAILY_CAP）可延伸到下一个周期边界
+3. **遇优惠边界**：延伸停在优惠边界，不进入未处理的优惠区域
+
+### 延伸与优惠交互
+
+**核心原则**：优惠分配在延伸之前，延伸不应"闯入"新的优惠区域。
+
+**典型场景**：
+```
+免费时段：09:20-09:50
+计算窗口：07:30-09:00
+单元长度：60分钟
+最后单元：08:30-09:00
+
+期望延伸到：09:20（停在免费时段边界）
+```
+
+**解决方案**：
+- `TimeRangeMergeResult.boundaryReferences`：存储窗口外的免费时段，作为延伸边界参考
+- 边界参考时段**不参与**当前窗口的优惠结算，**不影响** usedFreeRanges
+- 延伸时检查 `freeTimeRanges + boundaryReferences`，停在最近的优惠边界
+
+**实现要点**：
+- `FreeTimeRangeMerger.preprocessRanges()`：窗口后的时段记录到 boundaryReferences
+- `PromotionAggregate.boundaryReferences`：传递边界参考给规则层
+- `findNextFreeRangeBoundary()`：检查两个列表，找到最近的边界
+
+---
+
+## 优惠结算逻辑
+
+### usedFreeRanges 记录规则
+
+只记录在当前计算窗口内**实际使用**的免费时段部分：
+- 时段完全在窗口内：完整记录
+- 时段跨越窗口边界：只记录窗口内部分
+- 时段完全在窗口外：不记录（作为边界参考保留）
+
+### calculationEndTime 语义
+
+- 表示"已计算到哪里"
+- 可能延伸超过请求的计算窗口结束时间
+- 下次 CONTINUE 从此时间点开始

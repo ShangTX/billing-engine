@@ -1,17 +1,23 @@
 package cn.shang.charging.billing;
 
+import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.PromotionRuleConfig;
-import cn.shang.charging.billing.pojo.PromotionRuleSnapshot;
 import cn.shang.charging.billing.pojo.RuleConfig;
-import cn.shang.charging.billing.pojo.RuleSnapshot;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 规则resolve
+ * 计费配置解析器
  */
-public interface RuleResolver {
+public interface BillingConfigResolver {
+
+    /**
+     * 获取计费模式
+     * @param schemeId 方案id
+     * @return 计费模式
+     */
+    BConstants.BillingMode resolveBillingMode(String schemeId);
 
     /**
      * 获取计费规则配置
@@ -35,4 +41,12 @@ public interface RuleResolver {
     List<PromotionRuleConfig> resolvePromotionRules(String schemeId,
                                                     LocalDateTime segmentStart,
                                                     LocalDateTime segmentEnd);
+
+    /**
+     * 获取简化计算的周期阈值
+     * @return 连续无优惠周期数超过此值时启用简化，0 表示禁用
+     */
+    default int getSimplifiedCycleThreshold() {
+        return 0; // 默认禁用
+    }
 }
