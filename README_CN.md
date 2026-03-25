@@ -1,28 +1,28 @@
-# Billing Engine
+# 时间计费引擎
 
-[中文文档](README_CN.md)
+[English](README.md)
 
-A extensible, traceable, composable time-based billing engine for scenarios like venue usage fees, equipment rentals, and service billing.
+一个可扩展、可追溯、可组合规则的时间计费引擎，适用于场地使用费、设备租赁、服务时长计费等按时间收费的场景。
 
-## Features
+## 特性
 
-- **Extensible Rules**: Add new billing rules without modifying the core engine
-- **Traceable Process**: Complete billing details for auditing and debugging
-- **Continue Calculation**: Support incremental billing from previous results
-- **Flexible Promotions**: Free time ranges, free minutes, and more
+- **可扩展规则**：新增计费规则无需修改核心引擎
+- **可追溯过程**：完整的计费明细，便于审计和调试
+- **继续计算**：支持从上次结果增量计算
+- **灵活优惠**：免费时间段、免费分钟数等多种优惠类型
 
-## Requirements
+## 环境要求
 
 - JDK 21+
 - Maven 3.6+
 
-## Quick Start
+## 快速开始
 
-### Add Dependency
+### 添加依赖
 
-#### Option 1: billing-api (Recommended)
+#### 方式一：billing-api（推荐）
 
-Provides `BillingTemplate` with advanced features like query-time calculation and promotion equivalents.
+提供 `BillingTemplate` 便捷封装，包含查询时间点计算、优惠等效金额计算等高级功能。
 
 ```xml
 <dependency>
@@ -32,7 +32,7 @@ Provides `BillingTemplate` with advanced features like query-time calculation an
 </dependency>
 ```
 
-#### Option 2: Spring Boot Starter
+#### 方式二：Spring Boot Starter
 
 ```xml
 <!-- Spring Boot 3.0.x - 3.4.x -->
@@ -50,10 +50,10 @@ Provides `BillingTemplate` with advanced features like query-time calculation an
 </dependency>
 ```
 
-### Basic Usage
+### 基本用法
 
 ```java
-// 1. Implement BillingConfigResolver
+// 1. 实现 BillingConfigResolver
 public class MyBillingConfigResolver implements BillingConfigResolver {
     @Override
     public RuleConfig resolveChargingRule(String schemeId,
@@ -61,23 +61,23 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
                                           LocalDateTime segmentEnd) {
         return new DayNightConfig()
             .setId("daynight-1")
-            .setDayBeginMinute(740)              // Day starts: 12:20
-            .setDayEndMinute(1140)               // Day ends: 19:00
-            .setDayUnitPrice(new BigDecimal("2")) // Day price: 2/hour
-            .setNightUnitPrice(new BigDecimal("1")) // Night price: 1/hour
-            .setMaxChargeOneDay(new BigDecimal("50")) // Daily cap: 50
+            .setDayBeginMinute(740)              // 白天开始：12:20
+            .setDayEndMinute(1140)               // 白天结束：19:00
+            .setDayUnitPrice(new BigDecimal("2")) // 白天单价：2元/小时
+            .setNightUnitPrice(new BigDecimal("1")) // 夜间单价：1元/小时
+            .setMaxChargeOneDay(new BigDecimal("50")) // 每日封顶：50元
             .setUnitMinutes(60)
             .setBlockWeight(new BigDecimal("0.5"));
     }
-    // ... other methods
+    // ... 其他方法
 }
 
-// 2. Create BillingTemplate
+// 2. 创建 BillingTemplate
 BillingConfigResolver configResolver = new MyBillingConfigResolver();
 BillingService billingService = BillingServiceFactory.create(configResolver);
 BillingTemplate billingTemplate = new BillingTemplate(billingService, configResolver);
 
-// 3. Calculate
+// 3. 计算费用
 BillingRequest request = new BillingRequest();
 request.setBeginTime(beginTime);
 request.setEndTime(endTime);
@@ -87,62 +87,62 @@ request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCA
 BillingResult result = billingTemplate.calculate(request);
 ```
 
-## API Reference
+## API 参考
 
-### BillingTemplate Methods
+### BillingTemplate 方法
 
-| Method | Description |
-|--------|-------------|
-| `calculate(request)` | Basic billing calculation |
-| `calculateWithQuery(request, queryTime)` | Calculate and return state at specific time |
-| `calculatePromotionEquivalents(request)` | Calculate equivalent amount for each promotion |
+| 方法 | 说明 |
+|------|------|
+| `calculate(request)` | 基础计费计算 |
+| `calculateWithQuery(request, queryTime)` | 计算并返回指定时间点的费用状态 |
+| `calculatePromotionEquivalents(request)` | 计算每个优惠的等效金额 |
 
-### Input: BillingRequest
+### 输入：BillingRequest
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `beginTime` | LocalDateTime | **Yes** | Billing start time |
-| `endTime` | LocalDateTime | **Yes** | Billing end time |
-| `schemeId` | String | Conditional | Billing scheme ID (or use `schemeChanges`) |
-| `schemeChanges` | List\<SchemeChange\> | Conditional | Scheme change timeline |
-| `segmentCalculationMode` | SegmentCalculationMode | **Yes** | Segment calculation mode |
-| `externalPromotions` | List\<PromotionGrant\> | No | External promotions (coupons, etc.) |
-| `previousCarryOver` | BillingCarryOver | No | Previous state for CONTINUE mode |
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `beginTime` | LocalDateTime | **是** | 计费开始时间 |
+| `endTime` | LocalDateTime | **是** | 计费结束时间 |
+| `schemeId` | String | 条件 | 计费方案ID（与 `schemeChanges` 二选一） |
+| `schemeChanges` | List\<SchemeChange\> | 条件 | 方案变更时间轴 |
+| `segmentCalculationMode` | SegmentCalculationMode | **是** | 分段计算模式 |
+| `externalPromotions` | List\<PromotionGrant\> | 否 | 外部优惠列表 |
+| `previousCarryOver` | BillingCarryOver | 否 | 上次结转状态（CONTINUE 模式） |
 
-### Output: BillingResult
+### 输出：BillingResult
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `finalAmount` | BigDecimal | Final amount due |
-| `units` | List\<BillingUnit\> | Billing unit details |
-| `promotionUsages` | List\<PromotionUsage\> | Promotion usage records |
-| `carryOver` | BillingCarryOver | State for next calculation |
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `finalAmount` | BigDecimal | 最终应收金额 |
+| `units` | List\<BillingUnit\> | 计费单元明细 |
+| `promotionUsages` | List\<PromotionUsage\> | 优惠使用记录 |
+| `carryOver` | BillingCarryOver | 结转状态，供下次计算使用 |
 
-## Billing Modes
+## 计费模式
 
-| Mode | Description |
-|------|-------------|
-| `CONTINUOUS` | Continuous time billing, can be interrupted by promotions |
-| `UNIT_BASED` | Independent billing per unit |
+| 模式 | 说明 |
+|------|------|
+| `CONTINUOUS` | 连续时间计费，时间可被优惠打断 |
+| `UNIT_BASED` | 按计费单元独立计算 |
 
-## Promotion Types
+## 优惠类型
 
-| Type | Description |
-|------|-------------|
-| `FREE_MINUTES` | Free minutes allocated optimally |
-| `FREE_RANGE` | Free time periods |
-| `AMOUNT` | Amount discount (planned) |
-| `DISCOUNT` | Percentage discount (planned) |
+| 类型 | 说明 |
+|------|------|
+| `FREE_MINUTES` | 免费分钟数，智能分配到最优时段 |
+| `FREE_RANGE` | 免费时间段 |
+| `AMOUNT` | 金额减免（待实现） |
+| `DISCOUNT` | 折扣优惠（待实现） |
 
-## Continue Mode
+## 继续计算模式
 
-Support incremental billing for long-term scenarios:
+支持长期计费场景的增量计算：
 
 ```java
-// First calculation
+// 首次计算
 BillingResult result1 = billingTemplate.calculate(request1);
 
-// Continue calculation
+// 继续计算
 BillingRequest request2 = new BillingRequest();
 request2.setBeginTime(beginTime);
 request2.setEndTime(secondQueryTime);
@@ -151,9 +151,9 @@ request2.setPreviousCarryOver(result1.getCarryOver());
 BillingResult result2 = billingTemplate.calculate(request2);
 ```
 
-## Rule Configuration
+## 规则配置
 
-### DayNightConfig
+### DayNightConfig（日夜分时段）
 
 ```java
 DayNightConfig config = new DayNightConfig()
@@ -167,7 +167,7 @@ DayNightConfig config = new DayNightConfig()
     .setBlockWeight(new BigDecimal("0.5"));
 ```
 
-### RelativeTimeConfig
+### RelativeTimeConfig（相对时间段）
 
 ```java
 RelativeTimeConfig config = new RelativeTimeConfig()
@@ -186,7 +186,7 @@ RelativeTimeConfig config = new RelativeTimeConfig()
     ));
 ```
 
-### CompositeTimeConfig
+### CompositeTimeConfig（混合时间）
 
 ```java
 CompositeTimeConfig config = new CompositeTimeConfig()
@@ -208,9 +208,9 @@ CompositeTimeConfig config = new CompositeTimeConfig()
     ));
 ```
 
-## Custom Rules
+## 自定义规则
 
-### 1. Implement RuleConfig
+### 1. 实现规则配置
 
 ```java
 @Data
@@ -227,7 +227,7 @@ public class MyRuleConfig implements RuleConfig {
 }
 ```
 
-### 2. Implement BillingRule
+### 2. 实现规则逻辑
 
 ```java
 public class MyBillingRule implements BillingRule<MyRuleConfig> {
@@ -235,7 +235,7 @@ public class MyBillingRule implements BillingRule<MyRuleConfig> {
     public BillingSegmentResult calculate(BillingContext context,
                                           MyRuleConfig config,
                                           PromotionAggregate promotionAggregate) {
-        // Implement billing logic
+        // 实现计费逻辑
     }
 
     @Override
@@ -250,28 +250,28 @@ public class MyBillingRule implements BillingRule<MyRuleConfig> {
 }
 ```
 
-### 3. Register Rule
+### 3. 注册规则
 
 ```java
 ruleRegistry.register("myRule", new MyBillingRule());
 ```
 
-## Module Structure
+## 模块结构
 
-| Module | Description |
-|--------|-------------|
-| `billing-core` | Core billing engine, pure calculation logic |
-| `billing-api` | Convenient API wrapper (recommended) |
-| `billing-v3-spring-boot-starter` | Spring Boot 3.0-3.4 integration |
-| `billing-v4-spring-boot-starter` | Spring Boot 3.5-4.x integration |
+| 模块 | 说明 |
+|------|------|
+| `billing-core` | 核心计费引擎，纯计算逻辑 |
+| `billing-api` | 便捷 API 封装（推荐使用） |
+| `billing-v3-spring-boot-starter` | Spring Boot 3.0-3.4 集成 |
+| `billing-v4-spring-boot-starter` | Spring Boot 3.5-4.x 集成 |
 
-## Design Principles
+## 设计原则
 
-1. **Core engine only calculates** - No caching, no database, no side effects
-2. **Rules are pure functions** - Same input always produces same output
-3. **Rules don't depend on each other** - All rules executed through Engine
-4. **Config and implementation separated** - RuleConfig describes parameters, BillingRule calculates
+1. **核心引擎只负责计算** — 无缓存、无数据库、无副作用
+2. **规则是纯函数** — 相同输入始终产生相同输出
+3. **规则不相互依赖** — 所有规则通过 Engine 统一执行
+4. **配置与实现分离** — RuleConfig 描述参数，BillingRule 负责计算
 
-## License
+## 许可证
 
 MIT License
