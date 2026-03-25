@@ -241,7 +241,7 @@ public class PromotionTest {
                         .setDayEndMinute(1140)    // 19:00
                         .setDayUnitPrice(new BigDecimal("2"))
                         .setNightUnitPrice(new BigDecimal("1"))
-                        .setMaxChargeOneDay(null)
+                        .setMaxChargeOneDay(new BigDecimal("100"))
                         .setUnitMinutes(60);
             }
 
