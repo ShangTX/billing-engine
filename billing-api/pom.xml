@@ -5,19 +5,19 @@
 
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>cn.shang</groupId>
-        <artifactId>charge</artifactId>
-        <version>0.0.1-SNAPSHOT</version>
+        <groupId>io.github.shangtx</groupId>
+        <artifactId>billing-engine</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>billing-api</artifactId>
-    <name>billing-api</name>
-    <description>计费引擎 API 层，提供便捷 API 和边缘功能</description>
+    <name>Billing Engine API</name>
+    <description>Convenient API wrapper with advanced features like query-time calculation and promotion equivalents</description>
 
     <dependencies>
         <dependency>
-            <groupId>cn.shang</groupId>
-            <artifactId>core</artifactId>
+            <groupId>io.github.shangtx</groupId>
+            <artifactId>billing-core</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>

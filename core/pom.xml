@@ -4,15 +4,15 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
     <parent>
-        <groupId>cn.shang</groupId>
-        <artifactId>charge</artifactId>
-        <version>0.0.1-SNAPSHOT</version>
+        <groupId>io.github.shangtx</groupId>
+        <artifactId>billing-engine</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>core</artifactId>
+    <artifactId>billing-core</artifactId>
     <packaging>jar</packaging>
-    <version>0.0.1-SNAPSHOT</version>
-
+    <name>Billing Engine Core</name>
+    <description>Core billing engine with pure calculation logic</description>
 
     <dependencies>
         <dependency>
