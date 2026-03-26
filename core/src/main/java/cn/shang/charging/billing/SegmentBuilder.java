@@ -2,7 +2,6 @@ package cn.shang.charging.billing;
 
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.SchemeChange;
-import org.apache.commons.lang3.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -30,7 +29,7 @@ public class SegmentBuilder {
         var segments = new ArrayList<BillingSegment>();
 
         // 单方案计费
-        if (!StringUtils.isEmpty(request.getSchemeId())
+        if (request.getSchemeId() != null && !request.getSchemeId().isEmpty()
                 && !request.getSchemeId().equals("0")
                 && request.getSchemeChanges().isEmpty()) {
             var segment = BillingSegment.builder()
