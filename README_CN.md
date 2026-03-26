@@ -346,6 +346,120 @@ BillingResult result = billingTemplate.calculate(request);
 
 ---
 
+### 规则配置实现类
+
+#### DayNightConfig（cn.shang.charging.charge.rules.daynight）
+
+日夜分时段计费规则配置。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | String | 规则ID |
+| `type` | String | 规则类型（默认 "dayNight"） |
+| `dayBeginMinute` | Integer | 白天开始分钟（0点为0） |
+| `dayEndMinute` | Integer | 白天结束分钟 |
+| `unitMinutes` | Integer | 计费单元长度（分钟） |
+| `blockWeight` | BigDecimal | 白天黑夜判断权重 |
+| `dayUnitPrice` | BigDecimal | 白天单价 |
+| `nightUnitPrice` | BigDecimal | 夜间单价 |
+| `maxChargeOneDay` | BigDecimal | 每日封顶金额 |
+| `simplifiedSupported` | Boolean | 是否支持简化计算 |
+
+#### RelativeTimeConfig（cn.shang.charging.charge.rules.relativetime）
+
+相对时间段计费规则配置。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | String | 规则ID |
+| `type` | String | 规则类型（默认 "relativeTime"） |
+| `periods` | List\<RelativeTimePeriod\> | 时间段列表 |
+| `maxChargeOneCycle` | BigDecimal | 每周期封顶金额 |
+| `simplifiedSupported` | Boolean | 是否支持简化计算 |
+
+#### RelativeTimePeriod（cn.shang.charging.charge.rules.relativetime）
+
+相对时间段定义。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `beginMinute` | int | 相对开始分钟（0-1439） |
+| `endMinute` | int | 相对结束分钟（1-1440） |
+| `unitMinutes` | int | 计费单元长度（分钟） |
+| `unitPrice` | BigDecimal | 单价 |
+
+#### CompositeTimeConfig（cn.shang.charging.charge.rules.compositetime）
+
+混合时间计费规则配置。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | String | 规则ID |
+| `type` | String | 规则类型（默认 "compositeTime"） |
+| `periods` | List\<CompositePeriod\> | 相对时间段列表 |
+| `maxChargeOneCycle` | BigDecimal | 周期封顶金额 |
+| `insufficientUnitMode` | InsufficientUnitMode | 不足单元计费模式 |
+| `simplifiedSupported` | Boolean | 是否支持简化计算 |
+
+#### CompositePeriod（cn.shang.charging.charge.rules.compositetime）
+
+相对时间段配置（混合时间规则）。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `beginMinute` | int | 相对开始分钟（0-1440） |
+| `endMinute` | int | 相对结束分钟 |
+| `unitMinutes` | int | 计费单元长度（分钟） |
+| `maxCharge` | BigDecimal | 时间段独立封顶（可选） |
+| `crossPeriodMode` | CrossPeriodMode | 跨自然时段处理模式 |
+| `naturalPeriods` | List\<NaturalPeriod\> | 自然时段价格列表 |
+
+#### NaturalPeriod（cn.shang.charging.charge.rules.compositetime）
+
+自然时段配置。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `beginMinute` | int | 自然时段开始分钟 |
+| `endMinute` | int | 自然时段结束分钟 |
+| `unitPrice` | BigDecimal | 单元价格 |
+
+#### FreeMinutesPromotionConfig（cn.shang.charging.promotion.rules.minutes）
+
+免费分钟数优惠规则配置。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | String | 规则ID |
+| `type` | String | 规则类型（默认 "freeMinutes"） |
+| `priority` | Integer | 优先级 |
+| `minutes` | int | 免费分钟数 |
+
+#### InsufficientUnitMode（cn.shang.charging.charge.rules.compositetime）
+
+不足单元计费模式枚举。
+
+| 值 | 说明 |
+|------|------|
+| `FULL` | 全额收费 |
+| `PROPORTIONAL` | 按比例收费 |
+
+#### CrossPeriodMode（cn.shang.charging.charge.rules.compositetime）
+
+跨自然时段处理模式枚举。
+
+| 值 | 说明 |
+|------|------|
+| `BLOCK_WEIGHT` | 按时间比例判断价格 |
+| `HIGHER_PRICE` | 取较高价格 |
+| `LOWER_PRICE` | 取较低价格 |
+| `PROPORTIONAL` | 按比例拆分计算 |
+| `BEGIN_TIME_PRICE` | 取开始时间所在时段价格 |
+| `END_TIME_PRICE` | 取结束时间所在时段价格 |
+| `BEGIN_TIME_TRUNCATE` | 取开始时间价格，用自然时段边界截断 |
+
+---
+
 ### 常量与枚举
 
 #### BConstants（cn.shang.charging.billing.pojo）
