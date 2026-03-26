@@ -639,6 +639,15 @@ CompositeTimeConfig config = new CompositeTimeConfig()
     ));
 ```
 
+### FreeMinutesPromotionConfig (Free Minutes Promotion)
+
+```java
+FreeMinutesPromotionConfig promoConfig = new FreeMinutesPromotionConfig()
+    .setId("free-minutes-1")
+    .setMinutes(30)        // 30 minutes free
+    .setPriority(100);     // Higher priority applied first
+```
+
 ## Custom Rules
 
 ### 1. Implement Rule Configuration

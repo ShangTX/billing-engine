@@ -639,6 +639,15 @@ CompositeTimeConfig config = new CompositeTimeConfig()
     ));
 ```
 
+### FreeMinutesPromotionConfig（免费分钟数优惠）
+
+```java
+FreeMinutesPromotionConfig promoConfig = new FreeMinutesPromotionConfig()
+    .setId("free-minutes-1")
+    .setMinutes(30)        // 免费时长30分钟
+    .setPriority(100);     // 优先级越高越先应用
+```
+
 ## 自定义规则
 
 ### 1. 实现规则配置
