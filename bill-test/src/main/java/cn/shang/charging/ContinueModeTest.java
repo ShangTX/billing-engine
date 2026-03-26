@@ -12,7 +12,7 @@ import cn.shang.charging.charge.rules.daynight.DayNightRule;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
-import cn.shang.charging.charge.util.JacksonUtils;
+import cn.shang.charging.util.JacksonUtils;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;

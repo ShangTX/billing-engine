@@ -1,5 +1,4 @@
-package cn.shang.charging.charge.util;
-
+package cn.shang.charging.util;
 
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -14,21 +13,16 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * JSON 序列化工具类（仅用于测试模块）
+ */
 public class JacksonUtils {
 
-    /**
-     * LocalDateTime 序列化格式
-     */
     private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    /**
-     * 注入统一的配置
-     * 因配置在core模块 所以本工具类也需要在core模块   因为core模块不依赖utils模块
-     */
     private static final ObjectMapper MAPPER = createMapper();
 
     private static ObjectMapper createMapper() {
-        // 创建自定义模块配置 LocalDateTime 序列化格式
         SimpleModule customModule = new SimpleModule();
         customModule.addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(DATETIME_FORMATTER));
 
