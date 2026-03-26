@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.github.shangtx</groupId>
+  <artifactId>billing-core</artifactId>
+  <version>1.0.1</version>
+  <name>Billing Engine Core</name>
+  <description>Core billing engine with pure calculation logic</description>
+  <url>https://github.com/ShangTX/billing-engine/billing-core</url>
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/licenses/MIT</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>ShangTX</id>
+      <name>ShangTX</name>
+      <email>shangtx@126.com</email>
+      <url>https://github.com/ShangTX</url>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:git://github.com/ShangTX/billing-engine.git/billing-core</connection>
+    <developerConnection>scm:git:ssh://github.com/ShangTX/billing-engine.git/billing-core</developerConnection>
+    <url>https://github.com/ShangTX/billing-engine/billing-core</url>
+  </scm>
+  <dependencies>
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <version>1.18.34</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.sonatype.central</groupId>
+        <artifactId>central-publishing-maven-plugin</artifactId>
+        <version>0.7.0</version>
+        <extensions>true</extensions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
