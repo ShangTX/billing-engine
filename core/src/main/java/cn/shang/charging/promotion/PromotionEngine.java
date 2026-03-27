@@ -221,7 +221,8 @@ public class PromotionEngine {
             int remaining = (int) (usage.getGrantedMinutes() - usage.getUsedMinutes());
             // 记录所有使用过的优惠，包括已用完的（remaining=0）
             // 这样在 CONTINUE 模式下可以正确识别哪些优惠已经用完
-            if (remaining >= 0) {
+            // 跳过 promotionId 为 null 的情况，避免 Map 出现 null key 导致序列化失败
+            if (remaining >= 0 && usage.getPromotionId() != null) {
                 remainingMinutes.put(usage.getPromotionId(), remaining);
             }
         }
