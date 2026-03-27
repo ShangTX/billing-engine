@@ -629,6 +629,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
     /**
      * 应用每日封顶
+     * 累计到封顶后，剩余单元标记为免费
      */
     private void applyDailyCap(List<BillingUnit> units, DayNightConfig config) {
         BigDecimal maxCharge = config.getMaxChargeOneDay();
@@ -644,18 +645,44 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                     .filter(u -> (Integer) u.getRuleData() == cycleIdx)
                     .toList();
 
-            BigDecimal cycleTotal = cycleUnits.stream()
-                    .map(BillingUnit::getChargedAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal accumulated = BigDecimal.ZERO;
+            int capIndex = -1;
+            BigDecimal lastChargeAmount = null;
 
-            if (cycleTotal.compareTo(maxCharge) > 0) {
-                // 超过封顶，按比例削减
-                BigDecimal ratio = maxCharge.divide(cycleTotal, 6, RoundingMode.HALF_UP);
-                for (BillingUnit unit : cycleUnits) {
+            // 找到封顶位置
+            for (int i = 0; i < cycleUnits.size(); i++) {
+                BillingUnit unit = cycleUnits.get(i);
+                if (unit.isFree()) {
+                    continue;
+                }
+
+                BigDecimal newAccumulated = accumulated.add(unit.getChargedAmount());
+
+                if (newAccumulated.compareTo(maxCharge) >= 0) {
+                    // 超过封顶
+                    capIndex = i;
+                    lastChargeAmount = maxCharge.subtract(accumulated);
+                    break;
+                }
+
+                accumulated = newAccumulated;
+            }
+
+            if (capIndex >= 0) {
+                // 调整封顶单元的金额
+                cycleUnits.get(capIndex).setChargedAmount(lastChargeAmount.setScale(2, RoundingMode.HALF_UP));
+                if (cycleUnits.get(capIndex).getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
+                    cycleUnits.get(capIndex).setFree(true);
+                    cycleUnits.get(capIndex).setFreePromotionId("DAILY_CAP");
+                }
+
+                // 封顶后的单元标记为免费
+                for (int i = capIndex + 1; i < cycleUnits.size(); i++) {
+                    BillingUnit unit = cycleUnits.get(i);
                     if (!unit.isFree()) {
-                        BigDecimal newAmount = unit.getChargedAmount().multiply(ratio)
-                                .setScale(2, RoundingMode.HALF_UP);
-                        unit.setChargedAmount(newAmount);
+                        unit.setChargedAmount(BigDecimal.ZERO);
+                        unit.setFree(true);
+                        unit.setFreePromotionId("DAILY_CAP");
                     }
                 }
             }
@@ -664,6 +691,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
     /**
      * 应用每日封顶（考虑结转的累计金额）
+     * 累计到封顶后，剩余单元标记为免费
      * @return 最后一个周期的累计金额
      */
     private BigDecimal applyDailyCapWithCarryOver(List<BillingUnit> units, DayNightConfig config, BigDecimal carryOverAccumulated) {
@@ -683,48 +711,62 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                     .filter(u -> (Integer) u.getRuleData() == cycleIdx)
                     .toList();
 
-            // 本周期新增金额
-            BigDecimal cycleNewAmount = cycleUnits.stream()
-                    .map(BillingUnit::getChargedAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            // 如果继承的累计金额已达到封顶，将所有收费单元标记为免费
+            if (accumulated.compareTo(maxCharge) >= 0) {
+                for (BillingUnit unit : cycleUnits) {
+                    if (!unit.isFree()) {
+                        unit.setChargedAmount(BigDecimal.ZERO);
+                        unit.setFree(true);
+                        unit.setFreePromotionId("DAILY_CAP");
+                    }
+                }
+                lastCycleAccumulated = maxCharge;
+            } else {
+                // 找到封顶位置
+                int capIndex = -1;
+                BigDecimal lastChargeAmount = null;
 
-            // 总累计金额 = 结转金额 + 新增金额
-            BigDecimal totalAccumulated = accumulated.add(cycleNewAmount);
+                for (int i = 0; i < cycleUnits.size(); i++) {
+                    BillingUnit unit = cycleUnits.get(i);
+                    if (unit.isFree()) {
+                        continue;
+                    }
 
-            if (totalAccumulated.compareTo(maxCharge) > 0) {
-                // 超过封顶
-                BigDecimal maxAllowed = maxCharge.subtract(accumulated).max(BigDecimal.ZERO);
-                if (maxAllowed.compareTo(BigDecimal.ZERO) <= 0) {
-                    // 已达封顶，全部免费
-                    for (BillingUnit unit : cycleUnits) {
+                    BigDecimal newAccumulated = accumulated.add(unit.getChargedAmount());
+
+                    if (newAccumulated.compareTo(maxCharge) >= 0) {
+                        // 超过封顶
+                        capIndex = i;
+                        lastChargeAmount = maxCharge.subtract(accumulated);
+                        break;
+                    }
+
+                    accumulated = newAccumulated;
+                }
+
+                if (capIndex >= 0) {
+                    // 调整封顶单元的金额
+                    cycleUnits.get(capIndex).setChargedAmount(lastChargeAmount.setScale(2, RoundingMode.HALF_UP));
+                    if (cycleUnits.get(capIndex).getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
+                        cycleUnits.get(capIndex).setFree(true);
+                        cycleUnits.get(capIndex).setFreePromotionId("DAILY_CAP");
+                    }
+
+                    // 封顶后的单元标记为免费
+                    for (int i = capIndex + 1; i < cycleUnits.size(); i++) {
+                        BillingUnit unit = cycleUnits.get(i);
                         if (!unit.isFree()) {
                             unit.setChargedAmount(BigDecimal.ZERO);
                             unit.setFree(true);
                             unit.setFreePromotionId("DAILY_CAP");
                         }
                     }
-                    // 触发封顶，累计 = 封顶金额
+
                     lastCycleAccumulated = maxCharge;
                 } else {
-                    // 按比例削减
-                    BigDecimal ratio = maxAllowed.divide(cycleNewAmount, 6, RoundingMode.HALF_UP);
-                    for (BillingUnit unit : cycleUnits) {
-                        if (!unit.isFree()) {
-                            BigDecimal newAmount = unit.getChargedAmount().multiply(ratio)
-                                    .setScale(2, RoundingMode.HALF_UP);
-                            unit.setChargedAmount(newAmount);
-                            if (newAmount.compareTo(BigDecimal.ZERO) == 0) {
-                                unit.setFree(true);
-                                unit.setFreePromotionId("DAILY_CAP");
-                            }
-                        }
-                    }
-                    // 触发封顶，累计 = 封顶金额
-                    lastCycleAccumulated = maxCharge;
+                    // 未超过封顶
+                    lastCycleAccumulated = accumulated;
                 }
-            } else {
-                // 未超过封顶，累计 = 总累计金额
-                lastCycleAccumulated = totalAccumulated;
             }
 
             // 重置累计金额（新周期）
