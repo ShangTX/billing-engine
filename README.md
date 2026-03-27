@@ -107,7 +107,8 @@ Convenient API wrapper with advanced features.
 
 | Method | Parameters | Return | Description |
 |--------|------------|--------|-------------|
-| `calculate` | `BillingRequest request` | `BillingResult` | Basic billing calculation |
+| `calculate` | `BillingRequest request` | `BillingResult` | Basic billing calculation (defaults to `CEIL_BEGIN_TRUNCATE_END` rounding mode) |
+| `calculate` | `BillingRequest request, TimeRoundingMode roundingMode` | `BillingResult` | Billing calculation with specified time rounding mode |
 | `calculateWithQuery` | `BillingRequest request, LocalDateTime queryTime` | `CalculationWithQueryResult` | Calculate and return fee status at specified time |
 | `calculatePromotionEquivalents` | `BillingRequest request` | `Map<String, BigDecimal>` | Calculate equivalent amount for each promotion |
 | `calculatePromotionSavings` | `BillingResult result` | `Map<String, BigDecimal>` | Analyze promotion savings |
@@ -144,6 +145,7 @@ Billing request input.
 | `segmentCalculationMode` | SegmentCalculationMode | **Yes** | Segment calculation mode |
 | `externalPromotions` | List\<PromotionGrant\> | No | External promotion list |
 | `previousCarryOver` | BillingCarryOver | No | Previous carry-over state (CONTINUE mode) |
+| `timeRoundingMode` | TimeRoundingMode | No | Time rounding mode for handling seconds (defaults to `CEIL_BEGIN_TRUNCATE_END` in BillingTemplate) |
 
 #### BillingResult (cn.shang.charging.billing.pojo)
 
@@ -501,6 +503,15 @@ Cross natural period handling mode enum.
 | `SINGLE` | Single segment only |
 | `SEGMENT_LOCAL` | Segment independent calculation |
 | `GLOBAL_ORIGIN` | Global origin + segment clipping |
+
+##### TimeRoundingMode Enum
+
+| Value | Description |
+|-------|-------------|
+| `KEEP_SECONDS` | Keep seconds as-is, no rounding |
+| `TRUNCATE_BOTH` | Truncate seconds to zero for both begin and end time |
+| `CEIL_BEGIN_TRUNCATE_END` | Ceil begin time (add 1 minute if has seconds), truncate end time |
+| `TRUNCATE_BEGIN_CEIL_END` | Truncate begin time, ceil end time (add 1 minute if has seconds) |
 
 ##### ChargeRuleType Constants
 

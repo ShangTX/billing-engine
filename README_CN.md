@@ -107,7 +107,8 @@ BillingResult result = billingTemplate.calculate(request);
 
 | 方法 | 参数 | 返回值 | 说明 |
 |------|------|--------|------|
-| `calculate` | `BillingRequest request` | `BillingResult` | 基础计费计算 |
+| `calculate` | `BillingRequest request` | `BillingResult` | 基础计费计算（默认使用 `CEIL_BEGIN_TRUNCATE_END` 取整模式） |
+| `calculate` | `BillingRequest request, TimeRoundingMode roundingMode` | `BillingResult` | 计费计算，指定时间取整模式 |
 | `calculateWithQuery` | `BillingRequest request, LocalDateTime queryTime` | `CalculationWithQueryResult` | 计算并返回指定时间点的费用状态 |
 | `calculatePromotionEquivalents` | `BillingRequest request` | `Map<String, BigDecimal>` | 计算每个优惠的等效金额 |
 | `calculatePromotionSavings` | `BillingResult result` | `Map<String, BigDecimal>` | 分析优惠节省金额 |
@@ -144,6 +145,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `segmentCalculationMode` | SegmentCalculationMode | **是** | 分段计算模式 |
 | `externalPromotions` | List\<PromotionGrant\> | 否 | 外部优惠列表 |
 | `previousCarryOver` | BillingCarryOver | 否 | 上次结转状态（CONTINUE 模式） |
+| `timeRoundingMode` | TimeRoundingMode | 否 | 时间取整模式，用于处理秒数（BillingTemplate 中默认使用 `CEIL_BEGIN_TRUNCATE_END`） |
 
 #### BillingResult（cn.shang.charging.billing.pojo）
 
@@ -501,6 +503,15 @@ BillingResult result = billingTemplate.calculate(request);
 | `SINGLE` | 仅单个分段 |
 | `SEGMENT_LOCAL` | 分段独立起算 |
 | `GLOBAL_ORIGIN` | 全局起算 + 分段截取 |
+
+##### TimeRoundingMode 枚举
+
+| 值 | 说明 |
+|------|------|
+| `KEEP_SECONDS` | 保留秒数，不做处理 |
+| `TRUNCATE_BOTH` | 开始和结束时间都去掉秒数（秒数置0） |
+| `CEIL_BEGIN_TRUNCATE_END` | 开始时间向上取整（有秒数则加1分钟），结束时间去掉秒数 |
+| `TRUNCATE_BEGIN_CEIL_END` | 开始时间去掉秒数，结束时间向上取整（有秒数则加1分钟） |
 
 ##### ChargeRuleType 常量
 
