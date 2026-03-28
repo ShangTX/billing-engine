@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
 import java.time.Month;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 气泡型免费时间段测试
@@ -54,12 +55,12 @@ public class BubbleFreeTimeRangeTest {
     static void initBillingService() {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return new DayNightConfig()
                         .setId("daynight-1")
                         .setBlockWeight(new BigDecimal("0.5"))
@@ -72,7 +73,7 @@ public class BubbleFreeTimeRangeTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return List.of();
             }
 

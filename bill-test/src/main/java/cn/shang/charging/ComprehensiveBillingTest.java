@@ -955,12 +955,12 @@ public class ComprehensiveBillingTest {
     static BillingService createRelativeTimeServiceWithFreeMinutes(BigDecimal maxCharge, boolean withFreeMinutes) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 List<RelativeTimePeriod> periods = List.of(
                         RelativeTimePeriod.builder()
                                 .beginMinute(0)
@@ -984,7 +984,7 @@ public class ComprehensiveBillingTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 if (withFreeMinutes) {
                     return List.of(
                             new FreeMinutesPromotionConfig()
@@ -1007,12 +1007,12 @@ public class ComprehensiveBillingTest {
     static BillingService createDayNightServiceWithFreeMinutes(BigDecimal maxCharge, boolean withFreeMinutes) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return DayNightConfig.builder()
                         .id("day-night-1")
                         .dayBeginMinute(8 * 60)
@@ -1026,7 +1026,7 @@ public class ComprehensiveBillingTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 if (withFreeMinutes) {
                     return List.of(
                             new FreeMinutesPromotionConfig()
@@ -1045,7 +1045,7 @@ public class ComprehensiveBillingTest {
     static BillingService createDayNightServiceWithSimplified(int threshold) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
@@ -1055,7 +1055,7 @@ public class ComprehensiveBillingTest {
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return DayNightConfig.builder()
                         .id("day-night-1")
                         .dayBeginMinute(8 * 60)
@@ -1069,7 +1069,7 @@ public class ComprehensiveBillingTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return new ArrayList<>();
             }
         };
@@ -1080,12 +1080,12 @@ public class ComprehensiveBillingTest {
     static BillingService createCompositeTimeService(BigDecimal maxCharge) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return CompositeTimeConfig.builder()
                         .id("composite-1")
                         .maxChargeOneCycle(maxCharge)
@@ -1118,7 +1118,7 @@ public class ComprehensiveBillingTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return new ArrayList<>();
             }
         };

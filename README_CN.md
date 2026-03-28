@@ -58,7 +58,8 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
     @Override
     public RuleConfig resolveChargingRule(String schemeId,
                                           LocalDateTime segmentStart,
-                                          LocalDateTime segmentEnd) {
+                                          LocalDateTime segmentEnd,
+                                          Map<String, Object> context) {
         return new DayNightConfig()
             .setId("daynight-1")
             .setDayBeginMinute(740)              // 白天开始：12:20
@@ -69,7 +70,7 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
             .setUnitMinutes(60)
             .setBlockWeight(new BigDecimal("0.5"));
     }
-    // ... 其他方法
+    // ... 其他方法（必须实现带 Map<String, Object> context 参数的方法）
 }
 
 // 2. 创建 BillingTemplate
@@ -120,12 +121,12 @@ BillingResult result = billingTemplate.calculate(request);
 
 | 方法 | 参数 | 返回值 | 说明 |
 |------|------|--------|------|
-| `resolveBillingMode` | `String schemeId` | `BConstants.BillingMode` | 获取计费模式 |
-| `resolveBillingMode` | `String schemeId, Map<String, Object> context` | `BConstants.BillingMode` | 获取计费模式（带上下文参数，默认委托给上面的方法） |
-| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `RuleConfig` | 获取计费规则配置 |
-| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `RuleConfig` | 获取计费规则配置（带上下文参数） |
-| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `List<PromotionRuleConfig>` | 获取优惠规则配置 |
-| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `List<PromotionRuleConfig>` | 获取优惠规则配置（带上下文参数） |
+| `resolveBillingMode` | `String schemeId` | `BConstants.BillingMode` | 获取计费模式（默认：委托给带 context 版本，传入空 Map） |
+| `resolveBillingMode` | `String schemeId, Map<String, Object> context` | `BConstants.BillingMode` | 获取计费模式（带上下文参数，**抽象方法** - 必须实现） |
+| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `RuleConfig` | 获取计费规则配置（默认：委托给带 context 版本，传入空 Map） |
+| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `RuleConfig` | 获取计费规则配置（带上下文参数，**抽象方法** - 必须实现） |
+| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `List<PromotionRuleConfig>` | 获取优惠规则配置（默认：委托给带 context 版本，传入空 Map） |
+| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `List<PromotionRuleConfig>` | 获取优惠规则配置（带上下文参数，**抽象方法** - 必须实现） |
 | `getSimplifiedCycleThreshold` | - | `int` | 简化计算周期阈值，默认 0 禁用 |
 
 ---

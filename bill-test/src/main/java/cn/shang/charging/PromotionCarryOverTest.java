@@ -581,12 +581,12 @@ public class PromotionCarryOverTest {
     static BillingService createBillingServiceWithRuleFreeMinutes(int ruleFreeMinutes) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 List<RelativeTimePeriod> periods = List.of(
                         RelativeTimePeriod.builder()
                                 .beginMinute(0)
@@ -604,7 +604,7 @@ public class PromotionCarryOverTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 if (ruleFreeMinutes > 0) {
                     return List.of(
                             new FreeMinutesPromotionConfig()

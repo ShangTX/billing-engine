@@ -389,7 +389,7 @@ public class SimplifiedCalculationTest {
      */
     static BillingService getBillingService(int threshold) {
         var billingConfigResolver = new BillingConfigResolver() {
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
@@ -397,7 +397,7 @@ public class SimplifiedCalculationTest {
                 return threshold;
             }
 
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return new DayNightConfig()
                         .setId("daynight-1")
                         .setBlockWeight(new BigDecimal("0.5"))
@@ -409,7 +409,7 @@ public class SimplifiedCalculationTest {
                         .setUnitMinutes(60);
             }
 
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return new ArrayList<>();
             }
         };
@@ -441,7 +441,7 @@ public class SimplifiedCalculationTest {
      */
     static BillingService getBillingServiceWithFreeMinutes(int threshold) {
         var billingConfigResolver = new BillingConfigResolver() {
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
@@ -449,7 +449,7 @@ public class SimplifiedCalculationTest {
                 return threshold;
             }
 
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return new DayNightConfig()
                         .setId("daynight-1")
                         .setBlockWeight(new BigDecimal("0.5"))
@@ -461,7 +461,7 @@ public class SimplifiedCalculationTest {
                         .setUnitMinutes(60);
             }
 
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 // 规则级别优惠: 免费分钟数30分钟
                 return List.of(
                         new FreeMinutesPromotionConfig()

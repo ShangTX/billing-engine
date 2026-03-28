@@ -27,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.Month;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * CONTINUE 模式完整测试
@@ -1399,12 +1400,12 @@ public class ContinueModeTest {
     static BillingService getRelativeTimeBillingService(BigDecimal maxCharge, boolean withFreeMinutes) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 List<RelativeTimePeriod> periods = List.of(
                         RelativeTimePeriod.builder()
                                 .beginMinute(0)
@@ -1428,7 +1429,7 @@ public class ContinueModeTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 if (withFreeMinutes) {
                     return List.of(
                             new FreeMinutesPromotionConfig()
@@ -1447,12 +1448,12 @@ public class ContinueModeTest {
     static BillingService getDayNightBillingService(BigDecimal maxCharge, boolean withFreeMinutes) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return DayNightConfig.builder()
                         .id("day-night-1")
                         .unitMinutes(60)
@@ -1466,7 +1467,7 @@ public class ContinueModeTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 if (withFreeMinutes) {
                     return List.of(
                             new FreeMinutesPromotionConfig()

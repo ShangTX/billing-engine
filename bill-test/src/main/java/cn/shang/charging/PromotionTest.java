@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
 import java.time.Month;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 优惠功能测试
@@ -227,12 +228,12 @@ public class PromotionTest {
         var billingConfigResolver = new BillingConfigResolver() {
 
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.CONTINUOUS;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 // 白天: 12:20-19:00, 夜间: 19:00-次日12:20
                 return new DayNightConfig()
                         .setId("daynight-1")
@@ -246,7 +247,7 @@ public class PromotionTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 // 规则级别优惠: 免费分钟数30分钟
                 return List.of(
                         new FreeMinutesPromotionConfig()

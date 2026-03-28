@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
 import java.time.Month;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 日夜分时段计费测试
@@ -276,12 +277,12 @@ public class DayNightTest {
     static BillingService getBillingService(BConstants.BillingMode billingMode) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return billingMode;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 // 白天: 12:20-19:00 (740-1140分钟)
                 // 夜间: 19:00-次日12:20
                 return new DayNightConfig()
@@ -296,7 +297,7 @@ public class DayNightTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 // 规则级别优惠: 免费分钟数30分钟
                 return List.of(
                         new FreeMinutesPromotionConfig()
@@ -335,12 +336,12 @@ public class DayNightTest {
     static BillingService getBillingServiceWithCap(BConstants.BillingMode billingMode) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return billingMode;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return new DayNightConfig()
                         .setId("daynight-2")
                         .setBlockWeight(new BigDecimal("0.5"))
@@ -353,7 +354,7 @@ public class DayNightTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return List.of(
                         new FreeMinutesPromotionConfig()
                                 .setId("rule-free-min")

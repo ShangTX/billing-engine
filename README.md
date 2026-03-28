@@ -58,7 +58,8 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
     @Override
     public RuleConfig resolveChargingRule(String schemeId,
                                           LocalDateTime segmentStart,
-                                          LocalDateTime segmentEnd) {
+                                          LocalDateTime segmentEnd,
+                                          Map<String, Object> context) {
         return new DayNightConfig()
             .setId("daynight-1")
             .setDayBeginMinute(740)              // Day starts: 12:20
@@ -69,7 +70,7 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
             .setUnitMinutes(60)
             .setBlockWeight(new BigDecimal("0.5"));
     }
-    // ... other methods
+    // ... other methods (must implement methods with Map<String, Object> context parameter)
 }
 
 // 2. Create BillingTemplate
@@ -120,12 +121,12 @@ Billing config resolver interface that users must implement.
 
 | Method | Parameters | Return | Description |
 |--------|------------|--------|-------------|
-| `resolveBillingMode` | `String schemeId` | `BConstants.BillingMode` | Get billing mode |
-| `resolveBillingMode` | `String schemeId, Map<String, Object> context` | `BConstants.BillingMode` | Get billing mode with context (default delegates to above) |
-| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `RuleConfig` | Get charging rule config |
-| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `RuleConfig` | Get charging rule config with context (default delegates to above) |
-| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `List<PromotionRuleConfig>` | Get promotion rule configs |
-| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `List<PromotionRuleConfig>` | Get promotion rule configs with context (default delegates to above) |
+| `resolveBillingMode` | `String schemeId` | `BConstants.BillingMode` | Get billing mode (default: delegates to context version with empty Map) |
+| `resolveBillingMode` | `String schemeId, Map<String, Object> context` | `BConstants.BillingMode` | Get billing mode with context (**abstract** - must implement) |
+| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `RuleConfig` | Get charging rule config (default: delegates to context version with empty Map) |
+| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `RuleConfig` | Get charging rule config with context (**abstract** - must implement) |
+| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `List<PromotionRuleConfig>` | Get promotion rule configs (default: delegates to context version with empty Map) |
+| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `List<PromotionRuleConfig>` | Get promotion rule configs with context (**abstract** - must implement) |
 | `getSimplifiedCycleThreshold` | - | `int` | Simplified calculation threshold, default 0 disabled |
 
 ---

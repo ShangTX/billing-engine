@@ -72,14 +72,15 @@
 public class MyBillingConfigResolver implements BillingConfigResolver {
 
     @Override
-    public BConstants.BillingMode resolveBillingMode(String schemeId) {
+    public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
         return BConstants.BillingMode.CONTINUOUS;
     }
 
     @Override
     public RuleConfig resolveChargingRule(String schemeId,
                                           LocalDateTime segmentStart,
-                                          LocalDateTime segmentEnd) {
+                                          LocalDateTime segmentEnd,
+                                          Map<String, Object> context) {
         // 返回对应 schemeId 的计费规则配置
         return new DayNightConfig()
             .setId("daynight-1")
@@ -95,7 +96,8 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
     @Override
     public List<PromotionRuleConfig> resolvePromotionRules(String schemeId,
                                                            LocalDateTime segmentStart,
-                                                           LocalDateTime segmentEnd) {
+                                                           LocalDateTime segmentEnd,
+                                                           Map<String, Object> context) {
         // 返回规则级别的优惠配置（可选）
         return List.of(
             new FreeMinutesPromotionConfig()

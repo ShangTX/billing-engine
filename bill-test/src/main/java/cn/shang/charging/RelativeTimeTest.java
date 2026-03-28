@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 import java.time.Month;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 相对时间段计费测试
@@ -461,12 +462,12 @@ public class RelativeTimeTest {
     static BillingService getBillingService(BigDecimal maxCharge, boolean withFreeMinutes, BConstants.BillingMode mode) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return mode;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 List<RelativeTimePeriod> periods = List.of(
                         RelativeTimePeriod.builder()
                                 .beginMinute(0)
@@ -490,7 +491,7 @@ public class RelativeTimeTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 if (withFreeMinutes) {
                     return List.of(
                             new FreeMinutesPromotionConfig()

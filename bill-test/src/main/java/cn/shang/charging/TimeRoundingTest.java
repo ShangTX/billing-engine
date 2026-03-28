@@ -15,6 +15,7 @@ import cn.shang.charging.wrapper.BillingTemplate;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public class TimeRoundingTest {
     public static void main(String[] args) {
@@ -72,12 +73,12 @@ public class TimeRoundingTest {
     static BillingTemplate getBillingTemplate() {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId) {
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
                 return BConstants.BillingMode.UNIT_BASED;
             }
 
             @Override
-            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return new DayNightConfig()
                         .setId("daynight-test")
                         .setBlockWeight(new BigDecimal("0.5"))
@@ -90,7 +91,7 @@ public class TimeRoundingTest {
             }
 
             @Override
-            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd) {
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return List.of();
             }
         };
