@@ -121,8 +121,11 @@ Billing config resolver interface that users must implement.
 | Method | Parameters | Return | Description |
 |--------|------------|--------|-------------|
 | `resolveBillingMode` | `String schemeId` | `BConstants.BillingMode` | Get billing mode |
+| `resolveBillingMode` | `String schemeId, Map<String, Object> context` | `BConstants.BillingMode` | Get billing mode with context (default delegates to above) |
 | `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `RuleConfig` | Get charging rule config |
+| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `RuleConfig` | Get charging rule config with context (default delegates to above) |
 | `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `List<PromotionRuleConfig>` | Get promotion rule configs |
+| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `List<PromotionRuleConfig>` | Get promotion rule configs with context (default delegates to above) |
 | `getSimplifiedCycleThreshold` | - | `int` | Simplified calculation threshold, default 0 disabled |
 
 ---
@@ -146,6 +149,7 @@ Billing request input.
 | `externalPromotions` | List\<PromotionGrant\> | No | External promotion list |
 | `previousCarryOver` | BillingCarryOver | No | Previous carry-over state (CONTINUE mode) |
 | `timeRoundingMode` | TimeRoundingMode | No | Time rounding mode for handling seconds (defaults to `CEIL_BEGIN_TRUNCATE_END` in BillingTemplate) |
+| `context` | Map\<String, Object\> | No | Context parameters passed to `BillingConfigResolver` resolve methods |
 
 #### BillingResult (cn.shang.charging.billing.pojo)
 

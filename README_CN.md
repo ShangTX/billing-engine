@@ -121,8 +121,11 @@ BillingResult result = billingTemplate.calculate(request);
 | 方法 | 参数 | 返回值 | 说明 |
 |------|------|--------|------|
 | `resolveBillingMode` | `String schemeId` | `BConstants.BillingMode` | 获取计费模式 |
+| `resolveBillingMode` | `String schemeId, Map<String, Object> context` | `BConstants.BillingMode` | 获取计费模式（带上下文参数，默认委托给上面的方法） |
 | `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `RuleConfig` | 获取计费规则配置 |
+| `resolveChargingRule` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `RuleConfig` | 获取计费规则配置（带上下文参数） |
 | `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd` | `List<PromotionRuleConfig>` | 获取优惠规则配置 |
+| `resolvePromotionRules` | `String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context` | `List<PromotionRuleConfig>` | 获取优惠规则配置（带上下文参数） |
 | `getSimplifiedCycleThreshold` | - | `int` | 简化计算周期阈值，默认 0 禁用 |
 
 ---
@@ -146,6 +149,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `externalPromotions` | List\<PromotionGrant\> | 否 | 外部优惠列表 |
 | `previousCarryOver` | BillingCarryOver | 否 | 上次结转状态（CONTINUE 模式） |
 | `timeRoundingMode` | TimeRoundingMode | 否 | 时间取整模式，用于处理秒数（BillingTemplate 中默认使用 `CEIL_BEGIN_TRUNCATE_END`） |
+| `context` | Map\<String, Object\> | 否 | 上下文参数，传递给 BillingConfigResolver 的 resolve 方法 |
 
 #### BillingResult（cn.shang.charging.billing.pojo）
 

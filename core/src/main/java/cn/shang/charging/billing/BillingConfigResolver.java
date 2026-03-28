@@ -6,6 +6,7 @@ import cn.shang.charging.billing.pojo.RuleConfig;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 计费配置解析器
@@ -20,6 +21,16 @@ public interface BillingConfigResolver {
     BConstants.BillingMode resolveBillingMode(String schemeId);
 
     /**
+     * 获取计费模式（带上下文参数）
+     * @param schemeId 方案id
+     * @param context 上下文参数
+     * @return 计费模式
+     */
+    default BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
+        return resolveBillingMode(schemeId);
+    }
+
+    /**
      * 获取计费规则配置
      * @param schemeId 方案id
      * @param segmentStart 计费分段开始时间
@@ -30,6 +41,20 @@ public interface BillingConfigResolver {
                                    LocalDateTime segmentStart,
                                    LocalDateTime segmentEnd);
 
+    /**
+     * 获取计费规则配置（带上下文参数）
+     * @param schemeId 方案id
+     * @param segmentStart 计费分段开始时间
+     * @param segmentEnd 计费分段结束时间
+     * @param context 上下文参数
+     * @return 当前分段的计费规则配置
+     */
+    default RuleConfig resolveChargingRule(String schemeId,
+                                           LocalDateTime segmentStart,
+                                           LocalDateTime segmentEnd,
+                                           Map<String, Object> context) {
+        return resolveChargingRule(schemeId, segmentStart, segmentEnd);
+    }
 
     /**
      * 获取优惠规则配置
@@ -41,6 +66,21 @@ public interface BillingConfigResolver {
     List<PromotionRuleConfig> resolvePromotionRules(String schemeId,
                                                     LocalDateTime segmentStart,
                                                     LocalDateTime segmentEnd);
+
+    /**
+     * 获取优惠规则配置（带上下文参数）
+     * @param schemeId 方案id
+     * @param segmentStart 计费分段开始时间
+     * @param segmentEnd 计费分段结束时间
+     * @param context 上下文参数
+     * @return 当前分段的优惠规则配置
+     */
+    default List<PromotionRuleConfig> resolvePromotionRules(String schemeId,
+                                                            LocalDateTime segmentStart,
+                                                            LocalDateTime segmentEnd,
+                                                            Map<String, Object> context) {
+        return resolvePromotionRules(schemeId, segmentStart, segmentEnd);
+    }
 
     /**
      * 获取简化计算的周期阈值

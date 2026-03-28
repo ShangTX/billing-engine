@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 计费请求
@@ -58,5 +59,12 @@ public class BillingRequest {
      * 不设置时，在 BillingTemplate.calculate 中默认使用 CEIL_BEGIN_TRUNCATE_END
      */
     private TimeRoundingMode timeRoundingMode;
+
+    /**
+     * 上下文参数（可选）
+     * 用于传递自定义参数给 BillingConfigResolver 的 resolve 方法
+     * 实现类可根据此参数灵活返回不同的配置
+     */
+    private Map<String, Object> context;
 
 }

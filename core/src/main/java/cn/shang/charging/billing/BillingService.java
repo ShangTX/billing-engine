@@ -83,20 +83,24 @@ public class BillingService {
             }
 
             // 2.2 解析规则快照（方案已确定）
+            Map<String, Object> contextParam = request.getContext();
             RuleConfig chargingRule = billingConfigResolver.resolveChargingRule(
                     segment.getSchemeId(),
                     window.getCalculationBegin(),
-                    window.getCalculationEnd());
+                    window.getCalculationEnd(),
+                    contextParam);
 
             // 解析优惠规则
             List<PromotionRuleConfig> promotionRules =
                     billingConfigResolver.resolvePromotionRules(
                             segment.getSchemeId(),
                             window.getCalculationBegin(),
-                            window.getCalculationEnd());
+                            window.getCalculationEnd(),
+                            contextParam);
 
             // 解析计费模式
-            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(segment.getSchemeId());
+            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(
+                    segment.getSchemeId(), contextParam);
 
             // 2.3 恢复规则状态（CONTINUE 模式）
             Map<String, Object> ruleState = null;
@@ -154,6 +158,7 @@ public class BillingService {
         List<SegmentContext> contexts = new ArrayList<>();
 
         List<BillingSegment> segments = segmentBuilder.buildSegments(request);
+        Map<String, Object> contextParam = request.getContext();
 
         for (BillingSegment segment : segments) {
             CalculationWindow window = CalculationWindowFactory.create(
@@ -165,14 +170,17 @@ public class BillingService {
             RuleConfig chargingRule = billingConfigResolver.resolveChargingRule(
                 segment.getSchemeId(),
                 window.getCalculationBegin(),
-                window.getCalculationEnd());
+                window.getCalculationEnd(),
+                contextParam);
 
             List<PromotionRuleConfig> promotionRules = billingConfigResolver.resolvePromotionRules(
                 segment.getSchemeId(),
                 window.getCalculationBegin(),
-                window.getCalculationEnd());
+                window.getCalculationEnd(),
+                contextParam);
 
-            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(segment.getSchemeId());
+            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(
+                segment.getSchemeId(), contextParam);
 
             BillingContext billingContext = BillingContext.builder()
                 .id(request.getId())
