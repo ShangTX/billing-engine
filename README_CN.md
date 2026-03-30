@@ -181,6 +181,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `unitPrice` | BigDecimal | 单元单价 |
 | `originalAmount` | BigDecimal | 原始金额（应用优惠前） |
 | `chargedAmount` | BigDecimal | 实际金额（应用优惠后） |
+| `accumulatedAmount` | BigDecimal | 从计费开始到当前单元的累计金额 |
 | `free` | boolean | 是否免费（被优惠完全覆盖） |
 | `freePromotionId` | String | 免费原因（优惠ID） |
 | `isTruncated` | Boolean | 是否被 calcEndTime 截断 |
@@ -219,6 +220,8 @@ BillingResult result = billingTemplate.calculate(request);
 |------|------|------|
 | `calculatedUpTo` | LocalDateTime | 已计算到的时间点 |
 | `segments` | Map\<String, SegmentCarryOver\> | 按分段ID存储的结转状态 |
+| `accumulatedAmount` | BigDecimal | 上次计算的累计总金额 |
+| `truncatedUnitChargedAmount` | BigDecimal | 截断单元已收取的金额（避免重复收费） |
 
 #### SegmentCarryOver（cn.shang.charging.billing.pojo）
 

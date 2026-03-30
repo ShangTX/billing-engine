@@ -66,6 +66,12 @@ public class BillingUnit {
     private BigDecimal chargedAmount;
 
     /**
+     * 从计费开始到当前单元的累计金额
+     * CONTINUE 模式下，从 previousAccumulatedAmount 继续累加
+     */
+    private BigDecimal accumulatedAmount;
+
+    /**
      * 规则扩展数据，由具体规则使用
      */
     private Object ruleData;
@@ -73,6 +79,8 @@ public class BillingUnit {
     /**
      * 此单元是否是通过 CONTINUE 模式合并生成的
      * 如果为 true，此单元的开始时间在上次计算的截断单元位置
+     * @deprecated 已废弃，改用 accumulatedAmount 字段
      */
+    @Deprecated
     private Boolean mergedFromPrevious;
 }

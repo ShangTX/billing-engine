@@ -822,16 +822,6 @@ public class ContinueModeTest {
         var request2 = createRelativeTimeRequest("2026-03-10 08:00", "2026-03-11 10:00");
         request2.setPreviousCarryOver(result1.getCarryOver());
 
-        // 调试输出
-        System.out.println("\n[DEBUG] 第一次计算的 carryOver:");
-        System.out.println("  calculatedUpTo: " + result1.getCarryOver().getCalculatedUpTo());
-        var ruleState = result1.getCarryOver().getSegments().get("scheme-relative-0").getRuleState();
-        @SuppressWarnings("unchecked")
-        var relativeTimeState = (java.util.Map<String, Object>) ruleState.get("relativeTime");
-        System.out.println("  cycleAccumulated: " + relativeTimeState.get("cycleAccumulated"));
-        System.out.println("  cycleBoundary: " + relativeTimeState.get("cycleBoundary"));
-        System.out.println("[DEBUG] request2 beginTime: 2026-03-10 08:00, endTime: 2026-03-11 10:00");
-
         var result2 = billingService.calculate(request2);
 
         System.out.println("\n第二次计算（CONTINUE）: 从 11:00 继续到次日 10:00");
@@ -1125,13 +1115,14 @@ public class ContinueModeTest {
         System.out.println("  结果金额: " + result3.getFinalAmount());
         printBillingDetail(result3);
 
-        // 验证一致性：一次性计算应该等于三次累计
+        // 验证一致性：一次性计算应该等于最后一次 CONTINUE 的累计金额
         var totalFromScratch = billingService.calculate(createRelativeTimeRequest("08:13", "17:19"));
-        var totalFromContinue = result1.getFinalAmount().add(result2.getFinalAmount()).add(result3.getFinalAmount());
+        // CONTINUE 模式返回累计金额，直接取最后一次结果即可
+        var totalFromContinue = result3.getFinalAmount();
 
         System.out.println("\n一致性验证:");
         System.out.println("  一次性计算 08:13-17:19: " + totalFromScratch.getFinalAmount() + "元");
-        System.out.println("  三次继续计算累计: " + totalFromContinue + "元");
+        System.out.println("  最后一次 CONTINUE 累计金额: " + totalFromContinue + "元");
 
         if (totalFromScratch.getFinalAmount().compareTo(totalFromContinue) == 0) {
             System.out.println("  ✓ 结果一致");
@@ -1223,16 +1214,14 @@ public class ContinueModeTest {
         var benchmarkResult = billingService.calculate(createRelativeTimeRequest("08:47", "12:15"));
         System.out.println("  一次性计算 08:47-12:15 总金额: " + benchmarkResult.getFinalAmount() + "元");
 
-        // 分两次计算累计
-        var totalFromContinue = result1.getFinalAmount().add(result2.getFinalAmount());
-        System.out.println("  分两次计算累计金额: " + totalFromContinue + "元");
+        // CONTINUE 模式返回累计金额，直接取第二次结果
+        var totalFromContinue = result2.getFinalAmount();
+        System.out.println("  第二次 CONTINUE 累计金额: " + totalFromContinue + "元");
 
         // 差异分析
         var difference = totalFromContinue.subtract(benchmarkResult.getFinalAmount());
-        if (difference.compareTo(BigDecimal.ZERO) > 0) {
-            System.out.println("  ✗ 存在重复收费: 多收 " + difference + "元");
-            System.out.println("  问题原因: 第一次计算的截断单元（09:47-10:30）按完整单元收费，" +
-                    "第二次计算又从延伸位置开始新单元，导致 09:47-10:47 时段重复收费");
+        if (difference.compareTo(BigDecimal.ZERO) != 0) {
+            System.out.println("  ✗ 存在差异: " + difference.abs() + "元");
         } else {
             System.out.println("  ✓ 无重复收费，修复成功");
         }
@@ -1297,14 +1286,15 @@ public class ContinueModeTest {
         // 问题验证
         System.out.println("\n【问题验证】");
         var benchmarkResult = billingService.calculate(createDayNightRequest("08:47", "14:30"));
-        var totalFromContinue = result1.getFinalAmount().add(result2.getFinalAmount());
+        // CONTINUE 模式返回累计金额，直接取第二次结果
+        var totalFromContinue = result2.getFinalAmount();
 
         System.out.println("  一次性计算: " + benchmarkResult.getFinalAmount() + "元");
-        System.out.println("  分两次计算: " + totalFromContinue + "元");
+        System.out.println("  第二次 CONTINUE 累计金额: " + totalFromContinue + "元");
 
         var difference = totalFromContinue.subtract(benchmarkResult.getFinalAmount());
-        if (difference.compareTo(BigDecimal.ZERO) > 0) {
-            System.out.println("  ✗ 存在重复收费: 多收 " + difference + "元");
+        if (difference.compareTo(BigDecimal.ZERO) != 0) {
+            System.out.println("  ✗ 存在差异: " + difference.abs() + "元");
         } else {
             System.out.println("  ✓ 无重复收费");
         }
@@ -1334,7 +1324,7 @@ public class ContinueModeTest {
         System.out.println("【第一次查询】09:23 - 11:45（停车 2小时22分钟）");
         var request1 = createRelativeTimeRequest("09:23", "11:45");
         var result1 = billingService.calculate(request1);
-        System.out.println("  费用: " + result1.getFinalAmount() + "元");
+        System.out.println("  累计费用: " + result1.getFinalAmount() + "元");
         System.out.println("  单元数: " + result1.getUnits().size());
         printUnitsBrief(result1);
 
@@ -1343,7 +1333,7 @@ public class ContinueModeTest {
         var request2 = createRelativeTimeRequest("09:23", "13:20");
         request2.setPreviousCarryOver(result1.getCarryOver());
         var result2 = billingService.calculate(request2);
-        System.out.println("  本次增量费用: " + result2.getFinalAmount() + "元");
+        System.out.println("  累计总费用: " + result2.getFinalAmount() + "元（增量: " + result2.getFinalAmount().subtract(result1.getFinalAmount()) + "元）");
         System.out.println("  单元数: " + result2.getUnits().size());
         printUnitsBrief(result2);
 
@@ -1352,24 +1342,21 @@ public class ContinueModeTest {
         var request3 = createRelativeTimeRequest("09:23", "15:08");
         request3.setPreviousCarryOver(result2.getCarryOver());
         var result3 = billingService.calculate(request3);
-        System.out.println("  本次增量费用: " + result3.getFinalAmount() + "元");
+        System.out.println("  累计总费用: " + result3.getFinalAmount() + "元（增量: " + result3.getFinalAmount().subtract(result2.getFinalAmount()) + "元）");
         System.out.println("  单元数: " + result3.getUnits().size());
         printUnitsBrief(result3);
 
-        // 验证
+        // 验证：CONTINUE 模式最后一次结果应该等于一次性计算结果
         System.out.println("\n【费用汇总验证】");
         var benchmarkResult = billingService.calculate(createRelativeTimeRequest("09:23", "15:08"));
-        var totalFromContinue = result1.getFinalAmount().add(result2.getFinalAmount()).add(result3.getFinalAmount());
 
         System.out.println("  一次性计算 09:23-15:08: " + benchmarkResult.getFinalAmount() + "元");
-        System.out.println("  三次查询累计费用: " + totalFromContinue + "元");
+        System.out.println("  第三次查询累计费用: " + result3.getFinalAmount() + "元");
 
-        var difference = totalFromContinue.subtract(benchmarkResult.getFinalAmount());
-        if (difference.compareTo(BigDecimal.ZERO) > 0) {
-            System.out.println("  ✗ 存在重复收费: 多收 " + difference + "元");
+        var difference = result3.getFinalAmount().subtract(benchmarkResult.getFinalAmount());
+        if (difference.compareTo(BigDecimal.ZERO) != 0) {
+            System.out.println("  ✗ 费用不一致: 差额 " + difference.abs() + "元");
             System.out.println("  用户投诉风险: 高");
-        } else if (difference.compareTo(BigDecimal.ZERO) < 0) {
-            System.out.println("  ✗ 存在少收费: 少收 " + difference.abs() + "元");
         } else {
             System.out.println("  ✓ 费用一致，用户满意");
         }

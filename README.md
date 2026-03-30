@@ -181,6 +181,7 @@ Billing unit details.
 | `unitPrice` | BigDecimal | Unit price |
 | `originalAmount` | BigDecimal | Original amount (before promotion) |
 | `chargedAmount` | BigDecimal | Actual amount (after promotion) |
+| `accumulatedAmount` | BigDecimal | Accumulated amount from billing start to this unit |
 | `free` | boolean | Whether free (fully covered by promotion) |
 | `freePromotionId` | String | Free reason (promotion ID) |
 | `isTruncated` | Boolean | Whether truncated by calcEndTime |
@@ -219,6 +220,8 @@ Top-level carry-over object for CONTINUE mode.
 |-------|------|-------------|
 | `calculatedUpTo` | LocalDateTime | Calculated up to this time point |
 | `segments` | Map\<String, SegmentCarryOver\> | Carry-over state by segment ID |
+| `accumulatedAmount` | BigDecimal | Accumulated total amount from previous calculation |
+| `truncatedUnitChargedAmount` | BigDecimal | Charged amount of truncated unit (to avoid duplicate charging) |
 
 #### SegmentCarryOver (cn.shang.charging.billing.pojo)
 

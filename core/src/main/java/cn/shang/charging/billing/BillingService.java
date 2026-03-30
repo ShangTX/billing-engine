@@ -43,9 +43,25 @@ public class BillingService {
         BillingCarryOver carryOver = request.getPreviousCarryOver();
 
         // CONTINUE 模式：计算实际起点
-        LocalDateTime actualBeginTime = isContinueMode && carryOver.getCalculatedUpTo() != null
-                ? carryOver.getCalculatedUpTo()
-                : request.getBeginTime();
+        // 方案B：如果有截断单元，从截断单元开始时间重新计算（返回累计总费用）
+        LocalDateTime actualBeginTime = request.getBeginTime();
+        java.math.BigDecimal previousAccumulatedAmount = java.math.BigDecimal.ZERO;
+        java.math.BigDecimal truncatedUnitChargedAmount = null;
+
+        if (isContinueMode) {
+            // 优先使用截断单元开始时间，这样可以避免重复收费
+            if (carryOver.getLastTruncatedUnitStartTime() != null) {
+                actualBeginTime = carryOver.getLastTruncatedUnitStartTime();
+                // 保存截断单元已收取的金额，后续需要扣减
+                truncatedUnitChargedAmount = carryOver.getTruncatedUnitChargedAmount();
+            } else if (carryOver.getCalculatedUpTo() != null) {
+                actualBeginTime = carryOver.getCalculatedUpTo();
+            }
+            // 恢复累计金额
+            if (carryOver.getAccumulatedAmount() != null) {
+                previousAccumulatedAmount = carryOver.getAccumulatedAmount();
+            }
+        }
 
         // 边界检查：如果 actualBeginTime >= endTime，直接返回空结果
         if (actualBeginTime.isAfter(request.getEndTime()) || actualBeginTime.equals(request.getEndTime())) {
@@ -127,6 +143,8 @@ public class BillingService {
                     .continueMode(isContinueMode ? BConstants.ContinueMode.CONTINUE : BConstants.ContinueMode.FROM_SCRATCH)
                     .ruleState(ruleState)
                     .promotionCarryOver(promotionCarryOver)
+                    .previousAccumulatedAmount(previousAccumulatedAmount)
+                    .truncatedUnitChargedAmount(truncatedUnitChargedAmount)
                     .billingConfigResolver(billingConfigResolver)
                     .build();
 
@@ -137,12 +155,31 @@ public class BillingService {
             BillingSegmentResult segmentResult = billingCalculator.calculate(context, promotionAggregate);
 
             segmentResults.add(segmentResult);
+
+            // 更新累计金额，传递给下一个分段
+            previousAccumulatedAmount = calculateSegmentAccumulatedAmount(segmentResult, previousAccumulatedAmount);
         }
         // 3. 汇总结果（金额、满减、封顶等）
         return resultAssembler.assemble(
                 request,
                 segmentResults
         );
+    }
+
+    /**
+     * 计算分段的累计金额
+     */
+    private java.math.BigDecimal calculateSegmentAccumulatedAmount(
+            BillingSegmentResult segmentResult,
+            java.math.BigDecimal previousAccumulatedAmount) {
+        if (segmentResult.getBillingUnits() == null || segmentResult.getBillingUnits().isEmpty()) {
+            return previousAccumulatedAmount;
+        }
+        // 取最后一个单元的累计金额
+        BillingUnit lastUnit = segmentResult.getBillingUnits().get(segmentResult.getBillingUnits().size() - 1);
+        return lastUnit.getAccumulatedAmount() != null
+                ? lastUnit.getAccumulatedAmount()
+                : previousAccumulatedAmount;
     }
 
     /**

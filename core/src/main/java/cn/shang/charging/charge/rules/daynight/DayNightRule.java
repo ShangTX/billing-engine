@@ -210,6 +210,27 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             }
         }
 
+        // 计算累计金额
+        BigDecimal accumulatedAmount = context.getPreviousAccumulatedAmount();
+        if (accumulatedAmount == null) {
+            accumulatedAmount = BigDecimal.ZERO;
+        }
+
+        // 如果有截断单元已收取金额，需要扣减（避免重复收费）
+        BigDecimal truncatedUnitChargedAmount = context.getTruncatedUnitChargedAmount();
+        if (truncatedUnitChargedAmount != null && !billingUnits.isEmpty()) {
+            // 从累计金额中扣减截断单元已收取的金额
+            accumulatedAmount = accumulatedAmount.subtract(truncatedUnitChargedAmount);
+            if (accumulatedAmount.compareTo(BigDecimal.ZERO) < 0) {
+                accumulatedAmount = BigDecimal.ZERO;
+            }
+        }
+
+        for (BillingUnit unit : billingUnits) {
+            accumulatedAmount = accumulatedAmount.add(unit.getChargedAmount());
+            unit.setAccumulatedAmount(accumulatedAmount);
+        }
+
         // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）
         Map<String, Object> ruleOutputState = buildRuleOutputState(state);
 
@@ -1001,6 +1022,27 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
                 lastUnit.setIsTruncated(true);
             }
+        }
+
+        // 计算累计金额
+        BigDecimal accumulatedAmount = context.getPreviousAccumulatedAmount();
+        if (accumulatedAmount == null) {
+            accumulatedAmount = BigDecimal.ZERO;
+        }
+
+        // 如果有截断单元已收取金额，需要扣减（避免重复收费）
+        BigDecimal truncatedUnitChargedAmount = context.getTruncatedUnitChargedAmount();
+        if (truncatedUnitChargedAmount != null && !allUnits.isEmpty()) {
+            // 从累计金额中扣减截断单元已收取的金额
+            accumulatedAmount = accumulatedAmount.subtract(truncatedUnitChargedAmount);
+            if (accumulatedAmount.compareTo(BigDecimal.ZERO) < 0) {
+                accumulatedAmount = BigDecimal.ZERO;
+            }
+        }
+
+        for (BillingUnit unit : allUnits) {
+            accumulatedAmount = accumulatedAmount.add(unit.getChargedAmount());
+            unit.setAccumulatedAmount(accumulatedAmount);
         }
 
         // 构建输出状态（FROM_SCRATCH 结果也需要用于继续计算）

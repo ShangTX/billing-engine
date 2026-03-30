@@ -46,7 +46,9 @@ public class BillingResult {
      * 为 true 时，调用方应：
      *   1. 更新上一次结果的最后一个单元（用本结果第一个单元的完整信息）
      *   2. 删除本结果的第一个单元（已合并到上一次结果）
+     * @deprecated 已废弃，改用 BillingUnit.accumulatedAmount 字段，CONTINUE 模式返回累计总费用
      */
+    @Deprecated
     private Boolean firstUnitMerged;
 
 

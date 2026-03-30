@@ -38,10 +38,13 @@ public class ResultAssembler {
                 .flatMap(usages -> usages != null ? usages.stream() : Stream.empty())
                 .toList();
 
-        // 汇总金额
+        // 汇总金额（本次计算的费用）
         BigDecimal totalAmount = segmentResultList.stream()
                 .map(BillingSegmentResult::getChargedAmount)
                 .reduce(BigDecimal.ZERO, (a, b) -> a.add(b != null ? b : BigDecimal.ZERO));
+
+        // 计算累计金额（从最后一个单元获取）
+        BigDecimal accumulatedAmount = extractAccumulatedAmountFromUnits(allUnits);
 
         // 汇总费用稳定时间窗口
         LocalDateTime effectiveFrom = calculateEffectiveFrom(segmentResultList);
@@ -53,14 +56,18 @@ public class ResultAssembler {
         // 构建 carryOver（用于支持后续继续计算）
         BillingCarryOver carryOver = buildBillingCarryOver(segmentResultList, calculationEndTime);
 
+        // 检测第一个单元是否是合并单元
+        Boolean firstUnitMerged = detectFirstUnitMerged(segmentResultList);
+
         BillingResult result = BillingResult.builder()
                 .units(allUnits)
                 .promotionUsages(allUsages)
-                .finalAmount(totalAmount)
+                .finalAmount(accumulatedAmount != null ? accumulatedAmount : totalAmount)
                 .effectiveFrom(effectiveFrom)
                 .effectiveTo(effectiveTo)
                 .calculationEndTime(calculationEndTime)
                 .carryOver(carryOver)
+                .firstUnitMerged(firstUnitMerged)
                 .build();
 
         return result;
@@ -136,10 +143,59 @@ public class ResultAssembler {
             segments.put(result.getSegmentId(), segmentCarryOver);
         }
 
+        // 提取最后一个截断单元的开始时间
+        LocalDateTime lastTruncatedUnitStartTime = extractLastTruncatedUnitStartTime(segmentResultList);
+
+        // 提取截断单元已收取的金额
+        BigDecimal truncatedUnitChargedAmount = extractTruncatedUnitChargedAmount(segmentResultList);
+
+        // 提取累计金额（从最后一个单元获取）
+        BigDecimal accumulatedAmount = extractAccumulatedAmount(segmentResultList);
+
         return BillingCarryOver.builder()
                 .calculatedUpTo(calculationEndTime)
                 .segments(segments)
+                .lastTruncatedUnitStartTime(lastTruncatedUnitStartTime)
+                .truncatedUnitChargedAmount(truncatedUnitChargedAmount)
+                .accumulatedAmount(accumulatedAmount)
                 .build();
+    }
+
+    /**
+     * 提取累计金额
+     * 从最后一个单元获取 accumulatedAmount
+     */
+    private BigDecimal extractAccumulatedAmount(List<BillingSegmentResult> segmentResultList) {
+        if (segmentResultList == null || segmentResultList.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+
+        // 从最后一个分段开始向前查找
+        for (int i = segmentResultList.size() - 1; i >= 0; i--) {
+            BillingSegmentResult segment = segmentResultList.get(i);
+            List<BillingUnit> units = segment.getBillingUnits();
+            if (units == null || units.isEmpty()) {
+                continue;
+            }
+
+            // 返回最后一个单元的累计金额
+            BillingUnit lastUnit = units.get(units.size() - 1);
+            if (lastUnit.getAccumulatedAmount() != null) {
+                return lastUnit.getAccumulatedAmount();
+            }
+        }
+
+        return BigDecimal.ZERO;
+    }
+
+    /**
+     * 检测第一个单元是否是合并单元
+     * @deprecated 已废弃，改用 accumulatedAmount 字段
+     */
+    @Deprecated
+    private Boolean detectFirstUnitMerged(List<BillingSegmentResult> segmentResultList) {
+        // 不再需要合并检测，返回 false
+        return false;
     }
 
     /**
@@ -150,5 +206,76 @@ public class ResultAssembler {
             return null;
         }
         return aggregate.getPromotionCarryOver();
+    }
+
+    /**
+     * 提取最后一个截断单元的开始时间
+     * 从所有分段的最后一个单元中查找
+     * 返回最后一个标记为 isTruncated=true 的单元的开始时间
+     */
+    private LocalDateTime extractLastTruncatedUnitStartTime(List<BillingSegmentResult> segmentResultList) {
+        if (segmentResultList == null || segmentResultList.isEmpty()) {
+            return null;
+        }
+
+        // 从最后一个分段开始向前查找
+        for (int i = segmentResultList.size() - 1; i >= 0; i--) {
+            BillingSegmentResult segment = segmentResultList.get(i);
+            List<BillingUnit> units = segment.getBillingUnits();
+            if (units == null || units.isEmpty()) {
+                continue;
+            }
+
+            // 从该分段的最后一个单元开始向前查找截断单元
+            for (int j = units.size() - 1; j >= 0; j--) {
+                BillingUnit unit = units.get(j);
+                if (unit.getIsTruncated() != null && unit.getIsTruncated()) {
+                    return unit.getBeginTime();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 提取截断单元已收取的金额
+     * 返回最后一个截断单元的 chargedAmount
+     */
+    private BigDecimal extractTruncatedUnitChargedAmount(List<BillingSegmentResult> segmentResultList) {
+        if (segmentResultList == null || segmentResultList.isEmpty()) {
+            return null;
+        }
+
+        // 从最后一个分段开始向前查找
+        for (int i = segmentResultList.size() - 1; i >= 0; i--) {
+            BillingSegmentResult segment = segmentResultList.get(i);
+            List<BillingUnit> units = segment.getBillingUnits();
+            if (units == null || units.isEmpty()) {
+                continue;
+            }
+
+            // 从该分段的最后一个单元开始向前查找截断单元
+            for (int j = units.size() - 1; j >= 0; j--) {
+                BillingUnit unit = units.get(j);
+                if (unit.getIsTruncated() != null && unit.getIsTruncated()) {
+                    return unit.getChargedAmount();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * 从计费单元列表中提取累计金额
+     * 返回最后一个单元的 accumulatedAmount
+     */
+    private BigDecimal extractAccumulatedAmountFromUnits(List<BillingUnit> allUnits) {
+        if (allUnits == null || allUnits.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
+        return lastUnit.getAccumulatedAmount();
     }
 }

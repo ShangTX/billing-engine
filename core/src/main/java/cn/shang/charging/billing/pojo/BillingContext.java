@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -81,7 +82,22 @@ public class BillingContext {
      * 从 carryOver 恢复的截断单元开始时间
      * 用于 CONTINUE 模式合并计算
      * 如果为 null，表示上次最后单元完整，无需合并
+     * @deprecated 已废弃，现在在 BillingService 层调整 actualBeginTime
      */
+    @Deprecated
     private LocalDateTime previousTruncatedUnitStartTime;
+
+    /**
+     * 从 carryOver 恢复的累计金额
+     * 用于计算各单元的 accumulatedAmount
+     */
+    private BigDecimal previousAccumulatedAmount;
+
+    /**
+     * 截断单元已收取的金额
+     * CONTINUE 模式下重新计算截断单元时，需要从第一个单元的累计金额中扣减此值
+     * 以避免重复收费
+     */
+    private BigDecimal truncatedUnitChargedAmount;
 
 }
