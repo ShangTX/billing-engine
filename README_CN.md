@@ -16,6 +16,8 @@
 - JDK 21+
 - Maven 3.6+
 
+> **提示**：JDK 25 同样兼容，已在 OpenJDK 25 上验证通过。
+
 ## 快速开始
 
 ### 添加依赖
@@ -28,7 +30,7 @@
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>1.0.2</version>
+    <version>2.0.1</version>
 </dependency>
 ```
 
@@ -39,14 +41,14 @@
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>1.0.2</version>
+    <version>2.0.1</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>1.0.2</version>
+    <version>2.0.1</version>
 </dependency>
 ```
 
