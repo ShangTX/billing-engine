@@ -69,4 +69,10 @@ public class BillingUnit {
      * 规则扩展数据，由具体规则使用
      */
     private Object ruleData;
+
+    /**
+     * 此单元是否是通过 CONTINUE 模式合并生成的
+     * 如果为 true，此单元的开始时间在上次计算的截断单元位置
+     */
+    private Boolean mergedFromPrevious;
 }

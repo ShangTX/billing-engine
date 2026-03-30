@@ -77,4 +77,11 @@ public class BillingContext {
      */
     private BillingConfigResolver billingConfigResolver;
 
+    /**
+     * 从 carryOver 恢复的截断单元开始时间
+     * 用于 CONTINUE 模式合并计算
+     * 如果为 null，表示上次最后单元完整，无需合并
+     */
+    private LocalDateTime previousTruncatedUnitStartTime;
+
 }

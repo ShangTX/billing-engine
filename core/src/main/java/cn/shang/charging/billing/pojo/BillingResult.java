@@ -40,6 +40,15 @@ public class BillingResult {
      */
     private BillingCarryOver carryOver;
 
+    /**
+     * 第一个计费单元是否需要与上一次结果的截断单元合并
+     * 仅在 CONTINUE 模式下有意义
+     * 为 true 时，调用方应：
+     *   1. 更新上一次结果的最后一个单元（用本结果第一个单元的完整信息）
+     *   2. 删除本结果的第一个单元（已合并到上一次结果）
+     */
+    private Boolean firstUnitMerged;
+
 
     public static BillingResult of(ChargingResult chargingResult, SettlementResult settlementResult) {
         // TODO
