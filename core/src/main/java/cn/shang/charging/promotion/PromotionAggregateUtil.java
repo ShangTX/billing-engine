@@ -5,6 +5,7 @@ import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -71,10 +72,11 @@ public class PromotionAggregateUtil {
             return null;
         }
 
-        // 过滤剩余分钟数
+        // 过滤剩余分钟数（使用转换后的 Map）
         Map<String, Integer> filteredRemainingMinutes = null;
-        if (carryOver.getRemainingMinutes() != null) {
-            filteredRemainingMinutes = carryOver.getRemainingMinutes().entrySet().stream()
+        Map<String, Integer> convertedRemainingMinutes = carryOver.getRemainingMinutesConverted();
+        if (convertedRemainingMinutes != null) {
+            filteredRemainingMinutes = convertedRemainingMinutes.entrySet().stream()
                 .filter(e -> !excludedIds.contains(e.getKey()))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
         }
@@ -92,8 +94,18 @@ public class PromotionAggregateUtil {
             return null;
         }
 
+        // 构建 PromotionCarryOver，remainingMinutes 使用 Map<String, Object> 类型
+        // filteredRemainingMinutes 是 Map<String, Integer>，需要转为 Map<String, Object>
+        Map<String, Object> remainingMinutesObj = null;
+        if (filteredRemainingMinutes != null && !filteredRemainingMinutes.isEmpty()) {
+            remainingMinutesObj = new HashMap<>();
+            for (Map.Entry<String, Integer> entry : filteredRemainingMinutes.entrySet()) {
+                remainingMinutesObj.put(entry.getKey(), entry.getValue());
+            }
+        }
+
         return PromotionCarryOver.builder()
-            .remainingMinutes(filteredRemainingMinutes)
+            .remainingMinutes(remainingMinutesObj)
             .usedFreeRanges(filteredUsedRanges)
             .build();
     }

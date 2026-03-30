@@ -64,7 +64,7 @@ public class PromotionEngine {
         Map<String, Integer> remainingMinutes = null;
         List<FreeTimeRange> usedFreeRanges = null;
         if (context.getPromotionCarryOver() != null) {
-            remainingMinutes = context.getPromotionCarryOver().getRemainingMinutes();
+            remainingMinutes = context.getPromotionCarryOver().getRemainingMinutesConverted();
             usedFreeRanges = context.getPromotionCarryOver().getUsedFreeRanges();
         }
 
@@ -215,8 +215,8 @@ public class PromotionEngine {
     private PromotionCarryOver buildPromotionCarryOver(List<PromotionUsage> usages,
                                                         List<FreeTimeRange> finalFreeRanges,
                                                         LocalDateTime calculationEndTime) {
-        // 计算剩余免费分钟数
-        Map<String, Integer> remainingMinutes = new HashMap<>();
+        // 计算剩余免费分钟数（使用 Map<String, Object> 以支持序列化）
+        Map<String, Object> remainingMinutes = new HashMap<>();
         for (PromotionUsage usage : usages) {
             int remaining = (int) (usage.getGrantedMinutes() - usage.getUsedMinutes());
             // 记录所有使用过的优惠，包括已用完的（remaining=0）

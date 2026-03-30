@@ -9,6 +9,7 @@ import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
+import cn.shang.charging.util.TypeConversionUtil;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -296,6 +297,7 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
 
     /**
      * 从 Map 恢复 RuleState
+     * 支持序列化后的类型转换（LocalDateTime→String, BigDecimal→String/Double）
      */
     @SuppressWarnings("unchecked")
     protected RuleState restoreState(Map<String, Object> stateMap) {
@@ -310,11 +312,9 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
         if (state instanceof Map) {
             Map<String, Object> map = (Map<String, Object>) state;
             return RuleState.builder()
-                    .cycleIndex((Integer) map.getOrDefault("cycleIndex", 0))
-                    .cycleAccumulated(map.get("cycleAccumulated") instanceof BigDecimal
-                            ? (BigDecimal) map.get("cycleAccumulated")
-                            : new BigDecimal(map.getOrDefault("cycleAccumulated", "0").toString()))
-                    .cycleBoundary((LocalDateTime) map.get("cycleBoundary"))
+                    .cycleIndex(TypeConversionUtil.toInteger(map.getOrDefault("cycleIndex", 0)))
+                    .cycleAccumulated(TypeConversionUtil.toBigDecimal(map.getOrDefault("cycleAccumulated", "0")))
+                    .cycleBoundary(TypeConversionUtil.toLocalDateTime(map.get("cycleBoundary")))
                     .build();
         }
         return null;

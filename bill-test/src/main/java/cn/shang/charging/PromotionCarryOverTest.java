@@ -112,8 +112,8 @@ public class PromotionCarryOverTest {
 
         // 验证剩余免费分钟数
         var promoCarryOver = getPromotionCarryOver(result1);
-        if (promoCarryOver != null && promoCarryOver.getRemainingMinutes() != null) {
-            Integer remaining = promoCarryOver.getRemainingMinutes().get("coupon-60min");
+        if (promoCarryOver != null && promoCarryOver.getRemainingMinutesConverted() != null) {
+            Integer remaining = promoCarryOver.getRemainingMinutesConverted().get("coupon-60min");
             System.out.println("  剩余免费分钟: " + remaining + " 分钟");
         } else {
             System.out.println("  剩余免费分钟: 0 分钟 (已用完)");

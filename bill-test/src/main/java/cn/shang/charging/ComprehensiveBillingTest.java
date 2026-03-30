@@ -331,7 +331,7 @@ public class ComprehensiveBillingTest {
         // 检查剩余免费分钟数
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
         if (segmentCarryOver.getPromotionState() != null) {
-            System.out.println("  剩余免费分钟: " + segmentCarryOver.getPromotionState().getRemainingMinutes());
+            System.out.println("  剩余免费分钟: " + segmentCarryOver.getPromotionState().getRemainingMinutesConverted());
         }
 
         // 第二次计算（CONTINUE）

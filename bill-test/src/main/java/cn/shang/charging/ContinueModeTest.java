@@ -343,7 +343,7 @@ public class ContinueModeTest {
         // 验证 promotionState
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
         if (segmentCarryOver.getPromotionState() != null) {
-            System.out.println("  剩余免费分钟: " + segmentCarryOver.getPromotionState().getRemainingMinutes());
+            System.out.println("  剩余免费分钟: " + segmentCarryOver.getPromotionState().getRemainingMinutesConverted());
         }
 
         // 第二次计算: 继续 09:00 - 10:00
@@ -610,7 +610,7 @@ public class ContinueModeTest {
         // 验证 promotionState
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
         if (segmentCarryOver.getPromotionState() != null) {
-            System.out.println("  剩余免费分钟: " + segmentCarryOver.getPromotionState().getRemainingMinutes());
+            System.out.println("  剩余免费分钟: " + segmentCarryOver.getPromotionState().getRemainingMinutesConverted());
         }
 
         // 第二次计算: 继续使用剩余免费分钟数
@@ -1320,7 +1320,7 @@ public class ContinueModeTest {
         // 验证剩余免费分钟数
         var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
         if (segmentCarryOver.getPromotionState() != null) {
-            var remaining = segmentCarryOver.getPromotionState().getRemainingMinutes();
+            var remaining = segmentCarryOver.getPromotionState().getRemainingMinutesConverted();
             System.out.println("  剩余免费分钟: " + remaining);
         }
 
