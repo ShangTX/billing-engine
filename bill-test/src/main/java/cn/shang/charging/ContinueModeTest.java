@@ -112,6 +112,15 @@ public class ContinueModeTest {
         testIrregularTime_DayNight_CrossCycle();
         testIrregularTime_MultiContinue_RelativeTime();
 
+        // ==================== 截断单元重复计费问题测试 ====================
+        System.out.println("\n╔══════════════════════════════════════════════════════════════╗");
+        System.out.println("║          截断单元重复计费问题测试（现实场景）                ║");
+        System.out.println("╚══════════════════════════════════════════════════════════════╝\n");
+
+        testTruncatedUnitDuplicateBilling_RelativeTime();
+        testTruncatedUnitDuplicateBilling_DayNight();
+        testRealParkingScenario_MultiQuery();
+
         // ==================== 延伸与优惠交互测试 ====================
         System.out.println("\n╔══════════════════════════════════════════════════════════════╗");
         System.out.println("║               延伸与优惠交互测试                             ║");
@@ -1131,6 +1140,292 @@ public class ContinueModeTest {
         }
 
         System.out.println();
+    }
+
+    // ==================== 截断单元重复计费问题测试 ====================
+
+    /**
+     * 测试：RelativeTimeRule - 截断单元重复计费问题
+     *
+     * 现实场景：停车场收费
+     * - 单元长度：60分钟
+     * - 车辆进入：08:47（不规则时间）
+     * - 第一次查询：10:30（截断查询）
+     * - 第二次查询：12:15（继续计算）
+     *
+     * 问题演示：
+     * 第一次计算：08:47 - 10:30
+     * - 单元1：08:47-09:47，完整60分钟，收费
+     * - 单元2：09:47-10:30，截断43分钟，但按60分钟收费 ← 问题点
+     *
+     * 第二次 CONTINUE 计算：从延伸位置继续到 12:15
+     * - 单元1：10:47-11:47，完整60分钟，收费
+     * - 单元2：11:47-12:15，截断28分钟，按60分钟收费
+     * ← 问题：09:47-10:47 的费用已经收过了（上次的截断单元），
+     *         但第二次又从 10:47 开始收，导致 09:47-10:47 这段重复收费
+     */
+    static void testTruncatedUnitDuplicateBilling_RelativeTime() {
+        System.out.println("=== 测试: RelativeTimeRule - 截断单元重复计费问题 ===\n");
+
+        // 使用 60 分钟单元长度，单价 2 元/小时
+        var billingService = getRelativeTimeBillingService_60MinUnit(new BigDecimal("100"));
+
+        // ===== 第一次计算：08:47 - 10:30 =====
+        System.out.println("【第一次计算】车辆进入 08:47，查询时间 10:30");
+        System.out.println("  单元长度：60分钟，单价：2元/小时");
+
+        var request1 = createRelativeTimeRequest("08:47", "10:30");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("  计算结果金额: " + result1.getFinalAmount() + "元");
+        System.out.println("  计费单元数: " + result1.getUnits().size());
+
+        // 详细展示每个单元
+        for (int i = 0; i < result1.getUnits().size(); i++) {
+            var unit = result1.getUnits().get(i);
+            System.out.println("  单元" + (i+1) + ": " + unit.getBeginTime() + " - " + unit.getEndTime() +
+                    " (" + unit.getDurationMinutes() + "分钟, " +
+                    (unit.getIsTruncated() != null && unit.getIsTruncated() ? "截断" : "完整") + ", " +
+                    unit.getChargedAmount() + "元)");
+        }
+
+        // 验证最后单元是否截断
+        var lastUnit1 = result1.getUnits().get(result1.getUnits().size() - 1);
+        boolean lastUnitTruncated = lastUnit1.getIsTruncated() != null && lastUnit1.getIsTruncated();
+        System.out.println("  最后单元截断状态: " + (lastUnitTruncated ? "是 (isTruncated=true)" : "否"));
+
+        System.out.println("  calculationEndTime: " + result1.getCalculationEndTime());
+        System.out.println("  carryOver.calculatedUpTo: " + result1.getCarryOver().getCalculatedUpTo());
+
+        // ===== 第二次 CONTINUE 计算：继续到 12:15 =====
+        System.out.println("\n【第二次计算 CONTINUE】继续查询到 12:15");
+
+        var request2 = createRelativeTimeRequest("08:47", "12:15");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("  计算结果金额: " + result2.getFinalAmount() + "元");
+        System.out.println("  计费单元数: " + result2.getUnits().size());
+
+        // 详细展示每个单元
+        for (int i = 0; i < result2.getUnits().size(); i++) {
+            var unit = result2.getUnits().get(i);
+            System.out.println("  单元" + (i+1) + ": " + unit.getBeginTime() + " - " + unit.getEndTime() +
+                    " (" + unit.getDurationMinutes() + "分钟, " +
+                    (unit.getIsTruncated() != null && unit.getIsTruncated() ? "截断" : "完整") + ", " +
+                    unit.getChargedAmount() + "元)");
+        }
+
+        // ===== 问题验证 =====
+        System.out.println("\n【问题验证】");
+
+        // 一次性计算 08:47 - 12:15 作为基准
+        var benchmarkResult = billingService.calculate(createRelativeTimeRequest("08:47", "12:15"));
+        System.out.println("  一次性计算 08:47-12:15 总金额: " + benchmarkResult.getFinalAmount() + "元");
+
+        // 分两次计算累计
+        var totalFromContinue = result1.getFinalAmount().add(result2.getFinalAmount());
+        System.out.println("  分两次计算累计金额: " + totalFromContinue + "元");
+
+        // 差异分析
+        var difference = totalFromContinue.subtract(benchmarkResult.getFinalAmount());
+        if (difference.compareTo(BigDecimal.ZERO) > 0) {
+            System.out.println("  ✗ 存在重复收费: 多收 " + difference + "元");
+            System.out.println("  问题原因: 第一次计算的截断单元（09:47-10:30）按完整单元收费，" +
+                    "第二次计算又从延伸位置开始新单元，导致 09:47-10:47 时段重复收费");
+        } else {
+            System.out.println("  ✓ 无重复收费，修复成功");
+        }
+
+        // 期望修复后的行为
+        System.out.println("\n【期望修复后行为】");
+        System.out.println("  第二次计算的第一个单元应从 09:47 开始（与截断单元合并）");
+        System.out.println("  BillingResult.firstUnitMerged = true");
+        System.out.println("  BillingUnit.mergedFromPrevious = true（第一个单元）");
+
+        System.out.println();
+    }
+
+    /**
+     * 测试：DayNightRule - 截断单元重复计费问题
+     *
+     * 现实场景：停车场日夜分段收费
+     * - 单元长度：60分钟
+     * - 白天（12:20-19:00）：2元/小时
+     * - 夜间（19:00-次日12:20）：1元/小时
+     */
+    static void testTruncatedUnitDuplicateBilling_DayNight() {
+        System.out.println("=== 测试: DayNightRule - 截断单元重复计费问题 ===\n");
+
+        var billingService = getDayNightBillingService(new BigDecimal("100"), false);
+
+        // 第一次计算：08:47 - 10:30（夜间时段）
+        System.out.println("【第一次计算】08:47 - 10:30（夜间 1元/小时）");
+
+        var request1 = createDayNightRequest("08:47", "10:30");
+        var result1 = billingService.calculate(request1);
+
+        System.out.println("  结果金额: " + result1.getFinalAmount() + "元");
+        System.out.println("  计费单元数: " + result1.getUnits().size());
+
+        for (int i = 0; i < result1.getUnits().size(); i++) {
+            var unit = result1.getUnits().get(i);
+            System.out.println("  单元" + (i+1) + ": " + unit.getBeginTime() + " - " + unit.getEndTime() +
+                    " (" + unit.getDurationMinutes() + "分钟, " +
+                    (unit.getIsTruncated() != null && unit.getIsTruncated() ? "截断" : "完整") + ", " +
+                    unit.getChargedAmount() + "元, 单价: " + unit.getUnitPrice() + "元)");
+        }
+
+        // 第二次 CONTINUE 计算
+        System.out.println("\n【第二次计算 CONTINUE】继续到 14:30（跨日夜边界）");
+
+        var request2 = createDayNightRequest("08:47", "14:30");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+
+        System.out.println("  结果金额: " + result2.getFinalAmount() + "元");
+        System.out.println("  计费单元数: " + result2.getUnits().size());
+
+        for (int i = 0; i < result2.getUnits().size(); i++) {
+            var unit = result2.getUnits().get(i);
+            System.out.println("  单元" + (i+1) + ": " + unit.getBeginTime() + " - " + unit.getEndTime() +
+                    " (" + unit.getDurationMinutes() + "分钟, " +
+                    (unit.getIsTruncated() != null && unit.getIsTruncated() ? "截断" : "完整") + ", " +
+                    unit.getChargedAmount() + "元, 单价: " + unit.getUnitPrice() + "元)");
+        }
+
+        // 问题验证
+        System.out.println("\n【问题验证】");
+        var benchmarkResult = billingService.calculate(createDayNightRequest("08:47", "14:30"));
+        var totalFromContinue = result1.getFinalAmount().add(result2.getFinalAmount());
+
+        System.out.println("  一次性计算: " + benchmarkResult.getFinalAmount() + "元");
+        System.out.println("  分两次计算: " + totalFromContinue + "元");
+
+        var difference = totalFromContinue.subtract(benchmarkResult.getFinalAmount());
+        if (difference.compareTo(BigDecimal.ZERO) > 0) {
+            System.out.println("  ✗ 存在重复收费: 多收 " + difference + "元");
+        } else {
+            System.out.println("  ✓ 无重复收费");
+        }
+
+        System.out.println();
+    }
+
+    /**
+     * 测试：真实停车场景 - 多次查询
+     *
+     * 模拟用户在停车场多次查询费用：
+     * - 用户进入：09:23
+     * - 第一次查询：11:45（准备离开，查询费用）
+     * - 用户没走，继续查询：13:20
+     * - 用户离开：15:08
+     *
+     * 每次查询都应该正确累计，不应重复收费
+     */
+    static void testRealParkingScenario_MultiQuery() {
+        System.out.println("=== 测试: 真实停车场景 - 多次查询 ===\n");
+
+        var billingService = getRelativeTimeBillingService_60MinUnit(new BigDecimal("50")); // 每天封顶50元
+
+        System.out.println("场景：车辆 09:23 进入停车场，用户多次查询费用\n");
+
+        // 第一次查询：09:23 - 11:45
+        System.out.println("【第一次查询】09:23 - 11:45（停车 2小时22分钟）");
+        var request1 = createRelativeTimeRequest("09:23", "11:45");
+        var result1 = billingService.calculate(request1);
+        System.out.println("  费用: " + result1.getFinalAmount() + "元");
+        System.out.println("  单元数: " + result1.getUnits().size());
+        printUnitsBrief(result1);
+
+        // 第二次查询（CONTINUE）：09:23 - 13:20
+        System.out.println("\n【第二次查询 CONTINUE】09:23 - 13:20（继续停车到 13:20）");
+        var request2 = createRelativeTimeRequest("09:23", "13:20");
+        request2.setPreviousCarryOver(result1.getCarryOver());
+        var result2 = billingService.calculate(request2);
+        System.out.println("  本次增量费用: " + result2.getFinalAmount() + "元");
+        System.out.println("  单元数: " + result2.getUnits().size());
+        printUnitsBrief(result2);
+
+        // 第三次查询（CONTINUE）：09:23 - 15:08
+        System.out.println("\n【第三次查询 CONTINUE】09:23 - 15:08（用户离开）");
+        var request3 = createRelativeTimeRequest("09:23", "15:08");
+        request3.setPreviousCarryOver(result2.getCarryOver());
+        var result3 = billingService.calculate(request3);
+        System.out.println("  本次增量费用: " + result3.getFinalAmount() + "元");
+        System.out.println("  单元数: " + result3.getUnits().size());
+        printUnitsBrief(result3);
+
+        // 验证
+        System.out.println("\n【费用汇总验证】");
+        var benchmarkResult = billingService.calculate(createRelativeTimeRequest("09:23", "15:08"));
+        var totalFromContinue = result1.getFinalAmount().add(result2.getFinalAmount()).add(result3.getFinalAmount());
+
+        System.out.println("  一次性计算 09:23-15:08: " + benchmarkResult.getFinalAmount() + "元");
+        System.out.println("  三次查询累计费用: " + totalFromContinue + "元");
+
+        var difference = totalFromContinue.subtract(benchmarkResult.getFinalAmount());
+        if (difference.compareTo(BigDecimal.ZERO) > 0) {
+            System.out.println("  ✗ 存在重复收费: 多收 " + difference + "元");
+            System.out.println("  用户投诉风险: 高");
+        } else if (difference.compareTo(BigDecimal.ZERO) < 0) {
+            System.out.println("  ✗ 存在少收费: 少收 " + difference.abs() + "元");
+        } else {
+            System.out.println("  ✓ 费用一致，用户满意");
+        }
+
+        System.out.println();
+    }
+
+    /**
+     * 获取 60 分钟单元长度的 RelativeTimeRule 计费服务
+     */
+    static BillingService getRelativeTimeBillingService_60MinUnit(BigDecimal maxCharge) {
+        var billingConfigResolver = new BillingConfigResolver() {
+            @Override
+            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
+                return BConstants.BillingMode.CONTINUOUS;
+            }
+
+            @Override
+            public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
+                // 简单规则：60分钟单元，2元/小时
+                List<RelativeTimePeriod> periods = List.of(
+                        RelativeTimePeriod.builder()
+                                .beginMinute(0)
+                                .endMinute(1440) // 全天
+                                .unitMinutes(60)
+                                .unitPrice(new BigDecimal("2")) // 2元/小时
+                                .build()
+                );
+
+                return RelativeTimeConfig.builder()
+                        .id("relative-time-60min")
+                        .periods(periods)
+                        .maxChargeOneCycle(maxCharge)
+                        .build();
+            }
+
+            @Override
+            public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
+                return new ArrayList<>();
+            }
+        };
+
+        return createBillingService(billingConfigResolver, BConstants.ChargeRuleType.RELATIVE_TIME, new RelativeTimeRule());
+    }
+
+    /**
+     * 简要打印计费单元
+     */
+    static void printUnitsBrief(BillingResult result) {
+        if (result.getUnits() == null) return;
+        for (int i = 0; i < result.getUnits().size(); i++) {
+            var unit = result.getUnits().get(i);
+            String truncated = unit.getIsTruncated() != null && unit.getIsTruncated() ? " [截断]" : "";
+            System.out.println("    " + unit.getBeginTime().toLocalTime() + " - " + unit.getEndTime().toLocalTime() +
+                    truncated + " → " + unit.getChargedAmount() + "元");
+        }
     }
 
     // ==================== 延伸与优惠交互测试 ====================
