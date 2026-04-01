@@ -16,6 +16,77 @@ import java.util.List;
 public class BillingResultViewer {
 
     /**
+     * 创建查询摘要（轻量级，用索引代替复制）
+     *
+     * @param result    完整计算结果
+     * @param queryTime 查询时间点
+     * @return 查询摘要
+     * @throws IllegalArgumentException 当 queryTime <= units[0].beginTime
+     */
+    public QuerySummary createQuerySummary(BillingResult result, LocalDateTime queryTime) {
+        if (result == null || queryTime == null) {
+            throw new IllegalArgumentException("result 和 queryTime 不能为 null");
+        }
+
+        List<BillingUnit> units = result.getUnits();
+        if (units == null || units.isEmpty()) {
+            return QuerySummary.builder()
+                .unitIndex(-1)
+                .amount(BigDecimal.ZERO)
+                .queryTime(queryTime)
+                .promotionUsages(List.of())
+                .build();
+        }
+
+        // 边界检查：queryTime <= 第一个单元的 beginTime
+        LocalDateTime firstBeginTime = units.get(0).getBeginTime();
+        if (queryTime.compareTo(firstBeginTime) <= 0) {
+            throw new IllegalArgumentException(
+                "查询时间过早，无对应计费单元。queryTime=" + queryTime +
+                ", firstUnitBeginTime=" + firstBeginTime);
+        }
+
+        // 查找单元：beginTime < queryTime <= endTime
+        int unitIndex = findUnitIndex(units, queryTime);
+
+        // 获取金额
+        BigDecimal amount = unitIndex >= 0
+            ? units.get(unitIndex).getAccumulatedAmount()
+            : BigDecimal.ZERO;
+
+        // 截取优惠使用记录
+        List<PromotionUsage> filteredUsages = filterUsages(result.getPromotionUsages(), queryTime);
+
+        return QuerySummary.builder()
+            .unitIndex(unitIndex)
+            .amount(amount)
+            .effectiveFrom(units.get(0).getBeginTime())
+            .effectiveTo(unitIndex >= 0 ? units.get(unitIndex).getEndTime() : null)
+            .queryTime(queryTime)
+            .promotionUsages(filteredUsages)
+            .build();
+    }
+
+    /**
+     * 查找满足 beginTime < queryTime <= endTime 的单元索引
+     */
+    private int findUnitIndex(List<BillingUnit> units, LocalDateTime queryTime) {
+        for (int i = 0; i < units.size(); i++) {
+            BillingUnit unit = units.get(i);
+            LocalDateTime beginTime = unit.getBeginTime();
+            LocalDateTime endTime = unit.getEndTime();
+
+            if (beginTime != null && endTime != null &&
+                beginTime.isBefore(queryTime) && !queryTime.isAfter(endTime)) {
+                return i;
+            }
+        }
+
+        // queryTime > 最后一个单元的 endTime，返回最后一个索引
+        return units.size() - 1;
+    }
+
+    /**
      * 返回指定时间点的视图
      *
      * @param result    完整计算结果
