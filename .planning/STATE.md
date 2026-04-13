@@ -1,31 +1,40 @@
+---
+gsd_state_version: 1.0
+milestone: v2.1
+milestone_name: v2.1
+status: active
+last_updated: "2026-04-13"
+progress:
+  total_phases: 2
+  completed_phases: 2
+  total_plans: 0
+  completed_plans: 0
+---
+
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-30)
+See: .planning/PROJECT.md
 
-**Core value:** CONTINUE 模式下，截断单元与后续计算的第一个单元正确合并，避免重复收费。
+**Core value:** 可扩展、可追溯、可组合规则的时间计费引擎。
 
-**Current focus:** Phase 1 - 修复 CONTINUE 模式截断单元重复计费
+**Current focus:** 无活跃规划 — 所有计划任务已完成
 
-## Current Phase
-
-**Phase 1**: 修复 CONTINUE 模式截断单元重复计费
-
-**Status**: planning
-
-**Next Step**: `/gsd:plan-phase 1` → `/gsd:execute-phase 1`
-
-## Progress
+## Completed Phases
 
 | Phase | Status | Updated |
 |-------|--------|---------|
-| 1: 修复 CONTINUE 模式截断单元重复计费 | planning | 2026-03-30 |
+| 1: CONTINUE 模式截断单元重复计费修复 | completed | 2026-03-30 |
+| 2: FlatFreeRule 统一免费计费规则 | completed | 2026-04-13 |
 
-## History
+## Version History
 
-- 2026-03-30: 项目初始化，定义 Phase 1 范围
+| Version | Date | Summary |
+|---------|------|---------|
+| 2.1.0 | 2026-03-30 | 修复 CONTINUE 模式截断单元重复收费 |
+| (next) | 2026-04-13 | 新增 FlatFreeRule 免费计费规则 |
 
 ---
 
-*State initialized: 2026-03-30*
+*State updated: 2026-04-13*

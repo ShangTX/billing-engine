@@ -35,3 +35,6 @@ build/
 ### Maven flatten plugin ###
 .flattened-pom.xml
 *.versionsBackup
+
+### Claude Code ###
+.claude/settings.local.json
