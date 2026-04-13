@@ -187,6 +187,7 @@ public class FlatFreeTest {
                         .setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 9, 0, 0))
                         .setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 11, 0, 0))
                         .setPriority(1)
+                        .setSource(BConstants.PromotionSource.COUPON)
         ));
 
         var result = billingService.calculate(request);
