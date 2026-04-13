@@ -58,6 +58,7 @@ public class BConstants {
         public static String RELATIVE_TIME = "relativeTime"; // 按相对时间段计费
         public static String NR_TIME_MIX = "nrTimeMix"; // 按自然时间、相对时间混合时间段计费
         public static String COMPOSITE_TIME = "compositeTime"; // 混合时间计费
+        public static String FLAT_FREE = "flatFree"; // 统一免费计费
     }
 
     public static class PromotionRuleType {
