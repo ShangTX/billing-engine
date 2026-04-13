@@ -8,6 +8,11 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.experimental.Accessors;
 
+/**
+ * 统一免费计费规则配置
+ * <p>
+ * 无任何计费参数，规则会返回一个覆盖整个计算窗口的免费计费单元。
+ */
 @Data
 @Builder
 @Accessors(chain = true)
