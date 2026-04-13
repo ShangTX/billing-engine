@@ -272,6 +272,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `priority` | int | 优先级 |
 | `promotionType` | PromotionType | 优惠类型 |
 | `rangeType` | FreeTimeRangeType | 时间段类型（NORMAL/BUBBLE） |
+| `source` | PromotionSource | 优惠来源（RULE/COUPON） |
 | `data` | Object | 扩展数据 |
 
 | 方法 | 返回值 | 说明 |
@@ -447,6 +448,17 @@ BillingResult result = billingTemplate.calculate(request);
 | `priority` | Integer | 优先级 |
 | `minutes` | int | 免费分钟数 |
 
+#### StartFreePromotionConfig（cn.shang.charging.promotion.rules.startfree）
+
+前N分钟免费优惠规则配置。在计费窗口开始时赠送免费分钟数。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | String | 规则ID |
+| `type` | String | 规则类型（默认 "startFree"） |
+| `priority` | Integer | 优先级 |
+| `minutes` | int | 起始免费分钟数 |
+
 #### FlatFreeConfig（cn.shang.charging.charge.rules.flatfree）
 
 统一免费计费规则配置。返回一个覆盖整个计算窗口的免费计费单元，费用始终为 0。
@@ -549,6 +561,7 @@ BillingResult result = billingTemplate.calculate(request);
 | 常量 | 值 | 说明 |
 |------|------|------|
 | `FREE_MINUTES` | "freeMinutes" | 免费分钟数规则 |
+| `START_FREE` | "startFree" | 前N分钟免费 |
 
 #### FreeTimeRangeType（cn.shang.charging.promotion.pojo）
 
@@ -677,6 +690,16 @@ FreeMinutesPromotionConfig promoConfig = new FreeMinutesPromotionConfig()
     .setId("free-minutes-1")
     .setMinutes(30)        // 免费时长30分钟
     .setPriority(100);     // 优先级越高越先应用
+```
+
+### StartFreePromotionConfig（前N分钟免费优惠）
+
+```java
+StartFreePromotionConfig promoConfig = StartFreePromotionConfig.builder()
+    .id("start-free-1")
+    .minutes(15)           // 前15分钟免费
+    .priority(100)         // 优先级越高越先应用
+    .build();
 ```
 
 ### FlatFreeConfig（统一免费计费）

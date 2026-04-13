@@ -272,6 +272,7 @@ Free time range.
 | `priority` | int | Priority |
 | `promotionType` | PromotionType | Promotion type |
 | `rangeType` | FreeTimeRangeType | Range type (NORMAL/BUBBLE) |
+| `source` | PromotionSource | Promotion source (RULE/COUPON) |
 | `data` | Object | Extension data |
 
 | Method | Return | Description |
@@ -447,6 +448,17 @@ Free minutes promotion rule configuration.
 | `priority` | Integer | Priority |
 | `minutes` | int | Free minutes |
 
+#### StartFreePromotionConfig (cn.shang.charging.promotion.rules.startfree)
+
+Start-free promotion rule configuration. Grants free minutes at the beginning of the billing window.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | String | Rule ID |
+| `type` | String | Rule type (default "startFree") |
+| `priority` | Integer | Priority |
+| `minutes` | int | Free minutes at start |
+
 #### FlatFreeConfig (cn.shang.charging.charge.rules.flatfree)
 
 Flat-free billing rule configuration. Returns a single free billing unit covering the entire calculation window, amount always 0.
@@ -549,6 +561,7 @@ Cross natural period handling mode enum.
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `FREE_MINUTES` | "freeMinutes" | Free minutes rule |
+| `START_FREE` | "startFree" | Start-free promotion |
 
 #### FreeTimeRangeType (cn.shang.charging.promotion.pojo)
 
@@ -677,6 +690,16 @@ FreeMinutesPromotionConfig promoConfig = new FreeMinutesPromotionConfig()
     .setId("free-minutes-1")
     .setMinutes(30)        // 30 minutes free
     .setPriority(100);     // Higher priority applied first
+```
+
+### StartFreePromotionConfig (Start-Free Promotion)
+
+```java
+StartFreePromotionConfig promoConfig = StartFreePromotionConfig.builder()
+    .id("start-free-1")
+    .minutes(15)           // First 15 minutes free
+    .priority(100)         // Higher priority applied first
+    .build();
 ```
 
 ### FlatFreeConfig (Flat-Free Billing)
