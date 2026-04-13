@@ -63,6 +63,7 @@ public class BConstants {
 
     public static class PromotionRuleType {
         public static String FREE_MINUTES = "freeMinutes"; // 免费分钟数
+        public static String START_FREE = "startFree"; // 前N分钟免费
     }
 
 }
