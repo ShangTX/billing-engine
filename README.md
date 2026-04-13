@@ -447,6 +447,15 @@ Free minutes promotion rule configuration.
 | `priority` | Integer | Priority |
 | `minutes` | int | Free minutes |
 
+#### FlatFreeConfig (cn.shang.charging.charge.rules.flatfree)
+
+Flat-free billing rule configuration. Returns a single free billing unit covering the entire calculation window, amount always 0.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | String | Rule ID |
+| `type` | String | Rule type (default "flatFree") |
+
 #### InsufficientUnitMode (cn.shang.charging.charge.rules.compositetime)
 
 Insufficient unit billing mode enum.
@@ -533,6 +542,7 @@ Cross natural period handling mode enum.
 | `RELATIVE_TIME` | "relativeTime" | By relative time period |
 | `NR_TIME_MIX` | "nrTimeMix" | Natural-relative time mix |
 | `COMPOSITE_TIME` | "compositeTime" | Composite time billing |
+| `FLAT_FREE` | "flatFree" | Flat-free billing |
 
 ##### PromotionRuleType Constants
 
@@ -667,6 +677,14 @@ FreeMinutesPromotionConfig promoConfig = new FreeMinutesPromotionConfig()
     .setId("free-minutes-1")
     .setMinutes(30)        // 30 minutes free
     .setPriority(100);     // Higher priority applied first
+```
+
+### FlatFreeConfig (Flat-Free Billing)
+
+```java
+FlatFreeConfig config = FlatFreeConfig.builder()
+    .id("flat-free-001")
+    .build();
 ```
 
 ## Custom Rules

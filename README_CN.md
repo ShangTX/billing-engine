@@ -447,6 +447,15 @@ BillingResult result = billingTemplate.calculate(request);
 | `priority` | Integer | 优先级 |
 | `minutes` | int | 免费分钟数 |
 
+#### FlatFreeConfig（cn.shang.charging.charge.rules.flatfree）
+
+统一免费计费规则配置。返回一个覆盖整个计算窗口的免费计费单元，费用始终为 0。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | String | 规则ID |
+| `type` | String | 规则类型（默认 "flatFree"） |
+
 #### InsufficientUnitMode（cn.shang.charging.charge.rules.compositetime）
 
 不足单元计费模式枚举。
@@ -533,6 +542,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `RELATIVE_TIME` | "relativeTime" | 按相对时间段计费 |
 | `NR_TIME_MIX` | "nrTimeMix" | 自然时间、相对时间混合 |
 | `COMPOSITE_TIME` | "compositeTime" | 混合时间计费 |
+| `FLAT_FREE` | "flatFree" | 统一免费计费 |
 
 ##### PromotionRuleType 常量
 
@@ -667,6 +677,14 @@ FreeMinutesPromotionConfig promoConfig = new FreeMinutesPromotionConfig()
     .setId("free-minutes-1")
     .setMinutes(30)        // 免费时长30分钟
     .setPriority(100);     // 优先级越高越先应用
+```
+
+### FlatFreeConfig（统一免费计费）
+
+```java
+FlatFreeConfig config = FlatFreeConfig.builder()
+    .id("flat-free-001")
+    .build();
 ```
 
 ## 自定义规则
