@@ -240,6 +240,7 @@ public class PromotionEngine {
                             .endTime(range.getEndTime())
                             .promotionType(range.getPromotionType())
                             .rangeType(range.getRangeType()) // 保留类型信息
+                            .source(range.getSource()) // 保留来源信息
                             .build());
                 }
             }
