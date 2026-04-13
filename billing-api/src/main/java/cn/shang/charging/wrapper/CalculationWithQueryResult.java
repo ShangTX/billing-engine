@@ -7,7 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 计算结果与查询结果
+ * 计算结果与查询摘要
  */
 @Data
 @Builder
@@ -22,8 +22,9 @@ public class CalculationWithQueryResult {
     private BillingResult calculationResult;
 
     /**
-     * 查询时间点的结果
+     * 查询结果摘要（轻量级）
+     * - 用索引代替复制单元列表
      * - 用于展示给用户
      */
-    private BillingResult queryResult;
+    private QuerySummary queryResult;
 }

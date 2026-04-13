@@ -149,11 +149,12 @@ public class BillingTemplate {
      *
      * @param request   计费请求
      * @param queryTime 查询时间点
-     * @return 计算结果和查询结果
+     * @return 计算结果和查询摘要
+     * @throws IllegalArgumentException 当 queryTime <= units[0].beginTime
      */
     public CalculationWithQueryResult calculateWithQuery(BillingRequest request, LocalDateTime queryTime) {
         BillingResult calculationResult = billingService.calculate(request);
-        BillingResult queryResult = resultViewer.viewAtTime(calculationResult, queryTime);
+        QuerySummary queryResult = resultViewer.createQuerySummary(calculationResult, queryTime);
         return new CalculationWithQueryResult(calculationResult, queryResult);
     }
 

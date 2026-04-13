@@ -586,12 +586,25 @@ BillingResult result = billingTemplate.calculate(request);
 
 #### CalculationWithQueryResult（cn.shang.charging.wrapper）
 
-计算结果与查询结果。
+计算结果与查询摘要。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `calculationResult` | BillingResult | 完整计算结果（用于 CONTINUE 进度存储） |
-| `queryResult` | BillingResult | 查询时间点的结果（用于展示） |
+| `queryResult` | QuerySummary | 查询结果摘要（轻量级，用索引代替复制单元列表） |
+
+#### QuerySummary（cn.shang.charging.wrapper）
+
+查询结果摘要，轻量级结构。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `unitIndex` | int | 查询单元索引（0-based，-1 表示无单元） |
+| `amount` | BigDecimal | 查询时间点的累计金额（= units[unitIndex].accumulatedAmount） |
+| `effectiveFrom` | LocalDateTime | 有效时间范围起点 |
+| `effectiveTo` | LocalDateTime | 有效时间范围终点 |
+| `queryTime` | LocalDateTime | 查询时间点 |
+| `promotionUsages` | List<PromotionUsage> | 截取的优惠使用记录 |
 
 ## 计费模式
 

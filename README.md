@@ -586,12 +586,25 @@ Scheme switch record.
 
 #### CalculationWithQueryResult (cn.shang.charging.wrapper)
 
-Calculation result and query result.
+Calculation result and query summary.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `calculationResult` | BillingResult | Complete calculation result (for CONTINUE progress storage) |
-| `queryResult` | BillingResult | Query time point result (for display) |
+| `queryResult` | QuerySummary | Query result summary (lightweight, uses index instead of copying unit list) |
+
+#### QuerySummary (cn.shang.charging.wrapper)
+
+Query result summary, lightweight structure.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `unitIndex` | int | Query unit index (0-based, -1 means no unit) |
+| `amount` | BigDecimal | Accumulated amount at query time (= units[unitIndex].accumulatedAmount) |
+| `effectiveFrom` | LocalDateTime | Effective time range start |
+| `effectiveTo` | LocalDateTime | Effective time range end |
+| `queryTime` | LocalDateTime | Query time point |
+| `promotionUsages` | List<PromotionUsage> | Filtered promotion usage records |
 
 ## Billing Modes
 
