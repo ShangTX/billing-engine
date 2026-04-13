@@ -285,6 +285,7 @@ public class PromotionEngine {
                 .endTime(grant.getEndTime())
                 .priority(grant.getPriority())
                 .rangeType(grant.getRangeType())
+                .source(grant.getSource())
                 .build();
     }
 

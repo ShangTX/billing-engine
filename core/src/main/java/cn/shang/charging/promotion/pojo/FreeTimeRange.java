@@ -33,6 +33,11 @@ public class FreeTimeRange {
     @Builder.Default
     private FreeTimeRangeType rangeType = FreeTimeRangeType.NORMAL;
 
+    /**
+     * 优惠来源：RULE（规则）/ COUPON（优惠券）
+     */
+    private BConstants.PromotionSource source;
+
     private Object data; // 其他数据
 
     // TODO 免费时间段特性
@@ -71,7 +76,8 @@ public class FreeTimeRange {
                 .setEndTime(endTime)
                 .setPriority(priority)
                 .setPromotionType(promotionType)
-                .setRangeType(rangeType);
+                .setRangeType(rangeType)
+                .setSource(source);
         copy.data = this.data;
         return copy;
     }
@@ -82,6 +88,7 @@ public class FreeTimeRange {
                 .setEndTime(this.endTime)
                 .setPriority(this.priority)
                 .setPromotionType(this.promotionType)
-                .setRangeType(this.rangeType);
+                .setRangeType(this.rangeType)
+                .setSource(this.source);
     }
 }
