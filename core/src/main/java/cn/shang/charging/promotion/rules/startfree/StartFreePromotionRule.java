@@ -33,14 +33,20 @@ public class StartFreePromotionRule implements PromotionRule<StartFreePromotionC
         LocalDateTime beginTime = segment.getBeginTime();
         LocalDateTime endTime = beginTime.plusMinutes(config.getMinutes());
 
-        var promotionGrant = PromotionGrant.builder()
-                .id(config.getId())
-                .type(BConstants.PromotionType.FREE_RANGE)
-                .source(BConstants.PromotionSource.RULE)
-                .priority(config.getPriority())
-                .beginTime(beginTime)
-                .endTime(endTime)
-                .build();
-        return List.of(promotionGrant);
+        PromotionGrant grant = new PromotionGrant();
+        grant.setId(config.getId())
+                .setType(BConstants.PromotionType.FREE_RANGE)
+                .setSource(BConstants.PromotionSource.RULE)
+                .setPriority(config.getPriority())
+                .setBeginTime(beginTime)
+                .setEndTime(endTime);
+
+        // 条件免费：当 validateQueryTime 启用时，标记为条件免费
+        if (Boolean.TRUE.equals(config.getValidateQueryTime())) {
+            grant.setConditional(true)
+                    .setConditionalUntil(endTime);
+        }
+
+        return List.of(grant);
     }
 }

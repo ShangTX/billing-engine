@@ -1,4 +1,7 @@
 {
+  "env": {
+    "ANTHROPIC_MODEL": "qwen3.6-plus"
+  },
   "permissions": {
     "allow": [
       "Bash(mvn exec:java:*)",
@@ -13,7 +16,10 @@
       "Read(//d/dev/code/park-bill/charge/**)",
       "Bash(chmod +x D:/dev/code/park-bill/charge/.git/hooks/prepare-commit-msg)",
       "Bash(.git/hooks/prepare-commit-msg /tmp/test-commit-msg.txt message)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Skill(claude-hud:setup)",
+      "Skill(claude-hud:setup:*)",
+      "WebSearch"
     ]
   }
 }

@@ -4,6 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## 项目文档
+
+| 文档 | 位置 | 用途 |
+|------|------|------|
+| 计费引擎能力文档 | `docs/billing-engine-capabilities.md` | 完整的功能梳理，作为设计讨论的基础 |
+| 用户指南 | `docs/USER_GUIDE.md` | 面向调用方的使用说明 |
+
+---
+
 ## 项目愿景
 
 实现一个**可扩展、可追溯、可组合规则**的时间计费引擎（Time-based Billing Engine）。

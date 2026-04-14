@@ -26,4 +26,11 @@ public class StartFreePromotionConfig implements PromotionRuleConfig {
     Integer priority;
 
     int minutes;
+
+    /**
+     * 是否启用查询时间校验
+     * 当为 true 时，queryTime 必须落在免费时间段内才生效，
+     * 否则该规则完全失效（不产生任何免费时段）
+     */
+    Boolean validateQueryTime;
 }

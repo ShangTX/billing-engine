@@ -39,4 +39,16 @@ public class PromotionGrant {
      */
     FreeTimeRangeType rangeType;
 
+    /**
+     * 是否为条件免费
+     * 当为 true 时，conditionalUntil 定义了查询时间窗口
+     */
+    Boolean conditional;
+
+    /**
+     * 条件免费的激活窗口结束时间
+     * 仅当 conditional=true 时有效
+     */
+    LocalDateTime conditionalUntil;
+
 }

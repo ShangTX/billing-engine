@@ -287,6 +287,8 @@ public class PromotionEngine {
                 .priority(grant.getPriority())
                 .rangeType(grant.getRangeType())
                 .source(grant.getSource())
+                .conditional(Boolean.TRUE.equals(grant.getConditional()))
+                .conditionalUntil(grant.getConditionalUntil())
                 .build();
     }
 

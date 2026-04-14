@@ -61,6 +61,19 @@ public class BillingUnit {
     private String freePromotionId;
 
     /**
+     * 是否为条件免费
+     * 当为 true 时，conditionalFreeUntil 定义了查询时间窗口，
+     * queryTime 必须 ≤ conditionalFreeUntil 才生效
+     */
+    private boolean conditionalFree;
+
+    /**
+     * 条件免费的激活窗口结束时间
+     * 仅当 conditionalFree=true 时有效
+     */
+    private LocalDateTime conditionalFreeUntil;
+
+    /**
      * 实际金额（应用优惠后）
      */
     private BigDecimal chargedAmount;
