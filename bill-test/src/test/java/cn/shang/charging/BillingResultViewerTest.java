@@ -3,8 +3,10 @@ package cn.shang.charging;
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.value.StepValueSpec;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 import cn.shang.charging.wrapper.BillingResultViewer;
+import cn.shang.charging.wrapper.QuerySummary;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -103,5 +105,30 @@ class BillingResultViewerTest {
         assertNull(view.getCarryOver()); // 原始为 null，所以也为 null
         // calculationEndTime 应该是 queryTime
         assertEquals(LocalDateTime.of(2024, 1, 1, 9, 0), view.getCalculationEndTime());
+    }
+
+    @Test
+    void createQuerySummary_usesCurrentUnitProjectionInsteadOfAccumulatedAmount() {
+        LocalDateTime t8 = LocalDateTime.of(2026, 4, 20, 8, 0);
+        LocalDateTime t830 = LocalDateTime.of(2026, 4, 20, 8, 30);
+        LocalDateTime t9 = LocalDateTime.of(2026, 4, 20, 9, 0);
+
+        BillingUnit unit = BillingUnit.builder()
+                .beginTime(t8)
+                .endTime(t9)
+                .chargedAmount(new BigDecimal("10.00"))
+                .accumulatedAmount(new BigDecimal("20.00"))
+                .valueSpec(new StepValueSpec(t830, new BigDecimal("4.00"), new BigDecimal("10.00")))
+                .build();
+
+        BillingResult result = BillingResult.builder()
+                .units(List.of(unit))
+                .calculationEndTime(t9)
+                .build();
+
+        QuerySummary summary = viewer.createQuerySummary(result, LocalDateTime.of(2026, 4, 20, 8, 15));
+
+        assertEquals(new BigDecimal("4.00"), summary.getAmount());
+        assertEquals(t830, summary.getEffectiveTo());
     }
 }

@@ -27,8 +27,7 @@ public class QuerySummary {
 
     /**
      * 查询时间点的累计金额
-     * = units[unitIndex].accumulatedAmount
-     * 当 unitIndex = -1 时为 0
+     * 新语义：前缀累计金额 + 命中单元在 queryTime 下的即时应收值
      */
     private BigDecimal amount;
 
@@ -40,7 +39,7 @@ public class QuerySummary {
 
     /**
      * 有效时间范围终点
-     * = units[unitIndex].endTime
+     * 新语义：命中单元下一次值变化边界
      */
     private LocalDateTime effectiveTo;
 

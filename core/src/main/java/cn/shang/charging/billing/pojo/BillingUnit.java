@@ -1,5 +1,6 @@
 package cn.shang.charging.billing.pojo;
 
+import cn.shang.charging.billing.value.UnitValueSpec;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -83,6 +84,11 @@ public class BillingUnit {
      * CONTINUE 模式下，从 previousAccumulatedAmount 继续累加
      */
     private BigDecimal accumulatedAmount;
+
+    /**
+     * 单元内统一求值描述
+     */
+    private UnitValueSpec valueSpec;
 
     /**
      * 规则扩展数据，由具体规则使用
