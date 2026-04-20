@@ -100,7 +100,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
 
         // 检查是否启用简化计算
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
-            && isSimplificationEnabled(config, context.getBillingConfigResolver());
+            && isSimplificationEnabled(config, context.getBillingConfigResolver(), context);
 
         // 计算总周期数
         long totalMinutes = Duration.between(calcBegin, calcEnd).toMinutes();
@@ -568,7 +568,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         // 检查是否启用简化计算
         List<BillingUnit> allUnits = new ArrayList<>();
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
-            && isSimplificationEnabled(config, context.getBillingConfigResolver());
+            && isSimplificationEnabled(config, context.getBillingConfigResolver(), context);
         int threshold = context.getBillingConfigResolver() != null
             ? context.getBillingConfigResolver().getSimplifiedCycleThreshold()
             : 0;

@@ -1,11 +1,17 @@
 package cn.shang.charging;
 
+import cn.shang.charging.billing.BillingConfigResolver;
+import cn.shang.charging.billing.BillingService;
 import cn.shang.charging.billing.pojo.BConstants;
+import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.value.FixedValueSpec;
 import cn.shang.charging.billing.value.StepValueSpec;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 import cn.shang.charging.wrapper.BillingResultViewer;
+import cn.shang.charging.wrapper.BillingTemplate;
+import cn.shang.charging.wrapper.CalculationWithQueryResult;
 import cn.shang.charging.wrapper.QuerySummary;
 import org.junit.jupiter.api.Test;
 
@@ -130,5 +136,82 @@ class BillingResultViewerTest {
 
         assertEquals(new BigDecimal("14.00"), summary.getAmount());
         assertEquals(t830, summary.getEffectiveTo());
+    }
+
+    @Test
+    void createQuerySummary_rejectsQueryTimeAfterCalculationEndTime() {
+        BillingResult result = BillingResult.builder()
+                .units(List.of())
+                .calculationEndTime(LocalDateTime.of(2026, 4, 20, 9, 0))
+                .build();
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> viewer.createQuerySummary(result, LocalDateTime.of(2026, 4, 20, 9, 1))
+        );
+
+        assertTrue(ex.getMessage().contains("calculationEndTime"));
+    }
+
+    @Test
+    void calculateWithQuery_recalculatesWhenHitUnitIsSimplified() {
+        LocalDateTime t0 = LocalDateTime.of(2026, 4, 20, 0, 0);
+        LocalDateTime t1 = LocalDateTime.of(2026, 4, 20, 1, 0);
+        LocalDateTime switchTime = LocalDateTime.of(2026, 4, 20, 0, 30);
+        LocalDateTime query = LocalDateTime.of(2026, 4, 20, 0, 29);
+
+        BillingUnit simplifiedUnit = BillingUnit.builder()
+                .beginTime(t0)
+                .endTime(t1)
+                .chargedAmount(new BigDecimal("20.00"))
+                .accumulatedAmount(new BigDecimal("20.00"))
+                .valueSpec(new FixedValueSpec(new BigDecimal("20.00")))
+                .ruleData(java.util.Map.of("isSimplified", true))
+                .build();
+
+        BillingUnit detailedUnit = BillingUnit.builder()
+                .beginTime(t0)
+                .endTime(t1)
+                .chargedAmount(new BigDecimal("20.00"))
+                .accumulatedAmount(new BigDecimal("20.00"))
+                .valueSpec(new StepValueSpec(switchTime, new BigDecimal("8.00"), new BigDecimal("20.00")))
+                .ruleData(java.util.Map.of())
+                .build();
+
+        BillingResult simplifiedResult = BillingResult.builder()
+                .units(List.of(simplifiedUnit))
+                .calculationEndTime(t1)
+                .build();
+        BillingResult detailedResult = BillingResult.builder()
+                .units(List.of(detailedUnit))
+                .calculationEndTime(t1)
+                .build();
+
+        BillingTemplate template = new BillingTemplate(new StubBillingService(simplifiedResult, detailedResult), (BillingConfigResolver) null);
+        BillingRequest request = new BillingRequest();
+        request.setBeginTime(t0);
+        request.setEndTime(t1);
+        request.setDisableSimplification(false);
+
+        CalculationWithQueryResult result = template.calculateWithQuery(request, query);
+
+        assertFalse(Boolean.TRUE.equals(((java.util.Map<?, ?>) result.getCalculationResult().getUnits().get(0).getRuleData()).get("isSimplified")));
+        assertEquals(new BigDecimal("8.00"), result.getQueryResult().getAmount());
+    }
+
+    private static class StubBillingService extends BillingService {
+        private final BillingResult simplifiedResult;
+        private final BillingResult detailedResult;
+
+        StubBillingService(BillingResult simplifiedResult, BillingResult detailedResult) {
+            super(null, null, null, null, null);
+            this.simplifiedResult = simplifiedResult;
+            this.detailedResult = detailedResult;
+        }
+
+        @Override
+        public BillingResult calculate(BillingRequest request) {
+            return Boolean.TRUE.equals(request.getDisableSimplification()) ? detailedResult : simplifiedResult;
+        }
     }
 }

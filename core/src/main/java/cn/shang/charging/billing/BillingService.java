@@ -145,6 +145,7 @@ public class BillingService {
                     .promotionCarryOver(promotionCarryOver)
                     .previousAccumulatedAmount(previousAccumulatedAmount)
                     .truncatedUnitChargedAmount(truncatedUnitChargedAmount)
+                    .disableSimplification(request.getDisableSimplification())
                     .billingConfigResolver(billingConfigResolver)
                     .build();
 
@@ -230,6 +231,7 @@ public class BillingService {
                 .externalPromotions(request.getExternalPromotions())
                 .billingMode(billingMode)
                 .continueMode(BConstants.ContinueMode.FROM_SCRATCH)
+                .disableSimplification(request.getDisableSimplification())
                 .billingConfigResolver(billingConfigResolver)
                 .build();
 

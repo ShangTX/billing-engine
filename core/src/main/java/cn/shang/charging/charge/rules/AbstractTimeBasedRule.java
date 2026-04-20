@@ -106,7 +106,10 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
     /**
      * 检查简化计算是否启用
      */
-    protected boolean isSimplificationEnabled(C config, BillingConfigResolver configResolver) {
+    protected boolean isSimplificationEnabled(C config, BillingConfigResolver configResolver, BillingContext context) {
+        if (context != null && Boolean.TRUE.equals(context.getDisableSimplification())) {
+            return false;
+        }
         // 配置明确禁用
         if (config.getSimplifiedSupported() != null && !config.getSimplifiedSupported()) {
             return false;

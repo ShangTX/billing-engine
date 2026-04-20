@@ -60,4 +60,9 @@ public class BillingRequest {
      */
     private Map<String, Object> context;
 
+    /**
+     * 精确查询时用于禁用 simplification
+     */
+    private Boolean disableSimplification;
+
 }

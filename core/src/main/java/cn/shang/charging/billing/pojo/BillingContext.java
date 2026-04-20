@@ -100,4 +100,9 @@ public class BillingContext {
      */
     private BigDecimal truncatedUnitChargedAmount;
 
+    /**
+     * 是否在精确查询重算时禁用 simplification
+     */
+    private Boolean disableSimplification;
+
 }

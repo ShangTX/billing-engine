@@ -4,6 +4,7 @@ import cn.shang.charging.billing.BillingConfigResolver;
 import cn.shang.charging.billing.BillingService;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
+import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.TimeRoundingMode;
 
 import java.math.BigDecimal;
@@ -155,6 +156,13 @@ public class BillingTemplate {
     public CalculationWithQueryResult calculateWithQuery(BillingRequest request, LocalDateTime queryTime) {
         BillingResult calculationResult = billingService.calculate(request);
         QuerySummary queryResult = resultViewer.createQuerySummary(calculationResult, queryTime);
+        BillingUnit hitUnit = extractHitUnit(calculationResult, queryResult);
+        if (isSimplifiedUnit(hitUnit)) {
+            BillingRequest detailedRequest = copyRequest(request);
+            detailedRequest.setDisableSimplification(true);
+            calculationResult = billingService.calculate(detailedRequest);
+            queryResult = resultViewer.createQuerySummary(calculationResult, queryTime);
+        }
         return new CalculationWithQueryResult(calculationResult, queryResult);
     }
 
@@ -166,5 +174,40 @@ public class BillingTemplate {
      */
     public Map<String, BigDecimal> calculatePromotionEquivalents(BillingRequest request) {
         return promotionEquivalentCalculator.calculate(request);
+    }
+
+    private BillingUnit extractHitUnit(BillingResult calculationResult, QuerySummary queryResult) {
+        if (calculationResult == null || calculationResult.getUnits() == null || queryResult == null) {
+            return null;
+        }
+        int unitIndex = queryResult.getUnitIndex();
+        if (unitIndex < 0 || unitIndex >= calculationResult.getUnits().size()) {
+            return null;
+        }
+        return calculationResult.getUnits().get(unitIndex);
+    }
+
+    private boolean isSimplifiedUnit(BillingUnit unit) {
+        if (unit == null || !(unit.getRuleData() instanceof Map<?, ?> ruleData)) {
+            return false;
+        }
+        return Boolean.TRUE.equals(ruleData.get("isSimplified"));
+    }
+
+    private BillingRequest copyRequest(BillingRequest request) {
+        BillingRequest copied = new BillingRequest();
+        copied.setId(request.getId());
+        copied.setBeginTime(request.getBeginTime());
+        copied.setEndTime(request.getEndTime());
+        copied.setCalcEndTime(request.getCalcEndTime());
+        copied.setExternalPromotions(request.getExternalPromotions());
+        copied.setSegmentCalculationMode(request.getSegmentCalculationMode());
+        copied.setSchemeId(request.getSchemeId());
+        copied.setSchemeChanges(request.getSchemeChanges());
+        copied.setPreviousCarryOver(request.getPreviousCarryOver());
+        copied.setTimeRoundingMode(request.getTimeRoundingMode());
+        copied.setContext(request.getContext());
+        copied.setDisableSimplification(request.getDisableSimplification());
+        return copied;
     }
 }
