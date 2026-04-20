@@ -4,6 +4,9 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.value.FixedValueSpec;
+import cn.shang.charging.billing.value.UnitValueProjection;
+import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
@@ -597,29 +600,31 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     private BillingUnit calculateUnit(UnitWithContext unitCtx, DayNightConfig config, List<FreeTimeRange> freeTimeRanges) {
         int duration = (int) Duration.between(unitCtx.beginTime, unitCtx.endTime).toMinutes();
 
-        // 确定单价
-        BigDecimal unitPrice;
-        if (unitCtx.periodType == PeriodType.DAY) {
-            unitPrice = config.getDayUnitPrice();
-        } else if (unitCtx.periodType == PeriodType.NIGHT) {
-            unitPrice = config.getNightUnitPrice();
-        } else {
-            // MIXED: 根据blockWeight判断
-            BigDecimal ratio = BigDecimal.valueOf(unitCtx.dayMinutes)
-                    .divide(BigDecimal.valueOf(duration), 4, RoundingMode.HALF_UP);
-            if (ratio.compareTo(config.getBlockWeight()) >= 0) {
-                unitPrice = config.getDayUnitPrice();
-            } else {
-                unitPrice = config.getNightUnitPrice();
-            }
-        }
-
-        // 计算原始金额：不足单元也收全额
-        BigDecimal originalAmount = unitPrice;
+        BigDecimal finalAmount = determineFinalAmount(unitCtx, config, duration);
 
         // 检查是否被免费时段覆盖
         String freePromotionId = findFreePromotionId(unitCtx.beginTime, unitCtx.endTime, freeTimeRanges);
         boolean isFree = freePromotionId != null;
+
+        BigDecimal unitPrice;
+        BigDecimal originalAmount;
+        BigDecimal chargedAmount;
+        UnitValueSpec valueSpec;
+        if (isFree) {
+            unitPrice = BigDecimal.ZERO;
+            originalAmount = BigDecimal.ZERO;
+            chargedAmount = BigDecimal.ZERO;
+            valueSpec = new FixedValueSpec(BigDecimal.ZERO);
+        } else {
+            unitPrice = finalAmount;
+            originalAmount = finalAmount;
+            chargedAmount = finalAmount;
+            if (unitCtx.periodType == PeriodType.MIXED) {
+                valueSpec = new MixedUnitValueSpec(unitCtx.beginTime, unitCtx.endTime, config);
+            } else {
+                valueSpec = new FixedValueSpec(finalAmount);
+            }
+        }
 
         BillingUnit unit = BillingUnit.builder()
                 .beginTime(unitCtx.beginTime)
@@ -629,11 +634,28 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                 .originalAmount(originalAmount)
                 .free(isFree)
                 .freePromotionId(freePromotionId)
-                .chargedAmount(isFree ? BigDecimal.ZERO : originalAmount)
+                .chargedAmount(chargedAmount)
+                .valueSpec(valueSpec)
                 .ruleData(unitCtx.cycleIndex) // 用ruleData存储周期序号
                 .build();
 
         return unit;
+    }
+
+    private BigDecimal determineFinalAmount(UnitWithContext unitCtx, DayNightConfig config, int duration) {
+        if (unitCtx.periodType == PeriodType.DAY) {
+            return config.getDayUnitPrice();
+        } else if (unitCtx.periodType == PeriodType.NIGHT) {
+            return config.getNightUnitPrice();
+        } else {
+            BigDecimal ratio = BigDecimal.valueOf(unitCtx.dayMinutes)
+                    .divide(BigDecimal.valueOf(duration), 4, RoundingMode.HALF_UP);
+            if (ratio.compareTo(config.getBlockWeight()) >= 0) {
+                return config.getDayUnitPrice();
+            } else {
+                return config.getNightUnitPrice();
+            }
+        }
     }
 
     /**
@@ -1437,6 +1459,114 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         PeriodType periodType;
         int dayMinutes;
         int nightMinutes;
+    }
+
+    private static class MixedUnitValueSpec implements UnitValueSpec {
+        private final LocalDateTime unitBeginTime;
+        private final LocalDateTime unitEndTime;
+        private final int dayBeginMinute;
+        private final int dayEndMinute;
+        private final BigDecimal blockWeight;
+        private final BigDecimal dayUnitPrice;
+        private final BigDecimal nightUnitPrice;
+
+        MixedUnitValueSpec(LocalDateTime unitBeginTime, LocalDateTime unitEndTime, DayNightConfig config) {
+            this.unitBeginTime = unitBeginTime;
+            this.unitEndTime = unitEndTime;
+            this.dayBeginMinute = config.getDayBeginMinute();
+            this.dayEndMinute = config.getDayEndMinute();
+            this.blockWeight = config.getBlockWeight();
+            this.dayUnitPrice = config.getDayUnitPrice();
+            this.nightUnitPrice = config.getNightUnitPrice();
+        }
+
+        @Override
+        public UnitValueProjection project(LocalDateTime queryTime, LocalDateTime unitBeginTime, LocalDateTime unitEndTime) {
+            BigDecimal currentAmount = determineAmount(queryTime);
+            if (!queryTime.isBefore(this.unitEndTime)) {
+                return new UnitValueProjection(currentAmount, this.unitEndTime);
+            }
+
+            LocalDateTime nextChangeTime = this.unitEndTime;
+            BigDecimal current = currentAmount;
+            LocalDateTime candidate = queryTime.plusMinutes(1);
+            while (!candidate.isAfter(this.unitEndTime)) {
+                BigDecimal candidateAmount = determineAmount(candidate);
+                if (candidateAmount.compareTo(current) != 0) {
+                    nextChangeTime = candidate;
+                    break;
+                }
+                candidate = candidate.plusMinutes(1);
+            }
+
+            return new UnitValueProjection(currentAmount, nextChangeTime);
+        }
+
+        private BigDecimal determineAmount(LocalDateTime queryTime) {
+            int duration = (int) Duration.between(unitBeginTime, queryTime).toMinutes();
+            if (duration <= 0) {
+                return dayUnitPrice;
+            }
+            PeriodType currentType = determinePeriodType(unitBeginTime, queryTime);
+            if (currentType == PeriodType.DAY) {
+                return dayUnitPrice;
+            }
+            if (currentType == PeriodType.NIGHT) {
+                return nightUnitPrice;
+            }
+            int[] mins = calculateDayNightMinutes(unitBeginTime, queryTime);
+            BigDecimal ratio = BigDecimal.valueOf(mins[0])
+                    .divide(BigDecimal.valueOf(duration), 4, RoundingMode.HALF_UP);
+            return ratio.compareTo(blockWeight) >= 0 ? dayUnitPrice : nightUnitPrice;
+        }
+
+        private PeriodType determinePeriodType(LocalDateTime begin, LocalDateTime end) {
+            int beginDayMin = begin.getHour() * 60 + begin.getMinute();
+            int endDayMin = end.getHour() * 60 + end.getMinute();
+            boolean crossDay = !begin.toLocalDate().equals(end.toLocalDate());
+            if (crossDay) {
+                return PeriodType.MIXED;
+            }
+            boolean crossesBoundary = crossesDayNightBoundary(beginDayMin, endDayMin);
+            if (!crossesBoundary) {
+                return isInDayPeriod(beginDayMin) ? PeriodType.DAY : PeriodType.NIGHT;
+            }
+            return PeriodType.MIXED;
+        }
+
+        private boolean isInDayPeriod(int minute) {
+            if (dayBeginMinute < dayEndMinute) {
+                return minute >= dayBeginMinute && minute < dayEndMinute;
+            } else {
+                return minute >= dayBeginMinute || minute < dayEndMinute;
+            }
+        }
+
+        private boolean crossesDayNightBoundary(int beginMin, int endMin) {
+            if (dayBeginMinute < dayEndMinute) {
+                boolean crossesDayBegin = beginMin < dayBeginMinute && endMin > dayBeginMinute;
+                boolean crossesDayEnd = beginMin < dayEndMinute && endMin > dayEndMinute;
+                return crossesDayBegin || crossesDayEnd;
+            } else {
+                return true;
+            }
+        }
+
+        private int[] calculateDayNightMinutes(LocalDateTime begin, LocalDateTime end) {
+            int dayMins = 0;
+            int nightMins = 0;
+            LocalDateTime current = begin;
+            while (current.isBefore(end)) {
+                int curMin = current.getHour() * 60 + current.getMinute();
+                if (isInDayPeriod(curMin)) {
+                    dayMins++;
+                } else {
+                    nightMins++;
+                }
+                current = current.plusMinutes(1);
+            }
+            return new int[]{dayMins, nightMins};
+        }
     }
 
     /**
