@@ -548,6 +548,11 @@ BillingResult fullResult = result.getCalculationResult();  // 完整计算结果
 BillingResult queryResult = result.getQueryResult();       // 查询时刻的结果
 ```
 
+说明：
+- `queryTime` 不能超过 `calculationEndTime`
+- 查询金额由命中单元的 `valueSpec` 计算，不再直接等于 `units[unitIndex].accumulatedAmount`
+- 如果命中的单元是长期简化单元，`billing-api` 会先执行一次精确重算，再返回查询结果
+
 ### 优惠等效金额计算
 
 计算每个优惠实际节省的金额：

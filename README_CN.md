@@ -142,6 +142,11 @@ BillingResult result = billingTemplate.calculate(request);
 | `calculatePromotionSavings` | `BillingResult result` | `Map<String, BigDecimal>` | 分析优惠节省金额 |
 | `getConfigResolver` | - | `BillingConfigResolver` | 获取配置解析器 |
 
+> 查询时点计费说明：
+> `queryTime` 不能超过 `calculationEndTime`。
+> 查询金额不再直接读取 `units[unitIndex].accumulatedAmount`，而是根据命中单元的 `valueSpec` 计算。
+> 如果命中的单元是长期简化单元，`billing-api` 会先透明地重算出精确结果，再返回查询值。
+
 #### BillingConfigResolver（cn.shang.charging.billing）
 
 计费配置解析器接口，用户必须实现。

@@ -142,6 +142,11 @@ Convenient API wrapper with advanced features.
 | `calculatePromotionSavings` | `BillingResult result` | `Map<String, BigDecimal>` | Analyze promotion savings |
 | `getConfigResolver` | - | `BillingConfigResolver` | Get config resolver |
 
+> Query-time valuation notes:
+> `queryTime` must not exceed `calculationEndTime`.
+> Query amount is no longer read directly from `units[unitIndex].accumulatedAmount`; it is computed from the hit unit's `valueSpec`.
+> If the hit unit is a long-cycle simplified unit, `billing-api` will transparently recalculate an exact result before answering the query.
+
 #### BillingConfigResolver (cn.shang.charging.billing)
 
 Billing config resolver interface that users must implement.
