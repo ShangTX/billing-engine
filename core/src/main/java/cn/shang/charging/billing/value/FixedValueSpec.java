@@ -10,6 +10,9 @@ public class FixedValueSpec implements UnitValueSpec {
 
     public FixedValueSpec(BigDecimal amount) {
         this.amount = Objects.requireNonNull(amount, "amount cannot be null");
+        if (amount.signum() < 0) {
+            throw new IllegalArgumentException("amount must be >= 0");
+        }
     }
 
     @Override

@@ -14,6 +14,12 @@ public class StepValueSpec implements UnitValueSpec {
         this.switchTime = Objects.requireNonNull(switchTime, "switchTime cannot be null");
         this.beforeAmount = Objects.requireNonNull(beforeAmount, "beforeAmount cannot be null");
         this.afterAmount = Objects.requireNonNull(afterAmount, "afterAmount cannot be null");
+        if (beforeAmount.signum() < 0) {
+            throw new IllegalArgumentException("beforeAmount must be >= 0");
+        }
+        if (afterAmount.signum() < 0) {
+            throw new IllegalArgumentException("afterAmount must be >= 0");
+        }
     }
 
     @Override

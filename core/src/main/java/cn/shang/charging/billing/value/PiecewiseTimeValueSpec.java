@@ -49,7 +49,7 @@ public class PiecewiseTimeValueSpec implements UnitValueSpec {
                 return new UnitValueProjection(amount, min(nextChange, unitEndTime));
             }
 
-            if (segment.kind() == SegmentKind.FIXED) {
+            if (segment.kind().isEntryLumpSum()) {
                 amount = amount.add(segment.value());
             } else {
                 long covered = Math.min(Math.max(elapsedMinutes - segmentStart, 0), lengthMinutes);
@@ -86,19 +86,40 @@ public class PiecewiseTimeValueSpec implements UnitValueSpec {
             if (duration.isNegative() || duration.isZero()) {
                 throw new IllegalArgumentException("duration must be positive");
             }
+            if (value.signum() < 0) {
+                throw new IllegalArgumentException("value must be >= 0");
+            }
         }
 
+        public static Segment entryLumpSum(Duration duration, BigDecimal amount) {
+            return new Segment(duration, SegmentKind.ENTRY_LUMP_SUM, amount);
+        }
+
+        public static Segment perMinuteRate(Duration duration, BigDecimal perMinuteRate) {
+            return new Segment(duration, SegmentKind.PER_MINUTE_RATE, perMinuteRate);
+        }
+
+        @Deprecated(forRemoval = false)
         public static Segment fixed(Duration duration, BigDecimal amount) {
-            return new Segment(duration, SegmentKind.FIXED, amount);
+            return entryLumpSum(duration, amount);
         }
 
+        @Deprecated(forRemoval = false)
         public static Segment linear(Duration duration, BigDecimal perMinute) {
-            return new Segment(duration, SegmentKind.LINEAR, perMinute);
+            return perMinuteRate(duration, perMinute);
         }
     }
 
     public enum SegmentKind {
+        ENTRY_LUMP_SUM,
+        PER_MINUTE_RATE,
+        @Deprecated(forRemoval = false)
         FIXED,
-        LINEAR
+        @Deprecated(forRemoval = false)
+        LINEAR;
+
+        public boolean isEntryLumpSum() {
+            return this == ENTRY_LUMP_SUM || this == FIXED;
+        }
     }
 }
