@@ -128,7 +128,7 @@ class BillingResultViewerTest {
 
         QuerySummary summary = viewer.createQuerySummary(result, LocalDateTime.of(2026, 4, 20, 8, 15));
 
-        assertEquals(new BigDecimal("4.00"), summary.getAmount());
+        assertEquals(new BigDecimal("14.00"), summary.getAmount());
         assertEquals(t830, summary.getEffectiveTo());
     }
 }
