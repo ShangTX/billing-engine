@@ -5,6 +5,7 @@ import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.value.FixedValueSpec;
+import cn.shang.charging.billing.value.StepValueSpec;
 import cn.shang.charging.billing.value.UnitValueProjection;
 import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
@@ -603,14 +604,16 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         BigDecimal finalAmount = determineFinalAmount(unitCtx, config, duration);
 
         // 检查是否被免费时段覆盖
-        String freePromotionId = findFreePromotionId(unitCtx.beginTime, unitCtx.endTime, freeTimeRanges);
+        FreeTimeRange coveringRange = findCoveringFreeRange(unitCtx.beginTime, unitCtx.endTime, freeTimeRanges);
+        String freePromotionId = coveringRange != null ? coveringRange.getId() : null;
         boolean isFree = freePromotionId != null;
+        boolean conditionalFree = isFree && coveringRange.isConditional();
 
         BigDecimal unitPrice;
         BigDecimal originalAmount;
         BigDecimal chargedAmount;
         UnitValueSpec valueSpec;
-        if (isFree) {
+        if (isFree && !conditionalFree) {
             unitPrice = BigDecimal.ZERO;
             originalAmount = BigDecimal.ZERO;
             chargedAmount = BigDecimal.ZERO;
@@ -619,7 +622,9 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             unitPrice = finalAmount;
             originalAmount = finalAmount;
             chargedAmount = finalAmount;
-            if (unitCtx.periodType == PeriodType.MIXED) {
+            if (conditionalFree) {
+                valueSpec = new StepValueSpec(coveringRange.getConditionalUntil(), BigDecimal.ZERO, finalAmount);
+            } else if (unitCtx.periodType == PeriodType.MIXED) {
                 valueSpec = new MixedUnitValueSpec(unitCtx.beginTime, unitCtx.endTime, config);
             } else {
                 valueSpec = new FixedValueSpec(finalAmount);
@@ -632,7 +637,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                 .durationMinutes(duration)
                 .unitPrice(unitPrice)
                 .originalAmount(originalAmount)
-                .free(isFree)
+                .free(isFree && !conditionalFree)
                 .freePromotionId(freePromotionId)
                 .chargedAmount(chargedAmount)
                 .valueSpec(valueSpec)
@@ -662,9 +667,14 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
      * 查找完全覆盖该时段的免费优惠
      */
     private String findFreePromotionId(LocalDateTime begin, LocalDateTime end, List<FreeTimeRange> freeTimeRanges) {
+        FreeTimeRange range = findCoveringFreeRange(begin, end, freeTimeRanges);
+        return range != null ? range.getId() : null;
+    }
+
+    private FreeTimeRange findCoveringFreeRange(LocalDateTime begin, LocalDateTime end, List<FreeTimeRange> freeTimeRanges) {
         for (FreeTimeRange range : freeTimeRanges) {
             if (!range.getBeginTime().isAfter(begin) && !range.getEndTime().isBefore(end)) {
-                return range.getId();
+                return range;
             }
         }
         return null;
@@ -1198,6 +1208,8 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                 if (!range.getBeginTime().isAfter(fragBegin) && !range.getEndTime().isBefore(fragEnd)) {
                     fragment.isFree = true;
                     fragment.freePromotionId = range.getId();
+                    fragment.conditional = range.isConditional();
+                    fragment.conditionalUntil = range.getConditionalUntil();
                     break;
                 }
             }
@@ -1269,19 +1281,48 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
         for (TimeFragment fragment : cycle.fragments) {
             if (fragment.isFree) {
-                // 免费片段直接生成一个免费单元
-                BillingUnit unit = BillingUnit.builder()
-                        .beginTime(fragment.beginTime)
-                        .endTime(fragment.endTime)
-                        .durationMinutes((int) Duration.between(fragment.beginTime, fragment.endTime).toMinutes())
-                        .unitPrice(BigDecimal.ZERO)
-                        .originalAmount(BigDecimal.ZERO)
-                        .free(true)
-                        .freePromotionId(fragment.freePromotionId)
-                        .chargedAmount(BigDecimal.ZERO)
-                        .valueSpec(new FixedValueSpec(BigDecimal.ZERO))
-                        .build();
-                units.add(unit);
+                if (fragment.conditional) {
+                    LocalDateTime current = fragment.beginTime;
+                    while (current.isBefore(fragment.endTime)) {
+                        LocalDateTime unitEnd = current.plusMinutes(unitMinutes);
+                        if (unitEnd.isAfter(fragment.endTime)) {
+                            unitEnd = fragment.endTime;
+                        }
+
+                        int duration = (int) Duration.between(current, unitEnd).toMinutes();
+                        BigDecimal unitPrice = determineUnitPriceForContinuous(current, unitEnd, config);
+                        BigDecimal originalAmount = unitPrice;
+
+                        BillingUnit unit = BillingUnit.builder()
+                                .beginTime(current)
+                                .endTime(unitEnd)
+                                .durationMinutes(duration)
+                                .unitPrice(unitPrice)
+                                .originalAmount(originalAmount)
+                                .free(false)
+                                .freePromotionId(fragment.freePromotionId)
+                                .chargedAmount(originalAmount)
+                                .valueSpec(new StepValueSpec(fragment.conditionalUntil, BigDecimal.ZERO, originalAmount))
+                                .build();
+
+                        units.add(unit);
+                        current = unitEnd;
+                    }
+                } else {
+                    // 免费片段直接生成一个免费单元
+                    BillingUnit unit = BillingUnit.builder()
+                            .beginTime(fragment.beginTime)
+                            .endTime(fragment.endTime)
+                            .durationMinutes((int) Duration.between(fragment.beginTime, fragment.endTime).toMinutes())
+                            .unitPrice(BigDecimal.ZERO)
+                            .originalAmount(BigDecimal.ZERO)
+                            .free(true)
+                            .freePromotionId(fragment.freePromotionId)
+                            .chargedAmount(BigDecimal.ZERO)
+                            .valueSpec(new FixedValueSpec(BigDecimal.ZERO))
+                            .build();
+                    units.add(unit);
+                }
             } else {
                 // 收费片段按单元长度划分
                 LocalDateTime current = fragment.beginTime;
@@ -1629,12 +1670,16 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         LocalDateTime endTime;
         boolean isFree;
         String freePromotionId;  // 如果是免费片段，记录优惠ID
+        boolean conditional;
+        LocalDateTime conditionalUntil;
 
         TimeFragment(LocalDateTime beginTime, LocalDateTime endTime) {
             this.beginTime = beginTime;
             this.endTime = endTime;
             this.isFree = false;
             this.freePromotionId = null;
+            this.conditional = false;
+            this.conditionalUntil = null;
         }
     }
 

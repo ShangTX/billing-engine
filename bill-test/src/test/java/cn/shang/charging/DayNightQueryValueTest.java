@@ -80,6 +80,21 @@ class DayNightQueryValueTest {
         assertEquals(new BigDecimal("1.50"), at0830.getAmount());
     }
 
+    @Test
+    void conditionalStartFree_usesStepValueSpecThroughRuleOutput() {
+        BillingService service = ConditionalFreePromotionTest.getBillingService(60, true);
+
+        BillingRequest request = baseRequest(LocalDateTime.of(2026, 3, 10, 0, 0), LocalDateTime.of(2026, 3, 10, 2, 0));
+        BillingResult result = service.calculate(request);
+        BillingResultViewer viewer = new BillingResultViewer();
+
+        QuerySummary withinWindow = viewer.createQuerySummary(result, LocalDateTime.of(2026, 3, 10, 0, 20));
+        QuerySummary outsideWindow = viewer.createQuerySummary(result, LocalDateTime.of(2026, 3, 10, 1, 1));
+
+        assertEquals(BigDecimal.ZERO, withinWindow.getAmount());
+        assertEquals(new BigDecimal("3"), outsideWindow.getAmount());
+    }
+
     private BillingRequest baseRequest(LocalDateTime beginTime, LocalDateTime endTime) {
         BillingRequest request = new BillingRequest();
         request.setBeginTime(beginTime);

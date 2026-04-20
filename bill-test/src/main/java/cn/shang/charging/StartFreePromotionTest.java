@@ -224,8 +224,8 @@ public class StartFreePromotionTest {
         System.out.println("计费时间: 00:00 - 02:00");
         System.out.println("规则: 前60分钟免费 (00:00-01:00)，条件免费");
         System.out.println("queryTime = 00:46（在免费段内）");
-        System.out.println("计算结果中条件免费单元数量: " + result.getUnits().stream()
-                .filter(u -> u.isConditionalFree()).count());
+        System.out.println("计算结果中 StepValueSpec 单元数量: " + result.getUnits().stream()
+                .filter(u -> u.getValueSpec() instanceof cn.shang.charging.billing.value.StepValueSpec).count());
 
         // 使用 billing-api 查询
         var viewer = new cn.shang.charging.wrapper.BillingResultViewer();
