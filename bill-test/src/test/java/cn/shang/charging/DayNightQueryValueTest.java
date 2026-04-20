@@ -32,7 +32,7 @@ class DayNightQueryValueTest {
 
     @Test
     void unitBased_mixedDayNightUnit_returnsProgressiveCurrentValue() {
-        BillingService service = createUnitBasedService();
+        BillingService service = createService(BConstants.BillingMode.UNIT_BASED, new BigDecimal("100.00"));
 
         BillingRequest request = new BillingRequest();
         request.setBeginTime(LocalDateTime.of(2026, 4, 20, 18, 50));
@@ -52,11 +52,50 @@ class DayNightQueryValueTest {
         assertEquals(new BigDecimal("1.00"), at1920.getAmount());
     }
 
-    private BillingService createUnitBasedService() {
+    @Test
+    void continuous_mixedUnit_returnsProgressiveCurrentValue() {
+        BillingService service = createService(BConstants.BillingMode.CONTINUOUS, new BigDecimal("100.00"));
+
+        BillingRequest request = baseRequest(LocalDateTime.of(2026, 4, 20, 18, 50), LocalDateTime.of(2026, 4, 20, 19, 50));
+        BillingResult result = service.calculate(request);
+        BillingResultViewer viewer = new BillingResultViewer();
+
+        QuerySummary at1900 = viewer.createQuerySummary(result, LocalDateTime.of(2026, 4, 20, 19, 0));
+        QuerySummary at1920 = viewer.createQuerySummary(result, LocalDateTime.of(2026, 4, 20, 19, 20));
+
+        assertEquals(new BigDecimal("2.00"), at1900.getAmount());
+        assertEquals(new BigDecimal("1.00"), at1920.getAmount());
+    }
+
+    @Test
+    void continuous_capHitUnit_returnsCappedCurrentValue() {
+        BillingService service = createService(BConstants.BillingMode.CONTINUOUS, new BigDecimal("1.50"));
+
+        BillingRequest request = baseRequest(LocalDateTime.of(2026, 4, 20, 8, 0), LocalDateTime.of(2026, 4, 20, 9, 0));
+        BillingResult result = service.calculate(request);
+        BillingResultViewer viewer = new BillingResultViewer();
+
+        QuerySummary at0830 = viewer.createQuerySummary(result, LocalDateTime.of(2026, 4, 20, 8, 30));
+
+        assertEquals(new BigDecimal("1.50"), at0830.getAmount());
+    }
+
+    private BillingRequest baseRequest(LocalDateTime beginTime, LocalDateTime endTime) {
+        BillingRequest request = new BillingRequest();
+        request.setBeginTime(beginTime);
+        request.setEndTime(endTime);
+        request.setSchemeChanges(List.of());
+        request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
+        request.setSchemeId("scheme-1");
+        request.setExternalPromotions(List.of());
+        return request;
+    }
+
+    private BillingService createService(BConstants.BillingMode billingMode, BigDecimal maxChargeOneDay) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
             public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.UNIT_BASED;
+                return billingMode;
             }
 
             @Override
@@ -69,7 +108,7 @@ class DayNightQueryValueTest {
                         .blockWeight(new BigDecimal("0.5"))
                         .dayUnitPrice(new BigDecimal("2.00"))
                         .nightUnitPrice(new BigDecimal("1.00"))
-                        .maxChargeOneDay(new BigDecimal("100.00"))
+                        .maxChargeOneDay(maxChargeOneDay)
                         .build();
             }
 

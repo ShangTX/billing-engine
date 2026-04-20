@@ -1279,6 +1279,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                         .free(true)
                         .freePromotionId(fragment.freePromotionId)
                         .chargedAmount(BigDecimal.ZERO)
+                        .valueSpec(new FixedValueSpec(BigDecimal.ZERO))
                         .build();
                 units.add(unit);
             } else {
@@ -1297,6 +1298,10 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
                     // 不足单元也收全额
                     BigDecimal originalAmount = unitPrice;
+                    PeriodType periodType = determinePeriodType(current, unitEnd, config);
+                    UnitValueSpec valueSpec = periodType == PeriodType.MIXED
+                            ? new MixedUnitValueSpec(current, unitEnd, config)
+                            : new FixedValueSpec(originalAmount);
 
                     BillingUnit unit = BillingUnit.builder()
                             .beginTime(current)
@@ -1306,6 +1311,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                             .originalAmount(originalAmount)
                             .free(false)
                             .chargedAmount(originalAmount)
+                            .valueSpec(valueSpec)
                             .build();
 
                     units.add(unit);
@@ -1377,6 +1383,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                         .free(true)
                         .freePromotionId("DAILY_CAP")
                         .chargedAmount(BigDecimal.ZERO)
+                        .valueSpec(new FixedValueSpec(BigDecimal.ZERO))
                         .build();
                 units.add(mergedFreeUnit);
             }
@@ -1413,6 +1420,12 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
         // 调整封顶单元的金额
         units.get(capIndex).setChargedAmount(lastChargeAmount.setScale(2, RoundingMode.HALF_UP));
+        units.get(capIndex).setValueSpec(new CappedValueSpec(
+                units.get(capIndex).getValueSpec(),
+                units.get(capIndex).getBeginTime(),
+                units.get(capIndex).getEndTime(),
+                units.get(capIndex).getChargedAmount()
+        ));
         if (units.get(capIndex).getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
             units.get(capIndex).setFree(true);
             units.get(capIndex).setFreePromotionId("DAILY_CAP");
@@ -1432,6 +1445,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                     .free(true)
                     .freePromotionId("DAILY_CAP")
                     .chargedAmount(BigDecimal.ZERO)
+                    .valueSpec(new FixedValueSpec(BigDecimal.ZERO))
                     .build();
 
             // 移除封顶后的单元，添加合并后的免费单元
@@ -1566,6 +1580,44 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                 current = current.plusMinutes(1);
             }
             return new int[]{dayMins, nightMins};
+        }
+    }
+
+    private static class CappedValueSpec implements UnitValueSpec {
+        private final UnitValueSpec delegate;
+        private final LocalDateTime unitBeginTime;
+        private final LocalDateTime unitEndTime;
+        private final BigDecimal capAmount;
+
+        CappedValueSpec(UnitValueSpec delegate, LocalDateTime unitBeginTime, LocalDateTime unitEndTime, BigDecimal capAmount) {
+            this.delegate = delegate;
+            this.unitBeginTime = unitBeginTime;
+            this.unitEndTime = unitEndTime;
+            this.capAmount = capAmount;
+        }
+
+        @Override
+        public UnitValueProjection project(LocalDateTime queryTime, LocalDateTime unitBeginTime, LocalDateTime unitEndTime) {
+            UnitValueProjection base = delegate.project(queryTime, this.unitBeginTime, this.unitEndTime);
+            BigDecimal currentAmount = base.currentAmount().min(capAmount);
+            if (!queryTime.isBefore(this.unitEndTime)) {
+                return new UnitValueProjection(currentAmount, this.unitEndTime);
+            }
+
+            LocalDateTime nextChangeTime = this.unitEndTime;
+            LocalDateTime candidate = queryTime.plusMinutes(1);
+            while (!candidate.isAfter(this.unitEndTime)) {
+                BigDecimal candidateAmount = delegate.project(candidate, this.unitBeginTime, this.unitEndTime)
+                        .currentAmount()
+                        .min(capAmount);
+                if (candidateAmount.compareTo(currentAmount) != 0) {
+                    nextChangeTime = candidate;
+                    break;
+                }
+                candidate = candidate.plusMinutes(1);
+            }
+
+            return new UnitValueProjection(currentAmount, nextChangeTime);
         }
     }
 
