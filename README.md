@@ -30,7 +30,7 @@ Provides `BillingTemplate` with advanced features like query-time calculation an
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>2.0.1</version>
+    <version>2.1.1</version>
 </dependency>
 ```
 
@@ -41,16 +41,19 @@ Provides `BillingTemplate` with advanced features like query-time calculation an
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>2.0.1</version>
+    <version>2.1.1</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>2.0.1</version>
+    <version>2.1.1</version>
 </dependency>
 ```
+
+> Starter auto-registration currently includes `dayNight`, `compositeTime`, `relativeTime`, and `freeMinutes`.
+> `flatFree` and `startFree` are implemented in the repository, but require manual registration.
 
 ### Basic Usage
 
@@ -77,7 +80,29 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
 
 // 2. Create BillingTemplate
 BillingConfigResolver configResolver = new MyBillingConfigResolver();
-BillingService billingService = BillingServiceFactory.create(configResolver);
+BillingRuleRegistry billingRuleRegistry = new BillingRuleRegistry();
+billingRuleRegistry.register(BConstants.ChargeRuleType.RELATIVE_TIME, new RelativeTimeRule());
+billingRuleRegistry.register(BConstants.ChargeRuleType.FLAT_FREE, new FlatFreeRule());
+
+PromotionRuleRegistry promotionRuleRegistry = new PromotionRuleRegistry();
+promotionRuleRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
+promotionRuleRegistry.register(BConstants.PromotionRuleType.START_FREE, new StartFreePromotionRule());
+
+PromotionEngine promotionEngine = new PromotionEngine(
+    configResolver,
+    new FreeTimeRangeMerger(),
+    new FreeMinuteAllocator(),
+    promotionRuleRegistry
+);
+
+BillingService billingService = new BillingService(
+    new SegmentBuilder(),
+    configResolver,
+    promotionEngine,
+    new BillingCalculator(billingRuleRegistry),
+    new ResultAssembler()
+);
+
 BillingTemplate billingTemplate = new BillingTemplate(billingService, configResolver);
 
 // 3. Calculate fees
@@ -556,12 +581,18 @@ Cross natural period handling mode enum.
 | `COMPOSITE_TIME` | "compositeTime" | Composite time billing |
 | `FLAT_FREE` | "flatFree" | Flat-free billing |
 
+> Currently implemented charging rules in this repository are `dayNight`, `relativeTime`, `compositeTime`, and `flatFree`.
+> `times`, `naturalTime`, and `nrTimeMix` are reserved constants and are not implemented yet.
+
 ##### PromotionRuleType Constants
 
 | Constant | Value | Description |
 |----------|-------|-------------|
 | `FREE_MINUTES` | "freeMinutes" | Free minutes rule |
 | `START_FREE` | "startFree" | Start-free promotion |
+
+> `freeMinutes` is auto-registered only by the Spring Boot starter.
+> `startFree` is implemented but requires manual registration.
 
 #### FreeTimeRangeType (cn.shang.charging.promotion.pojo)
 
@@ -715,6 +746,8 @@ StartFreePromotionConfig promoConfig = StartFreePromotionConfig.builder()
     .build();
 ```
 
+> `StartFreePromotionRule` is available in source code, but is not registered by default.
+
 ### FlatFreeConfig (Flat-Free Billing)
 
 ```java
@@ -722,6 +755,8 @@ FlatFreeConfig config = FlatFreeConfig.builder()
     .id("flat-free-001")
     .build();
 ```
+
+> `FlatFreeRule` is available in source code, but is not registered by default.
 
 ## Custom Rules
 

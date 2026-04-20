@@ -30,7 +30,7 @@
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>2.0.1</version>
+    <version>2.1.1</version>
 </dependency>
 ```
 
@@ -41,16 +41,19 @@
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>2.0.1</version>
+    <version>2.1.1</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>2.0.1</version>
+    <version>2.1.1</version>
 </dependency>
 ```
+
+> 当前 starter 默认自动注册 `dayNight`、`compositeTime`、`relativeTime`、`freeMinutes`。
+> `flatFree` 和 `startFree` 已在仓库中实现，但需要手动注册后才能使用。
 
 ### 基本用法
 
@@ -77,7 +80,29 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
 
 // 2. 创建 BillingTemplate
 BillingConfigResolver configResolver = new MyBillingConfigResolver();
-BillingService billingService = BillingServiceFactory.create(configResolver);
+BillingRuleRegistry billingRuleRegistry = new BillingRuleRegistry();
+billingRuleRegistry.register(BConstants.ChargeRuleType.RELATIVE_TIME, new RelativeTimeRule());
+billingRuleRegistry.register(BConstants.ChargeRuleType.FLAT_FREE, new FlatFreeRule());
+
+PromotionRuleRegistry promotionRuleRegistry = new PromotionRuleRegistry();
+promotionRuleRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
+promotionRuleRegistry.register(BConstants.PromotionRuleType.START_FREE, new StartFreePromotionRule());
+
+PromotionEngine promotionEngine = new PromotionEngine(
+    configResolver,
+    new FreeTimeRangeMerger(),
+    new FreeMinuteAllocator(),
+    promotionRuleRegistry
+);
+
+BillingService billingService = new BillingService(
+    new SegmentBuilder(),
+    configResolver,
+    promotionEngine,
+    new BillingCalculator(billingRuleRegistry),
+    new ResultAssembler()
+);
+
 BillingTemplate billingTemplate = new BillingTemplate(billingService, configResolver);
 
 // 3. 计算费用
@@ -556,12 +581,18 @@ BillingResult result = billingTemplate.calculate(request);
 | `COMPOSITE_TIME` | "compositeTime" | 混合时间计费 |
 | `FLAT_FREE` | "flatFree" | 统一免费计费 |
 
+> 当前仓库中已经实现的计费规则是 `dayNight`、`relativeTime`、`compositeTime`、`flatFree`。
+> `times`、`naturalTime`、`nrTimeMix` 目前仍是预留常量，尚未实现。
+
 ##### PromotionRuleType 常量
 
 | 常量 | 值 | 说明 |
 |------|------|------|
 | `FREE_MINUTES` | "freeMinutes" | 免费分钟数规则 |
 | `START_FREE` | "startFree" | 前N分钟免费 |
+
+> `freeMinutes` 只会被 Spring Boot starter 默认自动注册。
+> `startFree` 虽然已经实现，但仍需手动注册。
 
 #### FreeTimeRangeType（cn.shang.charging.promotion.pojo）
 
@@ -715,6 +746,8 @@ StartFreePromotionConfig promoConfig = StartFreePromotionConfig.builder()
     .build();
 ```
 
+> `StartFreePromotionRule` 已在源码中提供，但默认不会自动注册。
+
 ### FlatFreeConfig（统一免费计费）
 
 ```java
@@ -722,6 +755,8 @@ FlatFreeConfig config = FlatFreeConfig.builder()
     .id("flat-free-001")
     .build();
 ```
+
+> `FlatFreeRule` 已在源码中提供，但默认不会自动注册。
 
 ## 自定义规则
 
