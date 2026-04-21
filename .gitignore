@@ -37,4 +37,7 @@ build/
 *.versionsBackup
 
 ### Claude Code ###
+.claude/projects/
+
+### Claude Code ###
 .claude/settings.local.json
