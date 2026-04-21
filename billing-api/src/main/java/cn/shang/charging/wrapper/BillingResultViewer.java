@@ -58,6 +58,8 @@ public class BillingResultViewer {
                 UnitValueProjection projection = projectUnitValue(unit, queryTime);
                 BigDecimal accumulated = unit.getAccumulatedAmount() != null ? unit.getAccumulatedAmount() : BigDecimal.ZERO;
                 BigDecimal charged = unit.getChargedAmount() != null ? unit.getChargedAmount() : BigDecimal.ZERO;
+                // `accumulatedAmount` is the prefix total after the full unit settles.
+                // Replace the full-unit amount with the unit's query-time projection.
                 amount = accumulated.subtract(charged).add(projection.currentAmount());
                 effectiveTo = projection.nextChangeTime();
             }
@@ -121,6 +123,7 @@ public class BillingResultViewer {
     private UnitValueProjection projectUnitValue(BillingUnit unit, LocalDateTime queryTime) {
         UnitValueSpec spec = unit.getValueSpec();
         if (spec == null) {
+            // Old results may not carry `valueSpec` yet; treat them as stable full-value units.
             spec = new FixedValueSpec(unit.getChargedAmount() != null ? unit.getChargedAmount() : BigDecimal.ZERO);
         }
         return UnitValueEvaluator.evaluate(spec, queryTime, unit.getBeginTime(), unit.getEndTime());

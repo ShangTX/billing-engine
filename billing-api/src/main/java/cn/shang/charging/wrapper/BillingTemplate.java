@@ -158,6 +158,8 @@ public class BillingTemplate {
         QuerySummary queryResult = resultViewer.createQuerySummary(calculationResult, queryTime);
         BillingUnit hitUnit = extractHitUnit(calculationResult, queryResult);
         if (isSimplifiedUnit(hitUnit)) {
+            // Simplified units intentionally drop intra-unit detail.
+            // Re-run once with simplification disabled before answering an exact query.
             BillingRequest detailedRequest = copyRequest(request);
             detailedRequest.setDisableSimplification(true);
             calculationResult = billingService.calculate(detailedRequest);
@@ -195,6 +197,7 @@ public class BillingTemplate {
     }
 
     private BillingRequest copyRequest(BillingRequest request) {
+        // `BillingRequest` is still a mutable POJO, so exact-query fallback needs an explicit field copy.
         BillingRequest copied = new BillingRequest();
         copied.setId(request.getId());
         copied.setBeginTime(request.getBeginTime());

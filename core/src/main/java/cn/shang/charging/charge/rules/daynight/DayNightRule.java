@@ -623,8 +623,11 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             originalAmount = finalAmount;
             chargedAmount = finalAmount;
             if (conditionalFree) {
+                // Conditional free no longer relies on query-layer patching.
+                // The unit carries a step spec: free before the deadline, normal price afterwards.
                 valueSpec = new StepValueSpec(coveringRange.getConditionalUntil(), BigDecimal.ZERO, finalAmount);
             } else if (unitCtx.periodType == PeriodType.MIXED) {
+                // Mixed day/night units stay queryable by preserving the rule's threshold decision in a spec.
                 valueSpec = new MixedUnitValueSpec(unitCtx.beginTime, unitCtx.endTime, config);
             } else {
                 valueSpec = new FixedValueSpec(finalAmount);
@@ -1545,6 +1548,8 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             LocalDateTime nextChangeTime = this.unitEndTime;
             BigDecimal current = currentAmount;
             LocalDateTime candidate = queryTime.plusMinutes(1);
+            // Mixed units can flip between day/night prices as the running ratio crosses blockWeight.
+            // Scan forward to the next minute where that effective price changes.
             while (!candidate.isAfter(this.unitEndTime)) {
                 BigDecimal candidateAmount = determineAmount(candidate);
                 if (candidateAmount.compareTo(current) != 0) {
@@ -1640,6 +1645,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         @Override
         public UnitValueProjection project(LocalDateTime queryTime, LocalDateTime unitBeginTime, LocalDateTime unitEndTime) {
             UnitValueProjection base = delegate.project(queryTime, this.unitBeginTime, this.unitEndTime);
+            // Cap is applied at the unit value-spec level so query-time amounts and settled amounts stay aligned.
             BigDecimal currentAmount = base.currentAmount().min(capAmount);
             if (!queryTime.isBefore(this.unitEndTime)) {
                 return new UnitValueProjection(currentAmount, this.unitEndTime);
