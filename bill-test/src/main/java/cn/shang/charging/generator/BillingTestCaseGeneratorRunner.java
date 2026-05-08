@@ -6,8 +6,16 @@ import cn.shang.charging.util.JacksonUtils;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * 测试结果生成器的手动运行入口。
+ * <p>
+ * 使用者可以直接修改 main 方法里的功能点、生成数量和 seed，然后运行本类输出 JSON。
+ */
 public class BillingTestCaseGeneratorRunner {
 
+    /**
+     * 生成一组日夜计费样本并输出 JSON。
+     */
     public static void main(String[] args) {
         TestGenerationRequest request = TestGenerationRequest.builder()
                 .chargeRuleType(BConstants.ChargeRuleType.DAY_NIGHT)

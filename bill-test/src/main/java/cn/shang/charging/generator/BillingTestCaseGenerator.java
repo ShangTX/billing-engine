@@ -37,16 +37,23 @@ import java.util.Random;
 import java.util.Set;
 
 /**
- * Generates billing result samples for manual judgment.
+ * 计费结果样本生成器。
  * <p>
- * The first version uses realistic time-window templates plus small deterministic jitter.
- * It intentionally does not produce expected amounts.
+ * 该工具面向人工校验：它负责按规则类型和功能点组合生成计费请求、执行计费并输出结果，
+ * 但不会生成预期金额。第一版先支持日夜计费规则，并通过真实场景时间模板加少量确定性扰动
+ * 生成更接近业务现场的开始/结束时间。
  */
 public class BillingTestCaseGenerator {
 
     private static final String DEFAULT_SCHEME_ID = "generated-scheme";
     private static final LocalDateTime BASE_DAY = LocalDateTime.of(2026, 4, 20, 0, 0);
 
+    /**
+     * 根据生成请求批量生成计费结果样本。
+     *
+     * @param generationRequest 生成参数，包含规则类型、功能点、数量和随机种子
+     * @return 可直接序列化为 JSON 的计费结果样本
+     */
     public List<GeneratedBillingCase> generate(TestGenerationRequest generationRequest) {
         validate(generationRequest);
 
@@ -58,6 +65,9 @@ public class BillingTestCaseGenerator {
         return cases;
     }
 
+    /**
+     * 生成单个样本：先规范化功能点，再创建规则、优惠、请求和计费服务。
+     */
     private GeneratedBillingCase generateCase(TestGenerationRequest generationRequest, int index, Random random) {
         Set<TestFeature> features = normalizeFeatures(generationRequest.getFeatures());
         DayNightConfig ruleConfig = createDayNightConfig(features, index);
@@ -96,6 +106,9 @@ public class BillingTestCaseGenerator {
                 .build();
     }
 
+    /**
+     * 校验第一版生成器的硬约束。
+     */
     private void validate(TestGenerationRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("generation request must not be null");
@@ -108,6 +121,9 @@ public class BillingTestCaseGenerator {
         }
     }
 
+    /**
+     * 根据用户传入的功能点补齐必要的派生功能点，减少使用者配置负担。
+     */
     private Set<TestFeature> normalizeFeatures(Set<TestFeature> requestedFeatures) {
         Set<TestFeature> features = new LinkedHashSet<>();
         if (requestedFeatures != null) {
@@ -130,6 +146,9 @@ public class BillingTestCaseGenerator {
         return features;
     }
 
+    /**
+     * 未显式指定计费模式时，根据功能点选择更自然的默认模式。
+     */
     private TestFeature selectDefaultModeFeature(Set<TestFeature> features) {
         if (features.contains(TestFeature.BUBBLE_FREE_RANGE) || features.contains(TestFeature.SIMPLIFICATION)) {
             return TestFeature.CONTINUOUS;
@@ -137,6 +156,11 @@ public class BillingTestCaseGenerator {
         return TestFeature.UNIT_BASED;
     }
 
+    /**
+     * 构造日夜计费规则配置。
+     * <p>
+     * 当前使用固定的白天/夜间边界和价格，功能点只影响封顶、简化计算等关键开关。
+     */
     private DayNightConfig createDayNightConfig(Set<TestFeature> features, int index) {
         BigDecimal maxChargeOneDay = features.contains(TestFeature.DAY_NIGHT_DAILY_CAP)
                 ? new BigDecimal("6.00")
@@ -154,6 +178,9 @@ public class BillingTestCaseGenerator {
                 .build();
     }
 
+    /**
+     * 构造规则型优惠配置，例如免费分钟数和起始免费。
+     */
     private List<PromotionRuleConfig> createPromotionConfigs(Set<TestFeature> features, int index) {
         List<PromotionRuleConfig> configs = new ArrayList<>();
         if (features.contains(TestFeature.FREE_MINUTES)) {
@@ -175,6 +202,9 @@ public class BillingTestCaseGenerator {
         return configs;
     }
 
+    /**
+     * 构造计费请求，并把外部优惠、分段模式和时间取整功能点写入请求。
+     */
     private BillingRequest createRequest(String caseId, Set<TestFeature> features, int index, Random random) {
         TimeWindow timeWindow = selectTimeWindow(features, index, random);
         BillingRequest request = new BillingRequest();
@@ -193,6 +223,11 @@ public class BillingTestCaseGenerator {
         return request;
     }
 
+    /**
+     * 根据功能点选择真实场景时间窗口。
+     * <p>
+     * 优先满足更强约束的功能点，例如简化计算、多天长停、跨日夜边界和气泡免费时段。
+     */
     private TimeWindow selectTimeWindow(Set<TestFeature> features, int index, Random random) {
         LocalDateTime day = BASE_DAY.plusDays(index);
         int minuteNoise = random.nextInt(11);
@@ -223,6 +258,11 @@ public class BillingTestCaseGenerator {
         return new TimeWindow(day.withHour(0).withMinute(10 + minuteNoise), day.withHour(23).withMinute(50));
     }
 
+    /**
+     * 构造外部优惠。
+     * <p>
+     * 气泡免费时段会贴近真实计费窗口中部，便于观察它对周期边界和 CONTINUE 状态的影响。
+     */
     private List<PromotionGrant> createExternalPromotions(Set<TestFeature> features, TimeWindow timeWindow, int index) {
         List<PromotionGrant> promotions = new ArrayList<>();
         if (features.contains(TestFeature.EXTERNAL_FREE_RANGE) || features.contains(TestFeature.MULTI_PROMOTION)) {
@@ -261,6 +301,11 @@ public class BillingTestCaseGenerator {
         return promotions;
     }
 
+    /**
+     * 执行 CONTINUE 场景。
+     * <p>
+     * 第一步计算到中间时间并产出 carryOver，第二步携带 carryOver 继续算到原始结束时间。
+     */
     private ContinueScenario calculateContinueScenario(
             BillingRequest fullRequest,
             BillingService billingService,
@@ -296,6 +341,11 @@ public class BillingTestCaseGenerator {
         return new ContinueScenario(secondRequest, secondResult, createQuerySummaries(secondResult, viewer, features), steps);
     }
 
+    /**
+     * 根据计费结果生成查询摘要。
+     * <p>
+     * 查询点覆盖开头附近、中间位置和计算结束前，便于人工观察单元内 valueSpec 的即时值。
+     */
     private List<QuerySummary> createQuerySummaries(BillingResult result, BillingResultViewer viewer, Set<TestFeature> features) {
         if (!features.contains(TestFeature.QUERY_TIME) || result == null || result.getUnits() == null || result.getUnits().isEmpty()) {
             return List.of();
@@ -321,6 +371,9 @@ public class BillingTestCaseGenerator {
         return summaries;
     }
 
+    /**
+     * 为样本装配一套纯内存 BillingService。
+     */
     private BillingService createBillingService(
             DayNightConfig ruleConfig,
             List<PromotionRuleConfig> promotionConfigs,
@@ -344,12 +397,18 @@ public class BillingTestCaseGenerator {
         );
     }
 
+    /**
+     * 从功能点选择实际计费模式。
+     */
     private BConstants.BillingMode selectBillingMode(Set<TestFeature> features) {
         return features.contains(TestFeature.CONTINUOUS)
                 ? BConstants.BillingMode.CONTINUOUS
                 : BConstants.BillingMode.UNIT_BASED;
     }
 
+    /**
+     * 复制可变请求对象，避免 CONTINUE 两步计算互相污染。
+     */
     private BillingRequest copyRequest(BillingRequest source) {
         BillingRequest copied = new BillingRequest();
         copied.setId(source.getId());
@@ -367,9 +426,15 @@ public class BillingTestCaseGenerator {
         return copied;
     }
 
+    /**
+     * 真实业务时间窗口。
+     */
     private record TimeWindow(LocalDateTime begin, LocalDateTime end) {
     }
 
+    /**
+     * CONTINUE 场景的中间结果。
+     */
     private record ContinueScenario(
             BillingRequest finalRequest,
             BillingResult finalResult,
@@ -377,6 +442,11 @@ public class BillingTestCaseGenerator {
             List<GeneratedContinueStep> steps) {
     }
 
+    /**
+     * 静态配置解析器。
+     * <p>
+     * 生成器不接入数据库或外部服务，所有规则和优惠都由当前样本直接提供。
+     */
     private static class StaticResolver implements BillingConfigResolver {
         private final DayNightConfig ruleConfig;
         private final List<PromotionRuleConfig> promotionConfigs;

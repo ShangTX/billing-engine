@@ -1,440 +1,332 @@
-# Billing Engine Capabilities Document
+# Billing Engine Capabilities
 
-**Document Purpose:** Foundation for design discussions about "price uncertainty" handling pattern
-**Generated:** 2026-04-14
+This document describes the capabilities that are implemented in the current codebase. It is a working reference for design and implementation discussions, not a historical design note.
 
----
-
-## 1. Architecture Pipeline Overview
-
-### Core Pipeline Flow
-
-```
-BillingRequest → BillingService → SegmentBuilder → BillingConfigResolver → PromotionEngine → BillingCalculator → ResultAssembler → BillingResult
-```
-
-**BillingService.java** (`core/.../billing/BillingService.java`)
-
-**Key Method:** `calculate(BillingRequest request)`
-
-### Pipeline Stages
-
-1. **ContinueMode Detection** - Checks `request.getPreviousCarryOver()` to determine if resuming from previous state
-2. **Segment Building** - `segmentBuilder.buildSegments(request)` creates `List<BillingSegment>` from scheme changes
-3. **Per-Segment Processing** - Creates `CalculationWindow`, resolves charging rules, promotion rules, billing mode
-4. **Promotion Evaluation** - `promotionEngine.evaluate(context)` → `PromotionAggregate`
-5. **Billing Calculation** - `billingCalculator.calculate(context, promotionAggregate)` → `BillingSegmentResult`
-6. **Result Assembly** - `resultAssembler.assemble()` → `BillingResult`
-
-### Data Flow Between Layers
-
-```
-BillingRequest (input: time range, schemeId/schemeChanges, externalPromotions)
-    ↓
-BillingSegment (time slice with beginTime/endTime/schemeId)
-    ↓
-BillingContext (immutable: segment + window + rules)
-    ↓
-PromotionAggregate (freeTimeRanges + freeMinutes + promotionUsages + boundaryReferences)
-    ↓
-BillingSegmentResult (units + promotionUsages)
-    ↓
-BillingResult (combined units, finalAmount, carryOver)
-    ↓
-BillingResultViewer (query-time filtering, conditional validation)
-```
+Last reviewed: 2026-05-08
 
 ---
 
-## 2. Billing Modes: CONTINUOUS vs UNIT_BASED
+## 1. Scope
 
-**Enum:** `BConstants.BillingMode`
+The project is a time-based billing engine for parking, venue rental, device rental, and other time charging scenarios.
 
-### CONTINUOUS Mode
-- Time axis is split at free time range boundaries
-- Unit boundaries are determined by promotion boundaries, not fixed alignment
-- Free ranges create natural boundaries in the time axis
-- Uses `TimeFragment` inner class for axis splitting
+The engine focuses on deterministic calculation:
 
-### UNIT_BASED Mode
-- Fixed unit length alignment from billing start time
-- Units generated at regular intervals (e.g., every 60 minutes)
-- Free time ranges must **fully cover** a unit for it to be free
-- Partial coverage does NOT make unit free
+```
+BillingRequest
+  -> BillingService
+  -> SegmentBuilder
+  -> BillingConfigResolver
+  -> PromotionEngine
+  -> BillingCalculator
+  -> BillingRule
+  -> ResultAssembler
+  -> BillingResult
+```
+
+The `core` module performs pure calculation. The `billing-api` module adds convenient APIs, time rounding, query-time views, and promotion equivalent amount analysis.
 
 ---
 
-## 3. Segment Calculation Modes
+## 2. Main Modules
 
-**Enum:** `BConstants.SegmentCalculationMode`
+| Module | Capability |
+|--------|------------|
+| `core` | Pure billing calculation, promotion aggregation, rule execution, carry-over state |
+| `billing-api` | `BillingTemplate`, query summaries, exact-query fallback, promotion equivalent amount calculation |
+| `billing-v3-spring-boot-starter` | Spring Boot 3.0.x to 3.4.x auto-configuration |
+| `billing-v4-spring-boot-starter` | Spring Boot 3.5.x to 4.x auto-configuration |
+| `bill-test` | Integration examples, regression tests, billing result generator |
+
+---
+
+## 3. Billing Inputs and Segmentation
+
+`BillingRequest` supports:
+
+- Single-scheme calculation through `schemeId`.
+- Multi-scheme calculation through `schemeChanges`.
+- External promotions through `externalPromotions`.
+- Continuation through `previousCarryOver`.
+- Partial calculation through `calcEndTime`.
+- Time rounding through `timeRoundingMode`.
+- Caller-defined context through `context`.
+- Exact-query fallback control through `disableSimplification`.
+
+Segment calculation modes:
 
 | Mode | Behavior |
 |------|----------|
-| SINGLE | Only one segment, no scheme changes |
-| SEGMENT_LOCAL | Each segment calculates from its own begin time |
-| GLOBAL_ORIGIN | All segments share global origin; segments are "cut" from global time axis |
+| `SINGLE` | One segment for the whole request |
+| `SEGMENT_LOCAL` | Each segment uses its own begin time as the calculation origin |
+| `GLOBAL_ORIGIN` | Segments are clipped from a shared global time axis |
 
 ---
 
-## 4. Charging Rules
+## 4. Billing Modes
 
-### 4.1 DayNightRule
-**File:** `core/.../charge/rules/daynight/DayNightRule.java` (1513 lines)
-- 24-hour cycle with day/night pricing
-- `dayBeginMinute`/`dayEndMinute` define day period
-- `blockWeight`: when unit spans day/night, use day price if day ratio >= weight
-- `maxChargeOneDay`: daily cap
-- **CONTINUOUS:** `splitTimeAxis()` fragments time by free ranges
-- **UNIT_BASED:** fixed units, free if fully covered
+| Mode | Current meaning |
+|------|-----------------|
+| `UNIT_BASED` | Fixed unit length from the calculation origin. A free range must fully cover a unit to make it free. |
+| `CONTINUOUS` | The time axis can be split by free ranges and rule boundaries. Generated units may have variable lengths. |
 
-### 4.2 RelativeTimeRule
-**File:** `core/.../charge/rules/relativetime/RelativeTimeRule.java` (1610 lines)
-- Configurable time periods within 24-hour cycle
-- Period-specific unit lengths and prices
-- `maxChargeOneCycle`: cycle-level cap
-
-### 4.3 CompositeTimeRule
-**File:** `core/.../charge/rules/compositetime/CompositeTimeRule.java` (1735 lines)
-- Combines composite periods with natural pricing
-- **Unique feature:** period-level caps (not just cycle caps)
-- `CrossPeriodMode` for period transitions
-
-### 4.4 AbstractTimeBasedRule
-**File:** `core/.../charge/rules/AbstractTimeBasedRule.java` (389 lines)
-- Common state: `RuleState` (cycleIndex, cycleAccumulated, cycleBoundary)
-- Simplification support: aggregates consecutive identical cycles
-- `ruleData` for simplified units: `{isSimplified, cycleIndex, simplifiedCycleCount, simplifiedCycleAmount}`
-
-### 4.5 FlatFreeRule
-- Returns single free unit covering entire billing window
+Rules must declare supported modes through `BillingRule.supportedModes()`.
 
 ---
 
-## 5. Promotion Types and Processing
+## 5. Implemented Charging Rules
 
-**Enum:** `BConstants.PromotionType`
+### `dayNight`
 
-| Type | Description |
-|------|-------------|
-| FREE_RANGE | Explicit free time range with beginTime/endTime |
-| FREE_MINUTES | Allocated to gaps between FREE_RANGE promotions |
-| AMOUNT | Direct monetary discount |
-| DISCOUNT | Percentage-based discount |
+Implemented by `DayNightRule`.
 
-### Processing Pipeline (PromotionEngine)
+Capabilities:
 
-1. **Grant Collection** - From promotion rule configs + external promotions
-2. **Carry-Over Application** - Remaining minutes from previous calc, subtract used ranges
-3. **FREE_RANGE Merging** - `FreeTimeRangeMerger.merge()` → priority-based merge
-4. **FREE_MINUTES Allocation** - `FreeMinuteAllocator.allocate()` in gaps
-5. **Final Merge** - Combine explicit and generated ranges
-6. **Carry-Over Output** - Build `PromotionCarryOver`
+- 24-hour day/night cycle.
+- `dayBeginMinute` and `dayEndMinute` define the day period.
+- `dayUnitPrice` and `nightUnitPrice` define the two prices.
+- `blockWeight` determines the final price of a mixed day/night unit.
+- `maxChargeOneDay` applies a daily cap.
+- Supports both `UNIT_BASED` and `CONTINUOUS`.
+- Emits `valueSpec` for stable units, conditional free units, mixed day/night units, and capped units.
 
-### FreeTimeRangeMerger
-- Sorts by priority (lower number = higher priority)
-- Higher priority covers lower priority in overlaps
-- Records `boundaryReferences` (free ranges outside current window, for extension)
-- Records `discardedRanges` (overlapped/out-of-window portions)
-- Preserves `conditional`/`conditionalUntil` during all merge operations
+Important query behavior:
 
-### FreeMinuteAllocator
-- Fills gaps between explicit FREE_RANGE
-- Uses free minutes in priority order
-- Tracks `PromotionUsage` for each allocation
+- Mixed day/night units preserve rule-specific intra-unit valuation through `MixedUnitValueSpec`.
+- Query-time value may increase or decrease inside a unit because it represents "what would be charged if billing ended at this query time".
+- Daily cap is encoded into the hit unit's `valueSpec`, so settled amount and query-time amount stay aligned.
 
----
+### `relativeTime`
 
-## 6. Promotion Rule Types
+Implemented by `RelativeTimeRule`.
 
-**Constants:** `BConstants.PromotionRuleType`
+Capabilities:
 
-| Type | Constant | Description |
-|------|----------|-------------|
-| START_FREE | `"startFree"` | First N minutes from segment start are free |
-| FREE_MINUTES | `"freeMinutes"` | Allocates N free minutes within billing window |
+- Configurable relative periods inside a cycle.
+- Period-specific unit length and price.
+- Cycle-level cap through `maxChargeOneCycle`.
+- Simplified cycle calculation support.
 
-### StartFreePromotionRule
-**File:** `core/.../promotion/rules/startfree/StartFreePromotionRule.java`
-- Generates `PromotionGrant` with type=FREE_RANGE
-- Time window: `[segmentBeginTime, segmentBeginTime + config.minutes)`
-- If `config.validateQueryTime=true`: sets `conditional=true`, `conditionalUntil=endTime`
+Current limitation:
 
----
+- It has not yet been migrated to rule-specific `valueSpec` for mixed intra-unit query behavior.
 
-## 7. Free Time Ranges and Billing Unit Creation
+### `compositeTime`
 
-### 7.1 FreeTimeRange Structure
-**File:** `core/.../promotion/pojo/FreeTimeRange.java`
+Implemented by `CompositeTimeRule`.
 
-```
-id, beginTime, endTime, priority, promotionType, rangeType (NORMAL/BUBBLE),
-source, conditional, conditionalUntil, data, valid
-```
+Capabilities:
 
-### 7.2 PromotionGrant Structure
-**File:** `core/.../promotion/pojo/PromotionGrant.java`
+- Composite periods combined with natural-time pricing.
+- Period-level and cycle-level behavior.
+- Cross-period handling through configured modes.
+- Simplified calculation support.
 
-```
-id, type, beginTime, endTime, freeMinutes, priority, rangeType,
-conditional, conditionalUntil, data
-```
+Current limitation:
 
-### 7.3 Unit Creation Differences by Billing Mode
+- It has not yet been migrated to rule-specific `valueSpec` for complex intra-unit query behavior.
 
-**CONTINUOUS Mode:**
-- `splitTimeAxis()` creates cut points at free range begin/end boundaries
-- Each fragment between cut points checked against free ranges
-- Free fragment → single billing unit (duration = free range duration)
-- Non-free fragment → split by unitMinutes
-- **Key consequence:** free ranges change unit boundaries
+### `flatFree`
 
-**UNIT_BASED Mode:**
-- Fixed units from beginTime aligned to unitMinutes
-- `findFreePromotionId()` checks if unit is **fully covered** by a free range
-- Partial coverage → NOT free
-- **Key consequence:** free ranges do NOT change unit boundaries
+Implemented as a rule that returns a free unit covering the requested billing window. It is implemented but may require manual registration depending on how the engine is constructed.
+
+### Reserved Rule Constants
+
+Some constants are currently reserved and not implemented as working billing rules, including `times`, `naturalTime`, and `nrTimeMix`.
 
 ---
 
-## 8. CONTINUE Mode Mechanics
+## 6. Promotions
 
-### 8.1 BillingCarryOver Structure
-**File:** `core/.../billing/pojo/BillingCarryOver.java`
+Implemented promotion grant types:
 
-```
-calculatedUpTo, segments (Map), lastTruncatedUnitStartTime,
-accumulatedAmount, truncatedUnitChargedAmount
-```
+| Type | Meaning |
+|------|---------|
+| `FREE_RANGE` | Explicit free time range |
+| `FREE_MINUTES` | Free minutes allocated into non-free gaps |
 
-### 8.2 Per-Segment Carry-Over (SegmentCarryOver)
-```
-lastTruncatedUnitStartTime, promotionState (PromotionCarryOver), ruleState (Map)
-```
+Reserved or partially documented promotion types:
 
-### 8.3 PromotionCarryOver
-**File:** `core/.../promotion/pojo/PromotionCarryOver.java`
+| Type | Status |
+|------|--------|
+| `AMOUNT` | Reserved, not implemented as a complete promotion rule |
+| `DISCOUNT` | Reserved, not implemented as a complete promotion rule |
 
-```
-remainingMinutes (Map<String, Object>),
-remainingMinutesConverted (Map<String, Integer>),
-usedFreeRanges (List<FreeTimeRange>)
-```
+Implemented promotion rules:
 
-### 8.4 Restore Flow
-1. `lastTruncatedUnitStartTime` → next calculation starts from truncated unit begin
-2. `promotionState.remainingMinutes` → updates free minutes list
-3. `promotionState.usedFreeRanges` → subtracts already-used portions from new ranges
-4. `accumulatedAmount` → base for running total recalculation
+| Rule | Capability |
+|------|------------|
+| `freeMinutes` | Grants free minutes that are allocated across available gaps |
+| `startFree` | Grants an initial free range from segment start |
 
----
+`StartFreePromotionConfig.validateQueryTime=true` is no longer modeled through `BillingUnit.conditionalFree`. It is represented by a `StepValueSpec` on affected billing units: free before the condition boundary and normal price after the boundary.
 
-## 9. Query Time Filtering (Billing API)
+Free range type:
 
-### 9.1 BillingResultViewer
-**File:** `billing-api/.../wrapper/BillingResultViewer.java` (318 lines)
-
-### 9.2 viewAtTime(result, queryTime)
-- Applies conditional free validation
-- Filters units: keeps only `endTime <= queryTime`
-- Filters promotion usages
-- Recalculates amounts
-
-### 9.3 createQuerySummary(result, queryTime)
-- Lightweight index-based lookup
-- Returns `QuerySummary` with unitIndex, amount, effectiveFrom, effectiveTo
-- Also applies conditional free validation
-
-### 9.4 applyQueryTimeValidation(result, queryTime)
-**Core logic:**
-```
-if unit.isConditionalFree() && queryTime > unit.conditionalFreeUntil:
-    unit.setConditionalFree(false)
-    unit.setFree(false)
-    unit.setFreePromotionId(null)
-    unit.setChargedAmount(unit.getOriginalAmount())
-    recalculate accumulatedAmount
-```
+| Range type | Meaning |
+|------------|---------|
+| `NORMAL` | Standard free range |
+| `BUBBLE` | Bubble free range metadata; it participates in free range modeling as a distinct range type |
 
 ---
 
-## 10. Promotion Equivalent Calculation
+## 7. Promotion Aggregation
 
-**File:** `billing-api/.../wrapper/PromotionEquivalentCalculator.java`
+`PromotionEngine` collects rule-based and external grants, then produces a `PromotionAggregate`.
 
-**Algorithm: Elimination Method**
-1. Calculate baseline with all promotions
-2. Sort free ranges by begin time
-3. Sequentially exclude promotions one-by-one
-4. Difference = promotion's monetary value
+Current aggregation stages:
 
----
+1. Collect grants from `PromotionRuleConfig`.
+2. Add external `PromotionGrant` entries from the request.
+3. Restore promotion carry-over in `CONTINUE` mode.
+4. Merge explicit `FREE_RANGE` promotions through `FreeTimeRangeMerger`.
+5. Allocate `FREE_MINUTES` through `FreeMinuteAllocator`.
+6. Merge explicit and generated free ranges.
+7. Build promotion carry-over state.
 
-## 11. The ruleData Field on BillingUnit
-
-**Type:** `Object`
-
-### Current Usage
-
-**Normal Units:** `Integer` → cycleIndex
-
-**Simplified Units:** `Map<String, Object>`
-```
-{isSimplified: true, cycleIndex: N, simplifiedCycleCount: M, simplifiedCycleAmount: amount}
-```
-
-### Purpose
-- Rule-specific extension data
-- Enables audit trail
-- Supports post-calculation analysis
+`FreeTimeRangeMerger` preserves range metadata such as priority, source, range type, and conditional metadata. Query-time conditional behavior is interpreted later by rule-generated `valueSpec`, not by viewer-side field patching.
 
 ---
 
-## 12. conditionalFree/conditionalFreeUntil on BillingUnit
+## 8. Unit Valuation and Query-Time Amounts
 
-### Field Definitions
-**BillingUnit.java**
+`BillingUnit` contains the settled full-unit amounts and an optional `valueSpec`.
 
-```java
-private boolean conditionalFree;          // Is this a conditional free unit?
-private LocalDateTime conditionalFreeUntil;  // Query time window end
+Important fields:
+
+| Field | Meaning |
+|-------|---------|
+| `chargedAmount` | Final amount after the whole unit settles |
+| `accumulatedAmount` | Total amount after the whole unit settles |
+| `valueSpec` | Unit-level projection model for query-time amount |
+| `ruleData` | Rule-private metadata, including simplified unit markers |
+
+The current core valuation protocol is:
+
+| Type | Role |
+|------|------|
+| `UnitValueSpec` | Interface for projecting a unit value at a query time |
+| `UnitValueProjection` | Projection result: `currentAmount` and `nextChangeTime` |
+| `UnitValueEvaluator` | Validates input and projection invariants |
+| `FixedValueSpec` | Stable unit value |
+| `StepValueSpec` | Step value, used by conditional start-free behavior |
+| `PiecewiseTimeValueSpec` | Generic time-segment expression model |
+| `DayNightRule.MixedUnitValueSpec` | Day/night rule-specific mixed unit projection |
+| `DayNightRule.CappedValueSpec` | Day/night rule-specific cap wrapper |
+
+Query amount formula for the hit unit:
+
+```
+queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryTime)
 ```
 
-### Propagation Path
-```
-StartFreePromotionConfig.validateQueryTime=true
-    → PromotionGrant(conditional=true, conditionalUntil=endTime)
-    → FreeTimeRange(conditional=true, conditionalUntil=endTime)
-    → TimeFragment(conditionalFree=true, conditionalFreeUntil=endTime, originalPrice=price)
-    → BillingUnit(conditionalFree=true, conditionalFreeUntil=endTime, originalAmount=price)
-```
+This keeps `accumulatedAmount` as the settled prefix total while replacing the hit unit's full settled amount with its query-time projection.
 
-### TimeFragment Inner Class (DayNightRule)
-```java
-private static class TimeFragment {
-    LocalDateTime beginTime, endTime;
-    boolean isFree;
-    String freePromotionId;
-    boolean conditionalFree;
-    LocalDateTime conditionalFreeUntil;
-    BigDecimal originalPrice;  // What this fragment would cost without promotion
+---
+
+## 9. Query APIs
+
+`BillingResultViewer.createQuerySummary(result, queryTime)`:
+
+- Rejects `queryTime` after `result.calculationEndTime`.
+- Finds the unit containing the query time.
+- Evaluates the hit unit through `UnitValueEvaluator`.
+- Uses `valueSpec.nextChangeTime` as the query summary's `effectiveTo`.
+- Falls back to `FixedValueSpec(chargedAmount)` for old results that do not carry `valueSpec`.
+
+`BillingTemplate.calculateWithQuery(request, queryTime)`:
+
+- Calculates normally first.
+- Creates a query summary.
+- If the hit unit is a simplified unit, recalculates once with `disableSimplification=true`.
+- Returns the detailed calculation result and the query summary.
+
+`BillingResultViewer.viewAtTime(result, queryTime)` still provides a filtered result view based on finished units. For precise in-unit query amounts, prefer `createQuerySummary()` or `BillingTemplate.calculateWithQuery()`.
+
+---
+
+## 10. Simplified Calculation
+
+`AbstractTimeBasedRule` supports simplified cycle calculation for long spans.
+
+Simplified units use `ruleData` similar to:
+
+```json
+{
+  "isSimplified": true,
+  "cycleIndex": 1,
+  "simplifiedCycleCount": 10,
+  "simplifiedCycleAmount": 120.00
 }
 ```
 
-### RelativeTimeRule and CompositeTimeRule
-- Same pattern: TimeFragment with conditionalFree fields
-- `splitTimeAxis()` signatures updated to propagate conditional info
-- `generateUnitsForCycle()` copies conditional fields to BillingUnit
+Simplification intentionally drops intra-unit detail. When an exact query hits a simplified unit, `billing-api` performs an exact recalculation by setting `BillingRequest.disableSimplification=true`.
+
+This keeps long-range calculation efficient while preserving exact query behavior.
 
 ---
 
-## 13. Key POJOs Summary
+## 11. CONTINUE Mode
 
-### BillingRequest
-```
-id, beginTime, endTime, calcEndTime,
-schemeId, schemeChanges, segmentCalculationMode,
-externalPromotions, previousCarryOver,
-timeRoundingMode, context (Map)
-```
+`CONTINUE` mode is driven by `BillingCarryOver`.
 
-### BillingUnit
-```
-beginTime, endTime, durationMinutes,
-unitPrice, originalAmount, chargedAmount, accumulatedAmount,
-free, freePromotionId,
-conditionalFree, conditionalFreeUntil,
-isTruncated, mergedFromPrevious,
-ruleData (Object), ruleType (String)
-```
+Main carry-over data:
 
-### BillingResult
-```
-units, finalAmount, effectiveFrom, effectiveTo,
-calculationEndTime, accumulatedAmount,
-promotionUsages, carryOver,
-firstUnitMerged, truncatedUnitChargedAmount,
-settlementAdjustments, segments
-```
+- `calculatedUpTo`
+- per-segment carry-over state
+- `lastTruncatedUnitStartTime`
+- `truncatedUnitChargedAmount`
+- `accumulatedAmount`
 
-### PromotionAggregate
-```
-freeTimeRanges, freeMinutes,
-boundaryReferences, discardedRanges,
-usages, promotionCarryOver
-```
+If the previous calculation ended inside a billing unit, the next calculation starts from the truncated unit's begin time and uses carry-over amounts to avoid double charging.
+
+Promotion carry-over keeps remaining free minutes and used free ranges so future calculations can continue the same promotion state.
 
 ---
 
-## 14. Current Test Coverage
+## 12. Promotion Equivalent Amounts
 
-### ConditionalFreePromotionTest (6 scenarios)
-1. Basic conditional free - different queryTime points
-2. Conditional free + external permanent free range overlap
-3. Conditional free + free minutes coexistence
-4. CONTINUE mode with conditional free
-5. Exact boundary time (queryTime = conditionalFreeUntil)
-6. Multiple conditional free units (90-min free, 30-min units)
+`PromotionEquivalentCalculator` lives in `billing-api`.
 
-### StartFreePromotionTest (6 scenarios)
-1. Basic start free (30 minutes)
-2. Overlap with external free range
-3. Partial coverage (window < N minutes)
-4. CONTINUE mode
-5. Conditional free - queryTime within range
-6. Conditional free - queryTime outside range
-
-### PromotionTest (4 scenarios)
-1. Multiple free minutes叠加
-2. Free time range merge
-3. Rule + external promotions combination
-4. Free minutes + free range combined
+It calculates equivalent promotion amounts by comparing full calculation results. The query-time `valueSpec` mechanism does not change the promotion equivalent amount contract as long as the full settled result has consistent `chargedAmount`, `accumulatedAmount`, and promotion usages.
 
 ---
 
-## 15. Key Design Issues for Discussion
+## 13. Test and Diagnostic Support
 
-### Issue: Free Range Boundaries as Unit Split Points
+Current test support includes:
 
-**Current Behavior (CONTINUOUS mode):**
-- `splitTimeAxis()` creates cut points at every free range begin/end
-- This changes unit boundaries based on promotions
-- Example: 45-min units, 60-min free (00:00-01:00)
-  - Unit 1: 00:00-01:00 (free, 60 min) - **different from normal 45-min**
-  - Unit 2: 01:00-01:45 (charged, 45 min)
-  - Unit 3: 01:45-02:30 (charged, 45 min)
+- Regression tests for `UnitValueEvaluator`.
+- Query summary tests for `BillingResultViewer` and simplified-unit fallback.
+- Day/night query value tests for mixed units, capped units, and conditional start-free.
+- Runnable examples in `bill-test`.
+- `BillingTestCaseGenerator`, which generates billing result JSON for manual inspection without expected results.
 
-**Problem:** Query at 00:31 sees units starting at 00:00, but the first unit ends at 01:00 instead of 00:45. The billing unit collection is not stable/promotion-independent.
-
-### Proposed Alternative: Price Uncertainty Pattern
-
-Instead of splitting units at free range boundaries:
-1. Generate units by normal unitMinutes alignment
-2. Mark units that are affected by promotions (fully covered, partially covered, conditional)
-3. Store uncertainty metadata in `ruleData`
-4. Query layer handles uncertainty resolution
-
-**Benefits:**
-- Stable unit collection regardless of promotions
-- Unit boundaries are predictable
-- Query-time logic can handle various uncertainty types (not just conditional free)
+The generator currently focuses on `dayNight` and defines common, promotion, and rule-specific feature flags for future expansion.
 
 ---
 
-## Appendix: File Locations
+## 14. Known Gaps
 
-| Component | Path |
-|-----------|------|
-| BillingService | core/.../billing/BillingService.java |
-| BillingUnit | core/.../billing/pojo/BillingUnit.java |
-| DayNightRule | core/.../charge/rules/daynight/DayNightRule.java |
-| RelativeTimeRule | core/.../charge/rules/relativetime/RelativeTimeRule.java |
-| CompositeTimeRule | core/.../charge/rules/compositetime/CompositeTimeRule.java |
-| AbstractTimeBasedRule | core/.../charge/rules/AbstractTimeBasedRule.java |
-| PromotionEngine | core/.../promotion/PromotionEngine.java |
-| FreeTimeRangeMerger | core/.../promotion/FreeTimeRangeMerger.java |
-| FreeMinuteAllocator | core/.../promotion/FreeMinuteAllocator.java |
-| BillingResultViewer | billing-api/.../wrapper/BillingResultViewer.java |
-| StartFreePromotionRule | core/.../promotion/rules/startfree/StartFreePromotionRule.java |
-| StartFreePromotionConfig | core/.../promotion/rules/startfree/StartFreePromotionConfig.java |
-| FreeTimeRange | core/.../promotion/pojo/FreeTimeRange.java |
-| PromotionGrant | core/.../promotion/pojo/PromotionGrant.java |
+Current known gaps are tracked in `docs/TODO.md` and `docs/tracking/items/`.
+
+Important current gaps include:
+
+- `AMOUNT` and `DISCOUNT` promotion rules are not fully implemented.
+- Reserved rule constants such as `times`, `naturalTime`, and `nrTimeMix` are not implemented.
+- `relativeTime` and `compositeTime` do not yet have the same rich rule-specific `valueSpec` coverage as `dayNight`.
+- Minute-by-minute `valueSpec` is planned as an extension point but is not implemented yet.
+
+---
+
+## 15. Related Documents
+
+| Document | Purpose |
+|----------|---------|
+| `docs/billing-engine-capabilities-zh.md` | Chinese version of this capability document |
+| `docs/billing-engine-calculation-flow-zh.md` | Chinese calculation flow reference |
+| `docs/USER_GUIDE.md` | User-facing guide |
+| `docs/TODO.md` | Active backlog and issue index |
+| `docs/DONE.md` | Completed backlog archive |
+| `docs/superpowers/specs/2026-04-20-unit-value-spec-design.md` | `valueSpec` design |
+| `docs/superpowers/plans/2026-04-20-unit-value-spec-implementation.md` | `valueSpec` implementation plan |
