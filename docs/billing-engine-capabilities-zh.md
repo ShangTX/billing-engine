@@ -132,7 +132,11 @@ BillingRequest
 
 ### 预留规则常量
 
-`times`、`naturalTime`、`nrTimeMix` 等常量目前是预留能力，不是可用计费规则。
+| 常量 | 状态 | 说明 |
+|------|------|------|
+| `naturalTime` | 已废弃 | 被 `compositeTime.NaturalPeriod` 覆盖 |
+| `nrTimeMix` | 已废弃 | 被 `compositeTime` 整体覆盖（CompositePeriod + NaturalPeriod） |
+| `times` | 预留 | 按次数计费，非时间计费场景，需另行设计 |
 
 ---
 

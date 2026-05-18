@@ -38,6 +38,11 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
     // 规则类型标识
     private static final String RULE_TYPE = "dayNight";
+    private final DayNightContinuousCalculator continuousCalculator = new DayNightContinuousCalculator();
+    private final DayNightUnitBasedCalculator unitBasedCalculator = new DayNightUnitBasedCalculator();
+    private final DayNightPriceResolver priceResolver = new DayNightPriceResolver();
+    private final DayNightValueSpecFactory valueSpecFactory = new DayNightValueSpecFactory();
+    private final DayNightCycleStateManager cycleStateManager = new DayNightCycleStateManager();
 
     @Override
     protected String getRuleType() {
@@ -112,9 +117,9 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     @Override
     public BillingSegmentResult calculate(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
         if (context.getBillingMode() == BConstants.BillingMode.UNIT_BASED) {
-            return calculateUnitBased(context, config, promotionAggregate);
+            return unitBasedCalculator.calculate(this, context, config, promotionAggregate);
         } else {
-            return calculateContinuous(context, config, promotionAggregate);
+            return continuousCalculator.calculate(this, context, config, promotionAggregate);
         }
     }
 
@@ -122,7 +127,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
      * UNIT_BASED 模式计算
      * 固定从计费起点对齐，免费时段必须完全覆盖整个单元才免费
      */
-    private BillingSegmentResult calculateUnitBased(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
+    BillingSegmentResult calculateUnitBasedInternal(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
         // 验证配置
         validateConfig(config);
 
@@ -186,13 +191,28 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         }
 
         // 按周期应用封顶（考虑结转的累计金额），返回最后一个周期的累计金额
-        BigDecimal lastCycleAccumulated = applyDailyCapWithCarryOver(billingUnits, config, state.getCycleAccumulated());
+        BigDecimal lastCycleAccumulated = cycleStateManager.applyDailyCapWithCarryOver(
+                billingUnits,
+                config,
+                state.getCycleAccumulated(),
+                (beginTime, endTime) -> valueSpecFactory.createCappedSpec(
+                        billingUnits.stream()
+                                .filter(u -> beginTime.equals(u.getBeginTime()) && endTime.equals(u.getEndTime()))
+                                .findFirst()
+                                .map(BillingUnit::getValueSpec)
+                                .orElse(null),
+                        beginTime,
+                        endTime,
+                        billingUnits.stream()
+                                .filter(u -> beginTime.equals(u.getBeginTime()) && endTime.equals(u.getEndTime()))
+                                .findFirst()
+                                .map(BillingUnit::getChargedAmount)
+                                .orElse(BigDecimal.ZERO)
+                )
+        );
 
         // 更新最终状态（FROM_SCRATCH 结果也需要用于继续计算）
-        int maxCycleIndex = billingUnits.stream()
-                .mapToInt(u -> (Integer) u.getRuleData())
-                .max().orElse(0);
-        state.setCycleIndex(maxCycleIndex);
+        cycleStateManager.updateStateAfterUnitBased(billingUnits, state);
         // 使用返回的累计金额（包含之前累计的）
         state.setCycleAccumulated(lastCycleAccumulated);
 
@@ -330,34 +350,35 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         }
 
         // 应用封顶（简化单元已达封顶，但需要处理累计金额的逻辑）
-        applyDailyCapWithCarryOver(billingUnits, config, state.getCycleAccumulated());
+        cycleStateManager.applyDailyCapWithCarryOver(
+                billingUnits,
+                config,
+                state.getCycleAccumulated(),
+                (beginTime, endTime) -> valueSpecFactory.createCappedSpec(
+                        billingUnits.stream()
+                                .filter(u -> beginTime.equals(u.getBeginTime()) && endTime.equals(u.getEndTime()))
+                                .findFirst()
+                                .map(BillingUnit::getValueSpec)
+                                .orElse(null),
+                        beginTime,
+                        endTime,
+                        billingUnits.stream()
+                                .filter(u -> beginTime.equals(u.getBeginTime()) && endTime.equals(u.getEndTime()))
+                                .findFirst()
+                                .map(BillingUnit::getChargedAmount)
+                                .orElse(BigDecimal.ZERO)
+                )
+        );
 
         // 更新状态 - 使用实际处理的最后一个周期索引
         if (!billingUnits.isEmpty()) {
-            BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
-            if (isSimplifiedUnit(lastUnit)) {
-                // 简化单元：从 ruleData 揎取周期信息
-                @SuppressWarnings("unchecked")
-                java.util.Map<String, Object> ruleData = (java.util.Map<String, Object>) lastUnit.getRuleData();
-                int beginCycleIndex = (Integer) ruleData.get("cycleIndex");
-                int cycleCount = (Integer) ruleData.get("simplifiedCycleCount");
-                BigDecimal cycleAmount = (BigDecimal) ruleData.get("simplifiedCycleAmount");
-                state.setCycleIndex(beginCycleIndex + cycleCount - 1);
-                state.setCycleAccumulated(cycleAmount);
-                state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin));
-            } else {
-                // 非简化单元：使用最后一个单元的周期索引
-                int lastCycleIndex = (Integer) lastUnit.getRuleData();
-                state.setCycleIndex(lastCycleIndex);
-                // 计算最后一个周期的累计金额
-                final int finalLastCycleIndex = lastCycleIndex;
-                BigDecimal lastCycleAccumulated = billingUnits.stream()
-                        .filter(u -> u.getRuleData() instanceof Integer && (Integer) u.getRuleData() == finalLastCycleIndex)
-                        .map(BillingUnit::getChargedAmount)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                state.setCycleAccumulated(lastCycleAccumulated);
-                state.setCycleBoundary(getCycleBoundary(lastCycleIndex + 1, calcBegin));
-            }
+            cycleStateManager.updateStateAfterSimplified(
+                    billingUnits,
+                    state,
+                    calcBegin,
+                    this::getCycleBoundary,
+                    this::isSimplifiedUnit
+            );
         } else {
             // 没有单元，保持原状态
             state.setCycleIndex(totalCycles);
@@ -467,15 +488,15 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             }
 
             // 判断时段类型
-            PeriodType periodType = determinePeriodType(current, unitEnd, config);
+            DayNightPeriodType periodType = priceResolver.determinePeriodType(current, unitEnd, config);
 
             // 计算白天夜间分钟数
             int dayMins = 0, nightMins = 0;
-            if (periodType == PeriodType.MIXED) {
-                int[] mins = calculateDayNightMinutes(current, unitEnd, config);
+            if (periodType == DayNightPeriodType.MIXED) {
+                int[] mins = priceResolver.calculateDayNightMinutes(current, unitEnd, config);
                 dayMins = mins[0];
                 nightMins = mins[1];
-            } else if (periodType == PeriodType.DAY) {
+            } else if (periodType == DayNightPeriodType.DAY) {
                 dayMins = (int) Duration.between(current, unitEnd).toMinutes();
             } else {
                 nightMins = (int) Duration.between(current, unitEnd).toMinutes();
@@ -505,97 +526,6 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     }
 
     /**
-     * 判断时段类型
-     */
-    private PeriodType determinePeriodType(LocalDateTime begin, LocalDateTime end, DayNightConfig config) {
-        int dayBeginMin = config.getDayBeginMinute();
-        int dayEndMin = config.getDayEndMinute();
-
-        // 获取开始时间在当天内的分钟数
-        int beginDayMin = begin.getHour() * 60 + begin.getMinute();
-        int endDayMin = end.getHour() * 60 + end.getMinute();
-
-        // 是否跨天
-        boolean crossDay = !begin.toLocalDate().equals(end.toLocalDate());
-
-        if (crossDay) {
-            // 跨天一定是MIXED
-            return PeriodType.MIXED;
-        }
-
-        // 同一天内，判断是否跨越日夜边界
-        boolean beginInDay = isInDayPeriod(beginDayMin, dayBeginMin, dayEndMin);
-        boolean endInDay = isInDayPeriod(endDayMin, dayBeginMin, dayEndMin);
-
-        // 检查是否跨越日夜边界
-        boolean crossesBoundary = crossesDayNightBoundary(beginDayMin, endDayMin, dayBeginMin, dayEndMin);
-
-        if (!crossesBoundary) {
-            if (beginInDay) {
-                return PeriodType.DAY;
-            } else {
-                return PeriodType.NIGHT;
-            }
-        }
-
-        return PeriodType.MIXED;
-    }
-
-    /**
-     * 判断分钟数是否在白天时段
-     */
-    private boolean isInDayPeriod(int minute, int dayBeginMin, int dayEndMin) {
-        if (dayBeginMin < dayEndMin) {
-            // 白天在一天内，如 12:20-19:00
-            return minute >= dayBeginMin && minute < dayEndMin;
-        } else {
-            // 白天跨天，如 22:00-06:00（较少见）
-            return minute >= dayBeginMin || minute < dayEndMin;
-        }
-    }
-
-    /**
-     * 判断是否跨越日夜边界
-     */
-    private boolean crossesDayNightBoundary(int beginMin, int endMin, int dayBeginMin, int dayEndMin) {
-        // 检查时段内是否包含日夜边界点
-        if (dayBeginMin < dayEndMin) {
-            // 白天时段不跨天
-            // 检查是否跨越 dayBeginMin 或 dayEndMin
-            boolean crossesDayBegin = beginMin < dayBeginMin && endMin > dayBeginMin;
-            boolean crossesDayEnd = beginMin < dayEndMin && endMin > dayEndMin;
-            return crossesDayBegin || crossesDayEnd;
-        } else {
-            // 白天时段跨天（较少见的情况）
-            return true;
-        }
-    }
-
-    /**
-     * 计算时段内的白天和夜间分钟数
-     */
-    private int[] calculateDayNightMinutes(LocalDateTime begin, LocalDateTime end, DayNightConfig config) {
-        int dayMins = 0, nightMins = 0;
-        int dayBeginMin = config.getDayBeginMinute();
-        int dayEndMin = config.getDayEndMinute();
-
-        LocalDateTime current = begin;
-        while (current.isBefore(end)) {
-            // 每次前进1分钟计算
-            int curMin = current.getHour() * 60 + current.getMinute();
-            boolean inDay = isInDayPeriod(curMin, dayBeginMin, dayEndMin);
-            if (inDay) {
-                dayMins++;
-            } else {
-                nightMins++;
-            }
-            current = current.plusMinutes(1);
-        }
-
-        return new int[]{dayMins, nightMins};
-    }
-
-    /**
      * 计算单个计费单元
      */
     private BillingUnit calculateUnit(UnitWithContext unitCtx, DayNightConfig config, List<FreeTimeRange> freeTimeRanges) {
@@ -617,20 +547,15 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             unitPrice = BigDecimal.ZERO;
             originalAmount = BigDecimal.ZERO;
             chargedAmount = BigDecimal.ZERO;
-            valueSpec = new FixedValueSpec(BigDecimal.ZERO);
+            valueSpec = valueSpecFactory.createFreeSpec();
         } else {
             unitPrice = finalAmount;
             originalAmount = finalAmount;
             chargedAmount = finalAmount;
             if (conditionalFree) {
-                // Conditional free no longer relies on query-layer patching.
-                // The unit carries a step spec: free before the deadline, normal price afterwards.
-                valueSpec = new StepValueSpec(coveringRange.getConditionalUntil(), BigDecimal.ZERO, finalAmount);
-            } else if (unitCtx.periodType == PeriodType.MIXED) {
-                // Mixed day/night units stay queryable by preserving the rule's threshold decision in a spec.
-                valueSpec = new MixedUnitValueSpec(unitCtx.beginTime, unitCtx.endTime, config);
+                valueSpec = valueSpecFactory.createConditionalFreeSpec(coveringRange.getConditionalUntil(), finalAmount);
             } else {
-                valueSpec = new FixedValueSpec(finalAmount);
+                valueSpec = valueSpecFactory.createRegularSpec(unitCtx.periodType, unitCtx.beginTime, unitCtx.endTime, config, finalAmount);
             }
         }
 
@@ -651,19 +576,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     }
 
     private BigDecimal determineFinalAmount(UnitWithContext unitCtx, DayNightConfig config, int duration) {
-        if (unitCtx.periodType == PeriodType.DAY) {
-            return config.getDayUnitPrice();
-        } else if (unitCtx.periodType == PeriodType.NIGHT) {
-            return config.getNightUnitPrice();
-        } else {
-            BigDecimal ratio = BigDecimal.valueOf(unitCtx.dayMinutes)
-                    .divide(BigDecimal.valueOf(duration), 4, RoundingMode.HALF_UP);
-            if (ratio.compareTo(config.getBlockWeight()) >= 0) {
-                return config.getDayUnitPrice();
-            } else {
-                return config.getNightUnitPrice();
-            }
-        }
+        return priceResolver.determineFinalAmount(unitCtx.periodType, unitCtx.dayMinutes, duration, config, unitCtx.beginTime, unitCtx.endTime);
     }
 
     /**
@@ -927,7 +840,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
      * CONTINUOUS 模式计算
      * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
      */
-    private BillingSegmentResult calculateContinuous(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
+    BillingSegmentResult calculateContinuousInternal(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
         // 验证配置
         validateConfig(config);
 
@@ -986,7 +899,25 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             BigDecimal lastCycleAccumulated = BigDecimal.ZERO;
             for (CycleFragments cycle : cycles) {
                 List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
-                lastCycleAccumulated = applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneDay(), carryOverAccumulated);
+                lastCycleAccumulated = cycleStateManager.applyDailyCapWithCarryOver(
+                        cycleUnits,
+                        config,
+                        carryOverAccumulated,
+                        (beginTime, endTime) -> valueSpecFactory.createCappedSpec(
+                                cycleUnits.stream()
+                                        .filter(u -> beginTime.equals(u.getBeginTime()) && endTime.equals(u.getEndTime()))
+                                        .findFirst()
+                                        .map(BillingUnit::getValueSpec)
+                                        .orElse(null),
+                                beginTime,
+                                endTime,
+                                cycleUnits.stream()
+                                        .filter(u -> beginTime.equals(u.getBeginTime()) && endTime.equals(u.getEndTime()))
+                                        .findFirst()
+                                        .map(BillingUnit::getChargedAmount)
+                                        .orElse(BigDecimal.ZERO)
+                        )
+                );
                 allUnits.addAll(cycleUnits);
                 // 新周期重置累计金额
                 carryOverAccumulated = BigDecimal.ZERO;
@@ -1010,17 +941,19 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             if (!cycles.isEmpty()) {
                 BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
                 if (isSimplifiedUnit(lastUnit)) {
-                    // 简化单元：使用 simplifiedCycleAmount 作为周期累计金额
-                    @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> ruleData = (java.util.Map<String, Object>) lastUnit.getRuleData();
-                    state.setCycleAccumulated((BigDecimal) ruleData.get("simplifiedCycleAmount"));
-                    state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                    // 计算气泡延长并累加到当前 cycleBoundary
-                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                    if (state.getCycleBoundary() != null) {
-                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
-                    } else {
-                        state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                    // 简化单元：使用 SimplifiedUnitMeta 公共契约
+                    cn.shang.charging.billing.pojo.SimplifiedUnitMeta meta =
+                            cn.shang.charging.billing.pojo.SimplifiedUnitMeta.from(lastUnit);
+                    if (meta != null) {
+                        state.setCycleAccumulated(meta.simplifiedCycleAmount());
+                        state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
+                        // 计算气泡延长并累加到当前 cycleBoundary
+                        int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                        if (state.getCycleBoundary() != null) {
+                            state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                        } else {
+                            state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
+                        }
                     }
                 } else {
                     // 非简化单元：找最后一个周期的非免费单元
@@ -1150,7 +1083,25 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
                 // 生成当前有优惠周期的详细单元
                 List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
-                applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneDay(), carryOverAccumulated);
+                cycleStateManager.applyDailyCapWithCarryOver(
+                        cycleUnits,
+                        config,
+                        carryOverAccumulated,
+                        (beginTime, endTime) -> valueSpecFactory.createCappedSpec(
+                                cycleUnits.stream()
+                                        .filter(u -> beginTime.equals(u.getBeginTime()) && endTime.equals(u.getEndTime()))
+                                        .findFirst()
+                                        .map(BillingUnit::getValueSpec)
+                                        .orElse(null),
+                                beginTime,
+                                endTime,
+                                cycleUnits.stream()
+                                        .filter(u -> beginTime.equals(u.getBeginTime()) && endTime.equals(u.getEndTime()))
+                                        .findFirst()
+                                        .map(BillingUnit::getChargedAmount)
+                                        .orElse(BigDecimal.ZERO)
+                        )
+                );
                 allUnits.addAll(cycleUnits);
                 carryOverAccumulated = BigDecimal.ZERO;
             }
@@ -1287,13 +1238,14 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                 if (fragment.conditional) {
                     LocalDateTime current = fragment.beginTime;
                     while (current.isBefore(fragment.endTime)) {
-                        LocalDateTime unitEnd = current.plusMinutes(unitMinutes);
+                        LocalDateTime pricingEnd = resolvePricingEnd(current, unitMinutes, cycle.cycleEnd);
+                        LocalDateTime unitEnd = pricingEnd;
                         if (unitEnd.isAfter(fragment.endTime)) {
                             unitEnd = fragment.endTime;
                         }
 
                         int duration = (int) Duration.between(current, unitEnd).toMinutes();
-                        BigDecimal unitPrice = determineUnitPriceForContinuous(current, unitEnd, config);
+                        BigDecimal unitPrice = determineUnitPriceForContinuous(current, pricingEnd, config);
                         BigDecimal originalAmount = unitPrice;
 
                         BillingUnit unit = BillingUnit.builder()
@@ -1330,7 +1282,8 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                 // 收费片段按单元长度划分
                 LocalDateTime current = fragment.beginTime;
                 while (current.isBefore(fragment.endTime)) {
-                    LocalDateTime unitEnd = current.plusMinutes(unitMinutes);
+                    LocalDateTime pricingEnd = resolvePricingEnd(current, unitMinutes, cycle.cycleEnd);
+                    LocalDateTime unitEnd = pricingEnd;
                     if (unitEnd.isAfter(fragment.endTime)) {
                         unitEnd = fragment.endTime;
                     }
@@ -1338,14 +1291,18 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                     int duration = (int) Duration.between(current, unitEnd).toMinutes();
 
                     // 确定单价
-                    BigDecimal unitPrice = determineUnitPriceForContinuous(current, unitEnd, config);
+                    BigDecimal unitPrice = determineUnitPriceForContinuous(current, pricingEnd, config);
 
                     // 不足单元也收全额
                     BigDecimal originalAmount = unitPrice;
-                    PeriodType periodType = determinePeriodType(current, unitEnd, config);
-                    UnitValueSpec valueSpec = periodType == PeriodType.MIXED
-                            ? new MixedUnitValueSpec(current, unitEnd, config)
-                            : new FixedValueSpec(originalAmount);
+                    DayNightPeriodType periodType = priceResolver.determinePeriodType(current, pricingEnd, config);
+                    UnitValueSpec valueSpec = valueSpecFactory.createRegularSpec(
+                            periodType,
+                            current,
+                            pricingEnd,
+                            config,
+                            originalAmount
+                    );
 
                     BillingUnit unit = BillingUnit.builder()
                             .beginTime(current)
@@ -1367,144 +1324,19 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         return units;
     }
 
+    private LocalDateTime resolvePricingEnd(LocalDateTime unitBegin, int unitMinutes, LocalDateTime cycleEnd) {
+        LocalDateTime pricingEnd = unitBegin.plusMinutes(unitMinutes);
+        if (pricingEnd.isAfter(cycleEnd)) {
+            return cycleEnd;
+        }
+        return pricingEnd;
+    }
+
     /**
      * 确定时段单价（CONTINUOUS模式专用）
      */
     private BigDecimal determineUnitPriceForContinuous(LocalDateTime begin, LocalDateTime end, DayNightConfig config) {
-        PeriodType periodType = determinePeriodType(begin, end, config);
-
-        if (periodType == PeriodType.DAY) {
-            return config.getDayUnitPrice();
-        } else if (periodType == PeriodType.NIGHT) {
-            return config.getNightUnitPrice();
-        } else {
-            // MIXED: 根据时长比例判断
-            int[] mins = calculateDayNightMinutes(begin, end, config);
-            int duration = (int) Duration.between(begin, end).toMinutes();
-            BigDecimal ratio = BigDecimal.valueOf(mins[0])
-                    .divide(BigDecimal.valueOf(duration), 4, RoundingMode.HALF_UP);
-            if (ratio.compareTo(config.getBlockWeight()) >= 0) {
-                return config.getDayUnitPrice();
-            } else {
-                return config.getNightUnitPrice();
-            }
-        }
-    }
-
-    /**
-     * CONTINUOUS 模式封顶处理
-     * 封顶后截止，剩余时间合并为免费单元
-     */
-    private void applyContinuousCap(List<BillingUnit> units, BigDecimal maxCharge) {
-        applyContinuousCapWithCarryOver(units, maxCharge, BigDecimal.ZERO);
-    }
-
-    /**
-     * CONTINUOUS 模式封顶处理（考虑结转的累计金额）
-     * @return 返回处理后的累计金额
-     */
-    private BigDecimal applyContinuousCapWithCarryOver(List<BillingUnit> units, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
-        // 如果继承的累计金额已达到封顶，将所有收费单元合并为一个免费单元
-        if (carryOverAccumulated.compareTo(maxCharge) >= 0) {
-            List<BillingUnit> chargeableUnits = units.stream()
-                    .filter(u -> !u.isFree())
-                    .toList();
-
-            if (!chargeableUnits.isEmpty()) {
-                BillingUnit firstChargeable = chargeableUnits.get(0);
-                BillingUnit lastChargeable = chargeableUnits.get(chargeableUnits.size() - 1);
-
-                // 移除所有收费单元
-                units.removeIf(u -> !u.isFree());
-
-                // 添加一个合并的免费单元
-                BillingUnit mergedFreeUnit = BillingUnit.builder()
-                        .beginTime(firstChargeable.getBeginTime())
-                        .endTime(lastChargeable.getEndTime())
-                        .durationMinutes((int) Duration.between(firstChargeable.getBeginTime(), lastChargeable.getEndTime()).toMinutes())
-                        .unitPrice(BigDecimal.ZERO)
-                        .originalAmount(BigDecimal.ZERO)
-                        .free(true)
-                        .freePromotionId("DAILY_CAP")
-                        .chargedAmount(BigDecimal.ZERO)
-                        .valueSpec(new FixedValueSpec(BigDecimal.ZERO))
-                        .build();
-                units.add(mergedFreeUnit);
-            }
-            return maxCharge; // 返回封顶金额
-        }
-
-        BigDecimal accumulated = carryOverAccumulated;
-        int capIndex = -1;
-        BigDecimal lastChargeAmount = null;
-
-        // 找到封顶位置
-        for (int i = 0; i < units.size(); i++) {
-            BillingUnit unit = units.get(i);
-            if (unit.isFree()) {
-                continue;
-            }
-
-            BigDecimal newAccumulated = accumulated.add(unit.getChargedAmount());
-
-            if (newAccumulated.compareTo(maxCharge) >= 0) {
-                // 超过封顶
-                capIndex = i;
-                lastChargeAmount = maxCharge.subtract(accumulated);
-                break;
-            }
-
-            accumulated = newAccumulated;
-        }
-
-        if (capIndex < 0) {
-            // 未超过封顶，返回累计金额
-            return accumulated;
-        }
-
-        // 调整封顶单元的金额
-        units.get(capIndex).setChargedAmount(lastChargeAmount.setScale(2, RoundingMode.HALF_UP));
-        units.get(capIndex).setValueSpec(new CappedValueSpec(
-                units.get(capIndex).getValueSpec(),
-                units.get(capIndex).getBeginTime(),
-                units.get(capIndex).getEndTime(),
-                units.get(capIndex).getChargedAmount()
-        ));
-        if (units.get(capIndex).getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
-            units.get(capIndex).setFree(true);
-            units.get(capIndex).setFreePromotionId("DAILY_CAP");
-        }
-
-        // 封顶后的单元合并为一个免费单元
-        if (capIndex < units.size() - 1) {
-            BillingUnit firstAfterCap = units.get(capIndex + 1);
-            BillingUnit lastAfterCap = units.get(units.size() - 1);
-
-            BillingUnit mergedFreeUnit = BillingUnit.builder()
-                    .beginTime(firstAfterCap.getBeginTime())
-                    .endTime(lastAfterCap.getEndTime())
-                    .durationMinutes((int) Duration.between(firstAfterCap.getBeginTime(), lastAfterCap.getEndTime()).toMinutes())
-                    .unitPrice(BigDecimal.ZERO)
-                    .originalAmount(BigDecimal.ZERO)
-                    .free(true)
-                    .freePromotionId("DAILY_CAP")
-                    .chargedAmount(BigDecimal.ZERO)
-                    .valueSpec(new FixedValueSpec(BigDecimal.ZERO))
-                    .build();
-
-            // 移除封顶后的单元，添加合并后的免费单元
-            units.subList(capIndex + 1, units.size()).clear();
-            units.add(mergedFreeUnit);
-        }
-
-        return maxCharge; // 返回封顶金额
-    }
-
-    /**
-     * 时段类型
-     */
-    private enum PeriodType {
-        DAY, NIGHT, MIXED
+        return priceResolver.determineUnitPriceForContinuous(begin, end, config);
     }
 
     /**
@@ -1514,158 +1346,9 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         LocalDateTime beginTime;
         LocalDateTime endTime;
         int cycleIndex;
-        PeriodType periodType;
+        DayNightPeriodType periodType;
         int dayMinutes;
         int nightMinutes;
-    }
-
-    private static class MixedUnitValueSpec implements UnitValueSpec {
-        private final LocalDateTime unitBeginTime;
-        private final LocalDateTime unitEndTime;
-        private final int dayBeginMinute;
-        private final int dayEndMinute;
-        private final BigDecimal blockWeight;
-        private final BigDecimal dayUnitPrice;
-        private final BigDecimal nightUnitPrice;
-
-        MixedUnitValueSpec(LocalDateTime unitBeginTime, LocalDateTime unitEndTime, DayNightConfig config) {
-            this.unitBeginTime = unitBeginTime;
-            this.unitEndTime = unitEndTime;
-            this.dayBeginMinute = config.getDayBeginMinute();
-            this.dayEndMinute = config.getDayEndMinute();
-            this.blockWeight = config.getBlockWeight();
-            this.dayUnitPrice = config.getDayUnitPrice();
-            this.nightUnitPrice = config.getNightUnitPrice();
-        }
-
-        @Override
-        public UnitValueProjection project(LocalDateTime queryTime, LocalDateTime unitBeginTime, LocalDateTime unitEndTime) {
-            BigDecimal currentAmount = determineAmount(queryTime);
-            if (!queryTime.isBefore(this.unitEndTime)) {
-                return new UnitValueProjection(currentAmount, this.unitEndTime);
-            }
-
-            LocalDateTime nextChangeTime = this.unitEndTime;
-            BigDecimal current = currentAmount;
-            LocalDateTime candidate = queryTime.plusMinutes(1);
-            // Mixed units can flip between day/night prices as the running ratio crosses blockWeight.
-            // Scan forward to the next minute where that effective price changes.
-            while (!candidate.isAfter(this.unitEndTime)) {
-                BigDecimal candidateAmount = determineAmount(candidate);
-                if (candidateAmount.compareTo(current) != 0) {
-                    nextChangeTime = candidate;
-                    break;
-                }
-                candidate = candidate.plusMinutes(1);
-            }
-
-            return new UnitValueProjection(currentAmount, nextChangeTime);
-        }
-
-        private BigDecimal determineAmount(LocalDateTime queryTime) {
-            int duration = (int) Duration.between(unitBeginTime, queryTime).toMinutes();
-            if (duration <= 0) {
-                return dayUnitPrice;
-            }
-            PeriodType currentType = determinePeriodType(unitBeginTime, queryTime);
-            if (currentType == PeriodType.DAY) {
-                return dayUnitPrice;
-            }
-            if (currentType == PeriodType.NIGHT) {
-                return nightUnitPrice;
-            }
-            int[] mins = calculateDayNightMinutes(unitBeginTime, queryTime);
-            BigDecimal ratio = BigDecimal.valueOf(mins[0])
-                    .divide(BigDecimal.valueOf(duration), 4, RoundingMode.HALF_UP);
-            return ratio.compareTo(blockWeight) >= 0 ? dayUnitPrice : nightUnitPrice;
-        }
-
-        private PeriodType determinePeriodType(LocalDateTime begin, LocalDateTime end) {
-            int beginDayMin = begin.getHour() * 60 + begin.getMinute();
-            int endDayMin = end.getHour() * 60 + end.getMinute();
-            boolean crossDay = !begin.toLocalDate().equals(end.toLocalDate());
-            if (crossDay) {
-                return PeriodType.MIXED;
-            }
-            boolean crossesBoundary = crossesDayNightBoundary(beginDayMin, endDayMin);
-            if (!crossesBoundary) {
-                return isInDayPeriod(beginDayMin) ? PeriodType.DAY : PeriodType.NIGHT;
-            }
-            return PeriodType.MIXED;
-        }
-
-        private boolean isInDayPeriod(int minute) {
-            if (dayBeginMinute < dayEndMinute) {
-                return minute >= dayBeginMinute && minute < dayEndMinute;
-            } else {
-                return minute >= dayBeginMinute || minute < dayEndMinute;
-            }
-        }
-
-        private boolean crossesDayNightBoundary(int beginMin, int endMin) {
-            if (dayBeginMinute < dayEndMinute) {
-                boolean crossesDayBegin = beginMin < dayBeginMinute && endMin > dayBeginMinute;
-                boolean crossesDayEnd = beginMin < dayEndMinute && endMin > dayEndMinute;
-                return crossesDayBegin || crossesDayEnd;
-            } else {
-                return true;
-            }
-        }
-
-        private int[] calculateDayNightMinutes(LocalDateTime begin, LocalDateTime end) {
-            int dayMins = 0;
-            int nightMins = 0;
-            LocalDateTime current = begin;
-            while (current.isBefore(end)) {
-                int curMin = current.getHour() * 60 + current.getMinute();
-                if (isInDayPeriod(curMin)) {
-                    dayMins++;
-                } else {
-                    nightMins++;
-                }
-                current = current.plusMinutes(1);
-            }
-            return new int[]{dayMins, nightMins};
-        }
-    }
-
-    private static class CappedValueSpec implements UnitValueSpec {
-        private final UnitValueSpec delegate;
-        private final LocalDateTime unitBeginTime;
-        private final LocalDateTime unitEndTime;
-        private final BigDecimal capAmount;
-
-        CappedValueSpec(UnitValueSpec delegate, LocalDateTime unitBeginTime, LocalDateTime unitEndTime, BigDecimal capAmount) {
-            this.delegate = delegate;
-            this.unitBeginTime = unitBeginTime;
-            this.unitEndTime = unitEndTime;
-            this.capAmount = capAmount;
-        }
-
-        @Override
-        public UnitValueProjection project(LocalDateTime queryTime, LocalDateTime unitBeginTime, LocalDateTime unitEndTime) {
-            UnitValueProjection base = delegate.project(queryTime, this.unitBeginTime, this.unitEndTime);
-            // Cap is applied at the unit value-spec level so query-time amounts and settled amounts stay aligned.
-            BigDecimal currentAmount = base.currentAmount().min(capAmount);
-            if (!queryTime.isBefore(this.unitEndTime)) {
-                return new UnitValueProjection(currentAmount, this.unitEndTime);
-            }
-
-            LocalDateTime nextChangeTime = this.unitEndTime;
-            LocalDateTime candidate = queryTime.plusMinutes(1);
-            while (!candidate.isAfter(this.unitEndTime)) {
-                BigDecimal candidateAmount = delegate.project(candidate, this.unitBeginTime, this.unitEndTime)
-                        .currentAmount()
-                        .min(capAmount);
-                if (candidateAmount.compareTo(currentAmount) != 0) {
-                    nextChangeTime = candidate;
-                    break;
-                }
-                candidate = candidate.plusMinutes(1);
-            }
-
-            return new UnitValueProjection(currentAmount, nextChangeTime);
-        }
     }
 
     /**

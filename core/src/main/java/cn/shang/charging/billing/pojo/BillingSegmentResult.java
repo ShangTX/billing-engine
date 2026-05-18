@@ -91,4 +91,26 @@ public class BillingSegmentResult {
 
     private List<PromotionUsage> promotionUsages;
 
+    /* ========== 七、金额折扣优惠结果 ========== */
+
+    /**
+     * 折扣前金额（规则计算结果）
+     */
+    private BigDecimal originalAmount;
+
+    /**
+     * 折扣优惠金额（折扣减免）
+     */
+    private BigDecimal discountSavedAmount;
+
+    /**
+     * 金额减免总额
+     */
+    private BigDecimal amountDiscount;
+
+    /**
+     * 最终实收金额（折扣和减免后）
+     */
+    private BigDecimal finalAmount;
+
 }

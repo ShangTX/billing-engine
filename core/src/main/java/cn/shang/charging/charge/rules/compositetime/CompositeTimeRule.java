@@ -34,6 +34,12 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
     private static final int MINUTES_PER_DAY = 1440;
 
     private static final String RULE_TYPE = "compositeTime";
+    private final CompositeTimeContinuousCalculator continuousCalculator = new CompositeTimeContinuousCalculator();
+    private final CompositeTimeUnitBasedCalculator unitBasedCalculator = new CompositeTimeUnitBasedCalculator();
+    private final CompositeTimePeriodResolver periodResolver = new CompositeTimePeriodResolver();
+    private final CompositeTimeCrossPeriodPriceResolver crossPeriodPriceResolver = new CompositeTimeCrossPeriodPriceResolver();
+    private final CompositeTimeContinuousCapHandler continuousCapHandler = new CompositeTimeContinuousCapHandler();
+    private final CompositeTimeSimplifiedCycleStateManager simplifiedCycleStateManager = new CompositeTimeSimplifiedCycleStateManager();
 
     @Override
     protected String getRuleType() {
@@ -81,16 +87,16 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         validateConfig(ruleConfig);
 
         if (context.getBillingMode() == BConstants.BillingMode.UNIT_BASED) {
-            return calculateUnitBased(context, ruleConfig, promotionAggregate);
+            return unitBasedCalculator.calculate(this, context, ruleConfig, promotionAggregate);
         } else {
-            return calculateContinuous(context, ruleConfig, promotionAggregate);
+            return continuousCalculator.calculate(this, context, ruleConfig, promotionAggregate);
         }
     }
 
     /**
      * UNIT_BASED 模式计算
      */
-    private BillingSegmentResult calculateUnitBased(BillingContext context,
+    BillingSegmentResult calculateUnitBasedInternal(BillingContext context,
                                                      CompositeTimeConfig config,
                                                      PromotionAggregate promotionAggregate) {
         // 获取计算窗口
@@ -163,13 +169,18 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         BigDecimal lastCycleAccumulated = BigDecimal.ZERO;
         if (!cycles.isEmpty()) {
             CycleUnits lastCycle = cycles.get(cycles.size() - 1);
-            state.setCycleIndex(cycles.size() - 1);
-            state.setCycleBoundary(lastCycle.cycleStart.plusMinutes(MINUTES_PER_DAY));
             lastCycleAccumulated = lastCycle.accumulatedBeforeCap != null
                     ? lastCycle.accumulatedBeforeCap
                     : lastCycle.units.stream().map(BillingUnit::getChargedAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-            state.setCycleAccumulated(lastCycleAccumulated);
         }
+        simplifiedCycleStateManager.updateStateAfterPlainContinuous(
+                cycles,
+                state,
+                lastCycleAccumulated,
+                0,
+                cycle -> ((CycleUnits) cycle).cycleStart,
+                MINUTES_PER_DAY
+        );
 
         // 计算费用稳定时间窗口
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
@@ -184,7 +195,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             if (positionInCycle < 0) {
                 positionInCycle += MINUTES_PER_DAY;
             }
-            CompositePeriod period = findPeriodForMinute(positionInCycle, config.getPeriods());
+            CompositePeriod period = periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
             int unitMinutes = period.getUnitMinutes();
             if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
                 lastUnit.setIsTruncated(true);
@@ -293,42 +304,39 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         }
 
         // 应用封顶（简化单元已达封顶，但需要处理累计金额的逻辑）
-        applyCapForSimplified(billingUnits, config, state.getCycleAccumulated());
+        simplifiedCycleStateManager.applyCapWithCarryOverForSimplified(
+                billingUnits,
+                config,
+                state.getCycleAccumulated(),
+                this::isSimplifiedUnit
+        );
 
-        // 更新状态 - 使用实际处理的最后一个周期索引
-        if (!billingUnits.isEmpty()) {
-            BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
-            if (isSimplifiedUnit(lastUnit)) {
-                // 简化单元：从 ruleData 揎取周期信息
-                @SuppressWarnings("unchecked")
-                Map<String, Object> ruleData = (Map<String, Object>) lastUnit.getRuleData();
-                int beginCycleIndex = (Integer) ruleData.get("cycleIndex");
-                int cycleCount = (Integer) ruleData.get("simplifiedCycleCount");
-                BigDecimal cycleAmount = (BigDecimal) ruleData.get("simplifiedCycleAmount");
-                state.setCycleIndex(beginCycleIndex + cycleCount - 1);
-                state.setCycleAccumulated(cycleAmount);
-                state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin));
-            } else {
-                // 非简化单元：使用最后一个单元的周期索引
-                int lastCycleIndex = extractCycleIndex(lastUnit);
-                state.setCycleIndex(lastCycleIndex);
-                // 计算最后一个周期的累计金额
-                final int finalLastCycleIndex = lastCycleIndex;
-                BigDecimal lastCycleAccumulated = billingUnits.stream()
-                        .filter(u -> !isSimplifiedUnit(u) && extractCycleIndex(u) == finalLastCycleIndex)
-                        .map(BillingUnit::getChargedAmount)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                state.setCycleAccumulated(lastCycleAccumulated);
-                state.setCycleBoundary(getCycleBoundary(lastCycleIndex + 1, calcBegin));
-            }
+        // 更新状态
+        if (!billingUnits.isEmpty() && isSimplifiedUnit(billingUnits.get(billingUnits.size() - 1))) {
+            simplifiedCycleStateManager.updateStateAfterUnitBasedSimplified(
+                    billingUnits,
+                    state,
+                    totalCycles,
+                    cycleCapAmount,
+                    calcBegin,
+                    this::getCycleBoundary,
+                    this::isSimplifiedUnit,
+                    this::extractCycleIndex
+            );
         } else {
-            // 没有单元，保持原状态
-            state.setCycleIndex(totalCycles);
-            state.setCycleAccumulated(cycleCapAmount);
-            state.setCycleBoundary(getCycleBoundary(totalCycles + 1, calcBegin));
+            simplifiedCycleStateManager.updateStateAfterPlainUnitBased(
+                    billingUnits,
+                    state,
+                    totalCycles,
+                    cycleCapAmount,
+                    calcBegin,
+                    this::getCycleBoundary,
+                    this::extractCycleIndex
+            );
         }
 
         // 汇总结果
+
         BigDecimal totalAmount = billingUnits.stream()
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -343,7 +351,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 if (positionInCycle < 0) {
                     positionInCycle += MINUTES_PER_DAY;
                 }
-                CompositePeriod period = findPeriodForMinute(positionInCycle, config.getPeriods());
+                CompositePeriod period = periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
                 int unitMinutes = period.getUnitMinutes();
                 if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
                     lastUnit.setIsTruncated(true);
@@ -423,87 +431,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
     }
 
     /**
-     * 应用封顶（针对简化计算结果）
-     */
-    private void applyCapForSimplified(List<BillingUnit> units, CompositeTimeConfig config, BigDecimal carryOverAccumulated) {
-        BigDecimal maxCharge = config.getMaxChargeOneCycle();
-
-        // 按周期分组处理
-        Map<Integer, List<BillingUnit>> cycleGroups = new LinkedHashMap<>();
-        for (BillingUnit unit : units) {
-            int cycleIndex = isSimplifiedUnit(unit) ? getSimplifiedCycleIndex(unit) : extractCycleIndex(unit);
-            cycleGroups.computeIfAbsent(cycleIndex, k -> new ArrayList<>()).add(unit);
-        }
-
-        BigDecimal accumulated = carryOverAccumulated;
-
-        for (Map.Entry<Integer, List<BillingUnit>> entry : cycleGroups.entrySet()) {
-            List<BillingUnit> cycleUnits = entry.getValue();
-
-            // 检查是否为简化单元
-            if (cycleUnits.size() == 1 && isSimplifiedUnit(cycleUnits.get(0))) {
-                // 简化单元已达封顶，重置累计
-                accumulated = BigDecimal.ZERO;
-                continue;
-            }
-
-            // 计算本周期金额
-            BigDecimal cycleAmount = cycleUnits.stream()
-                    .map(BillingUnit::getChargedAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            BigDecimal totalAccumulated = accumulated.add(cycleAmount);
-
-            if (totalAccumulated.compareTo(maxCharge) > 0) {
-                // 超过封顶
-                BigDecimal maxAllowed = maxCharge.subtract(accumulated).max(BigDecimal.ZERO);
-                if (maxAllowed.compareTo(BigDecimal.ZERO) <= 0) {
-                    // 已达封顶，全部免费
-                    for (BillingUnit unit : cycleUnits) {
-                        if (!unit.isFree()) {
-                            unit.setChargedAmount(BigDecimal.ZERO);
-                            unit.setFree(true);
-                            unit.setFreePromotionId("CYCLE_CAP");
-                        }
-                    }
-                } else {
-                    // 按比例削减
-                    BigDecimal ratio = maxAllowed.divide(cycleAmount, 6, RoundingMode.HALF_UP);
-                    for (BillingUnit unit : cycleUnits) {
-                        if (!unit.isFree()) {
-                            BigDecimal newAmount = unit.getChargedAmount().multiply(ratio)
-                                    .setScale(2, RoundingMode.HALF_UP);
-                            unit.setChargedAmount(newAmount);
-                            if (newAmount.compareTo(BigDecimal.ZERO) == 0) {
-                                unit.setFree(true);
-                                unit.setFreePromotionId("CYCLE_CAP");
-                            }
-                        }
-                    }
-                }
-                accumulated = maxCharge;
-            } else {
-                accumulated = totalAccumulated;
-            }
-
-            // 新周期重置
-            accumulated = BigDecimal.ZERO;
-        }
-    }
-
-    /**
-     * 从简化单元中获取起始周期索引
-     */
-    @SuppressWarnings("unchecked")
-    private int getSimplifiedCycleIndex(BillingUnit unit) {
-        if (isSimplifiedUnit(unit)) {
-            Map<String, Object> data = (Map<String, Object>) unit.getRuleData();
-            return (Integer) data.get("cycleIndex");
-        }
-        return 0;
-    }
-
-    /**
      * CONTINUOUS 模式计算 - "气泡抽出"模型
      * <p>
      * 核心思想：
@@ -526,7 +453,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
      * ├── 相对位置：210-240 分钟（跳过免费时段，仍从 08:00 计算）
      * └── 210 > 120，所以在相对周期 2
      */
-    private BillingSegmentResult calculateContinuous(BillingContext context,
+    BillingSegmentResult calculateContinuousInternal(BillingContext context,
                                                       CompositeTimeConfig config,
                                                       PromotionAggregate promotionAggregate) {
         // 获取计算窗口
@@ -615,7 +542,11 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                     lastCycleAccumulated = maxCharge;
                 } else {
                     List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config, billingOrigin);
-                    lastCycleAccumulated = applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneCycle(), carryOverAccumulated);
+                    lastCycleAccumulated = continuousCapHandler.applyWithCarryOver(
+                            cycleUnits,
+                            config.getMaxChargeOneCycle(),
+                            carryOverAccumulated
+                    );
                     allUnits.addAll(cycleUnits);
                 }
                 // 新周期重置累计金额
@@ -623,48 +554,27 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             }
 
             // 更新最终状态
-            if (!cycles.isEmpty()) {
-                state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                // 如果 cycleBoundary 已存在（CONTINUE 模式），在其基础上延长
-                if (state.getCycleBoundary() != null) {
-                    state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
-                } else {
-                    state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_DAY).plusMinutes(bubbleExtension));
-                }
-                state.setCycleAccumulated(lastCycleAccumulated);
-            }
+            simplifiedCycleStateManager.updateStateAfterPlainContinuous(
+                    cycles,
+                    state,
+                    lastCycleAccumulated,
+                    calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd),
+                    cycle -> ((CycleFragments) cycle).cycleStart,
+                    MINUTES_PER_DAY
+            );
         } else {
             // 简化计算模式：更新状态
-            if (!allUnits.isEmpty()) {
-                BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
-                if (isSimplifiedUnit(lastUnit)) {
-                    // 简化单元：使用 simplifiedCycleAmount 作为周期累计金额
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> ruleData = (Map<String, Object>) lastUnit.getRuleData();
-                    BigDecimal cycleAmount = (BigDecimal) ruleData.get("simplifiedCycleAmount");
-                    state.setCycleAccumulated(cycleAmount);
-                    int beginCycleIndex = (Integer) ruleData.get("cycleIndex");
-                    int cycleCount = (Integer) ruleData.get("simplifiedCycleCount");
-                    state.setCycleIndex(beginCycleIndex + cycleCount - 1);
-                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                    if (state.getCycleBoundary() != null) {
-                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
-                    } else {
-                        state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin).plusMinutes(bubbleExtension));
-                    }
-                } else {
-                    // 非简化单元
-                    state.setCycleAccumulated(BigDecimal.ZERO);
-                    state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                    if (state.getCycleBoundary() != null) {
-                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
-                    } else {
-                        state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_DAY).plusMinutes(bubbleExtension));
-                    }
-                }
-            }
+            simplifiedCycleStateManager.updateStateAfterContinuousSimplified(
+                    allUnits,
+                    state,
+                    cycles.size(),
+                    getCycleCapAmount(config),
+                    calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd),
+                    cycles.isEmpty() ? null : cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_DAY),
+                    calcBegin,
+                    this::getCycleBoundary,
+                    this::isSimplifiedUnit
+            );
         }
 
         BigDecimal totalAmount = allUnits.stream()
@@ -683,7 +593,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             if (positionInCycle < 0) {
                 positionInCycle += MINUTES_PER_DAY;
             }
-            CompositePeriod period = findPeriodForMinute(positionInCycle, config.getPeriods());
+            CompositePeriod period = periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
             int unitMinutes = period.getUnitMinutes();
             if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
                 lastUnit.setIsTruncated(true);
@@ -761,7 +671,11 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
 
                 // 生成当前有优惠周期的详细单元
                 List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config, billingOrigin);
-                applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneCycle(), carryOverAccumulated);
+                continuousCapHandler.applyWithCarryOver(
+                        cycleUnits,
+                        config.getMaxChargeOneCycle(),
+                        carryOverAccumulated
+                );
                 allUnits.addAll(cycleUnits);
                 carryOverAccumulated = BigDecimal.ZERO;
             }
@@ -926,7 +840,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
 
         while (current.isBefore(fragment.endTime)) {
             // 根据相对位置找到对应的 CompositePeriod
-            CompositePeriod period = findPeriodForMinute((int) positionInCycle, config.getPeriods());
+            CompositePeriod period = periodResolver.findPeriodForMinute((int) positionInCycle, config.getPeriods());
             int unitMinutes = period.getUnitMinutes();
 
             LocalDateTime unitEnd = current.plusMinutes(unitMinutes);
@@ -953,7 +867,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             int duration = (int) Duration.between(current, unitEnd).toMinutes();
 
             // 计算单元价格（基于自然时段）
-            BigDecimal unitPrice = calculateUnitPrice(current, unitEnd, period);
+            BigDecimal unitPrice = crossPeriodPriceResolver.calculateUnitPrice(current, unitEnd, period);
 
             // 不足单元也收全额
             BigDecimal originalAmount = unitPrice;
@@ -1246,7 +1160,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             int duration = (int) Duration.between(unitStart, unitEnd).toMinutes();
 
             // 计算单元价格（基于自然时段）
-            BigDecimal unitPrice = calculateUnitPrice(unitStart, unitEnd, period);
+            BigDecimal unitPrice = crossPeriodPriceResolver.calculateUnitPrice(unitStart, unitEnd, period);
 
             // 金额计算：不足一个单元也收全额（除非配置了按比例）
             BigDecimal originalAmount;
@@ -1331,145 +1245,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 excess = excess.subtract(charged);
             }
         }
-    }
-
-    /**
-     * 计算单元价格（基于自然时段和跨时段处理模式）
-     */
-    private BigDecimal calculateUnitPrice(LocalDateTime unitBegin, LocalDateTime unitEnd, CompositePeriod period) {
-        int unitMinutes = (int) Duration.between(unitBegin, unitEnd).toMinutes();
-
-        // 找到单元开始时间对应的自然时段
-        int beginMinuteOfDay = unitBegin.getHour() * 60 + unitBegin.getMinute();
-        NaturalPeriod beginPeriod = findNaturalPeriod(beginMinuteOfDay, period.getNaturalPeriods());
-
-        // 找到单元结束时间对应的自然时段
-        int endMinuteOfDay = unitEnd.getHour() * 60 + unitEnd.getMinute();
-        if (endMinuteOfDay == 0) {
-            endMinuteOfDay = MINUTES_PER_DAY; // 00:00 视为 1440
-        }
-        NaturalPeriod endPeriod = findNaturalPeriod(endMinuteOfDay == MINUTES_PER_DAY ? 0 : endMinuteOfDay, period.getNaturalPeriods());
-
-        // 如果开始和结束在同一自然时段，直接返回该时段价格
-        if (beginPeriod == endPeriod || beginPeriod.getUnitPrice().equals(endPeriod.getUnitPrice())) {
-            return beginPeriod.getUnitPrice();
-        }
-
-        // 跨时段处理
-        return handleCrossPeriod(unitBegin, unitEnd, period, beginPeriod, endPeriod);
-    }
-
-    /**
-     * 处理跨自然时段的单元
-     */
-    private BigDecimal handleCrossPeriod(LocalDateTime unitBegin, LocalDateTime unitEnd,
-                                          CompositePeriod period, NaturalPeriod beginPeriod, NaturalPeriod endPeriod) {
-        CrossPeriodMode mode = period.getCrossPeriodMode();
-
-        switch (mode) {
-            case BLOCK_WEIGHT:
-                return handleBlockWeight(unitBegin, unitEnd, period.getNaturalPeriods());
-            case HIGHER_PRICE:
-                return beginPeriod.getUnitPrice().max(endPeriod.getUnitPrice());
-            case LOWER_PRICE:
-                return beginPeriod.getUnitPrice().min(endPeriod.getUnitPrice());
-            case BEGIN_TIME_PRICE:
-                return beginPeriod.getUnitPrice();
-            case END_TIME_PRICE:
-                return endPeriod.getUnitPrice();
-            case PROPORTIONAL:
-                return calculateProportionalPrice(unitBegin, unitEnd, period.getNaturalPeriods());
-            case BEGIN_TIME_TRUNCATE:
-                return beginPeriod.getUnitPrice();
-            default:
-                return beginPeriod.getUnitPrice();
-        }
-    }
-
-    /**
-     * 按时间比例判断用哪个价格（BLOCK_WEIGHT 模式）
-     * 类似 DayNightRule 的 blockWeight 逻辑，默认 0.5
-     */
-    private BigDecimal handleBlockWeight(LocalDateTime unitBegin, LocalDateTime unitEnd, List<NaturalPeriod> naturalPeriods) {
-        // 简化实现：返回第一个自然时段的价格
-        // 完整实现需要计算各时段的分钟比例
-        int beginMinuteOfDay = unitBegin.getHour() * 60 + unitBegin.getMinute();
-        NaturalPeriod beginPeriod = findNaturalPeriod(beginMinuteOfDay, naturalPeriods);
-        return beginPeriod.getUnitPrice();
-    }
-
-    /**
-     * 按比例计算价格
-     */
-    private BigDecimal calculateProportionalPrice(LocalDateTime unitBegin, LocalDateTime unitEnd, List<NaturalPeriod> naturalPeriods) {
-        int totalMinutes = (int) Duration.between(unitBegin, unitEnd).toMinutes();
-        BigDecimal totalAmount = BigDecimal.ZERO;
-
-        LocalDateTime current = unitBegin;
-        while (current.isBefore(unitEnd)) {
-            int currentMinuteOfDay = current.getHour() * 60 + current.getMinute();
-            NaturalPeriod np = findNaturalPeriod(currentMinuteOfDay, naturalPeriods);
-
-            // 找到下一个自然时段的边界
-            LocalDateTime nextBoundary = findNextNaturalPeriodBoundary(current, naturalPeriods);
-            if (nextBoundary == null || nextBoundary.isAfter(unitEnd)) {
-                nextBoundary = unitEnd;
-            }
-
-            int minutesInPeriod = (int) Duration.between(current, nextBoundary).toMinutes();
-            BigDecimal periodAmount = np.getUnitPrice().multiply(BigDecimal.valueOf(minutesInPeriod))
-                    .divide(BigDecimal.valueOf(totalMinutes), 2, RoundingMode.HALF_UP);
-            totalAmount = totalAmount.add(periodAmount);
-
-            current = nextBoundary;
-        }
-
-        return totalAmount;
-    }
-
-    /**
-     * 查找下一个自然时段边界
-     */
-    private LocalDateTime findNextNaturalPeriodBoundary(LocalDateTime current, List<NaturalPeriod> naturalPeriods) {
-        int currentMinuteOfDay = current.getHour() * 60 + current.getMinute();
-
-        for (NaturalPeriod np : naturalPeriods) {
-            // 如果当前在某个时段内，下一个边界是该时段的结束
-            if (isInNaturalPeriod(currentMinuteOfDay, np)) {
-                return current.plusMinutes(np.getEndMinute() - currentMinuteOfDay);
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * 判断分钟是否在自然时段内
-     */
-    private boolean isInNaturalPeriod(int minute, NaturalPeriod period) {
-        int begin = period.getBeginMinute();
-        int end = period.getEndMinute();
-
-        if (begin < end) {
-            // 不跨天
-            return minute >= begin && minute < end;
-        } else {
-            // 跨天
-            return minute >= begin || minute < end;
-        }
-    }
-
-    /**
-     * 查找包含指定分钟的自然时段
-     */
-    private NaturalPeriod findNaturalPeriod(int minute, List<NaturalPeriod> naturalPeriods) {
-        for (NaturalPeriod np : naturalPeriods) {
-            if (isInNaturalPeriod(minute, np)) {
-                return np;
-            }
-        }
-        // 如果没找到，返回第一个时段（边界情况）
-        return naturalPeriods.get(0);
     }
 
     /**
@@ -1605,19 +1380,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             cycleStart = cycleStart.plusMinutes(MINUTES_PER_DAY);
         }
         return cycleStart.plusMinutes(MINUTES_PER_DAY);
-    }
-
-    /**
-     * 根据分钟找到对应的 CompositePeriod
-     */
-    private CompositePeriod findPeriodForMinute(int minute, List<CompositePeriod> periods) {
-        for (CompositePeriod period : periods) {
-            if (minute >= period.getBeginMinute() && minute < period.getEndMinute()) {
-                return period;
-            }
-        }
-        // 如果超出最后一个 period，返回最后一个
-        return periods.get(periods.size() - 1);
     }
 
     /**

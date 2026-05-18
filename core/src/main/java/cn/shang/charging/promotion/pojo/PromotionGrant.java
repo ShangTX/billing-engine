@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.experimental.Accessors;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -50,5 +51,17 @@ public class PromotionGrant {
      * 仅当 conditional=true 时有效
      */
     LocalDateTime conditionalUntil;
+
+    /**
+     * 金额减免额度
+     * 仅对 AMOUNT 类型有效
+     */
+    BigDecimal amount;
+
+    /**
+     * 折扣率（如 0.8 表示 8 折）
+     * 仅对 DISCOUNT 类型有效
+     */
+    BigDecimal discountRate;
 
 }

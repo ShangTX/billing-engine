@@ -70,7 +70,8 @@ BillingResult result = billingTemplate.calculate(request);
 
 - 已实现计费规则包括 `dayNight`、`relativeTime`、`compositeTime` 和 `flatFree`。
 - 已实现优惠能力主要包括 `FREE_RANGE`、`FREE_MINUTES`、`freeMinutes` 和 `startFree`。
-- `AMOUNT`、`DISCOUNT`、`times`、`naturalTime`、`nrTimeMix` 是预留或待实现能力。
+- `naturalTime`、`nrTimeMix` 已被 `compositeTime` 覆盖，不再单独实现。
+- `AMOUNT`、`DISCOUNT` 是预留优惠类型，`times` 是预留计费类型（非时间计费场景）。
 - 查询时点金额由命中单元的 `valueSpec` 计算，不再直接读取 `accumulatedAmount`。
 
 完整能力矩阵和已知限制见 [计费引擎能力文档](docs/billing-engine-capabilities-zh.md)。

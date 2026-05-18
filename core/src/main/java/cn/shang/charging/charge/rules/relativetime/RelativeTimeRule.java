@@ -42,6 +42,11 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
 
     // 规则类型标识（用于 ruleState Map 的 key）
     private static final String RULE_TYPE = "relativeTime";
+    private final RelativeTimeContinuousCalculator continuousCalculator = new RelativeTimeContinuousCalculator();
+    private final RelativeTimeUnitBasedCalculator unitBasedCalculator = new RelativeTimeUnitBasedCalculator();
+    private final RelativeTimePeriodResolver periodResolver = new RelativeTimePeriodResolver();
+    private final RelativeTimeContinuousCapHandler continuousCapHandler = new RelativeTimeContinuousCapHandler();
+    private final RelativeTimeSimplifiedCycleStateManager simplifiedCycleStateManager = new RelativeTimeSimplifiedCycleStateManager();
 
     @Override
     protected String getRuleType() {
@@ -78,9 +83,9 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
     @Override
     public BillingSegmentResult calculate(BillingContext context, RelativeTimeConfig config, PromotionAggregate promotionAggregate) {
         if (context.getBillingMode() == BConstants.BillingMode.UNIT_BASED) {
-            return calculateUnitBased(context, config, promotionAggregate);
+            return unitBasedCalculator.calculate(this, context, config, promotionAggregate);
         } else {
-            return calculateContinuous(context, config, promotionAggregate);
+            return continuousCalculator.calculate(this, context, config, promotionAggregate);
         }
     }
 
@@ -88,7 +93,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
      * UNIT_BASED 模式计算
      * 固定从计费起点对齐，免费时段必须完全覆盖整个单元才免费
      */
-    private BillingSegmentResult calculateUnitBased(BillingContext context, RelativeTimeConfig config, PromotionAggregate promotionAggregate) {
+    BillingSegmentResult calculateUnitBasedInternal(BillingContext context, RelativeTimeConfig config, PromotionAggregate promotionAggregate) {
         // 验证配置
         validateConfig(config);
 
@@ -205,7 +210,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
             // 获取最后一个单元对应的单元长度
             int minutesFromCalcBegin = (int) Duration.between(calcBegin, lastUnit.getBeginTime()).toMinutes();
-            RelativeTimePeriod period = findPeriodForMinute(minutesFromCalcBegin, config.getPeriods());
+            RelativeTimePeriod period = periodResolver.findPeriodForMinute(minutesFromCalcBegin, config.getPeriods());
             int unitMinutes = period.getUnitMinutes();
             if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
                 lastUnit.setIsTruncated(true);
@@ -307,7 +312,12 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         }
 
         // 应用封顶（简化单元已达封顶，但需要处理累计金额的逻辑）
-        applyCapWithCarryOverForSimplified(billingUnits, config, state.getCycleAccumulated());
+        simplifiedCycleStateManager.applyCapWithCarryOverForSimplified(
+                billingUnits,
+                config,
+                state.getCycleAccumulated(),
+                this::isSimplifiedUnit
+        );
 
         // 更新状态 - 使用实际处理的最后一个周期索引
         if (!billingUnits.isEmpty()) {
@@ -324,12 +334,12 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                 state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin));
             } else {
                 // 非简化单元：使用最后一个单元的周期信息
-                int lastCycleIndex = extractCycleIndex(lastUnit);
+                int lastCycleIndex = simplifiedCycleStateManager.extractCycleIndex(lastUnit);
                 state.setCycleIndex(lastCycleIndex);
                 // 计算最后一个周期的累计金额
                 final int finalLastCycleIndex = lastCycleIndex;
                 BigDecimal lastCycleAccumulated = billingUnits.stream()
-                        .filter(u -> !isSimplifiedUnit(u) && extractCycleIndex(u) == finalLastCycleIndex)
+                        .filter(u -> !isSimplifiedUnit(u) && simplifiedCycleStateManager.extractCycleIndex(u) == finalLastCycleIndex)
                         .map(BillingUnit::getChargedAmount)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
                 state.setCycleAccumulated(lastCycleAccumulated);
@@ -352,7 +362,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
             if (!isSimplifiedUnit(lastUnit)) {
                 int minutesFromCalcBegin = (int) Duration.between(calcBegin, lastUnit.getBeginTime()).toMinutes();
-                RelativeTimePeriod period = findPeriodForMinute(minutesFromCalcBegin % MINUTES_PER_CYCLE, config.getPeriods());
+                RelativeTimePeriod period = periodResolver.findPeriodForMinute(minutesFromCalcBegin % MINUTES_PER_CYCLE, config.getPeriods());
                 int unitMinutes = period.getUnitMinutes();
                 if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
                     lastUnit.setIsTruncated(true);
@@ -415,97 +425,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         }
 
         return cycle.units;
-    }
-
-    /**
-     * 从 BillingUnit 中提取周期索引
-     */
-    private int extractCycleIndex(BillingUnit unit) {
-        if (unit.getRuleData() instanceof Integer) {
-            return (Integer) unit.getRuleData();
-        }
-        return 0;
-    }
-
-    /**
-     * 应用封顶（针对简化计算结果）
-     */
-    private void applyCapWithCarryOverForSimplified(List<BillingUnit> units, RelativeTimeConfig config, BigDecimal carryOverAccumulated) {
-        BigDecimal maxCharge = config.getMaxChargeOneCycle();
-
-        // 按周期分组处理
-        Map<Integer, List<BillingUnit>> cycleGroups = new LinkedHashMap<>();
-        for (BillingUnit unit : units) {
-            int cycleIndex = isSimplifiedUnit(unit) ? getSimplifiedCycleIndex(unit) : extractCycleIndex(unit);
-            cycleGroups.computeIfAbsent(cycleIndex, k -> new ArrayList<>()).add(unit);
-        }
-
-        BigDecimal accumulated = carryOverAccumulated;
-
-        for (Map.Entry<Integer, List<BillingUnit>> entry : cycleGroups.entrySet()) {
-            List<BillingUnit> cycleUnits = entry.getValue();
-
-            // 检查是否为简化单元
-            if (cycleUnits.size() == 1 && isSimplifiedUnit(cycleUnits.get(0))) {
-                // 简化单元已达封顶，重置累计
-                accumulated = BigDecimal.ZERO;
-                continue;
-            }
-
-            // 计算本周期金额
-            BigDecimal cycleAmount = cycleUnits.stream()
-                    .map(BillingUnit::getChargedAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            BigDecimal totalAccumulated = accumulated.add(cycleAmount);
-
-            if (totalAccumulated.compareTo(maxCharge) > 0) {
-                // 超过封顶
-                BigDecimal maxAllowed = maxCharge.subtract(accumulated).max(BigDecimal.ZERO);
-                if (maxAllowed.compareTo(BigDecimal.ZERO) <= 0) {
-                    // 已达封顶，全部免费
-                    for (BillingUnit unit : cycleUnits) {
-                        if (!unit.isFree()) {
-                            unit.setChargedAmount(BigDecimal.ZERO);
-                            unit.setFree(true);
-                            unit.setFreePromotionId("CYCLE_CAP");
-                        }
-                    }
-                } else {
-                    // 按比例削减
-                    BigDecimal ratio = maxAllowed.divide(cycleAmount, 6, RoundingMode.HALF_UP);
-                    for (BillingUnit unit : cycleUnits) {
-                        if (!unit.isFree()) {
-                            BigDecimal newAmount = unit.getChargedAmount().multiply(ratio)
-                                    .setScale(2, RoundingMode.HALF_UP);
-                            unit.setChargedAmount(newAmount);
-                            if (newAmount.compareTo(BigDecimal.ZERO) == 0) {
-                                unit.setFree(true);
-                                unit.setFreePromotionId("CYCLE_CAP");
-                            }
-                        }
-                    }
-                }
-                accumulated = maxCharge;
-            } else {
-                accumulated = totalAccumulated;
-            }
-
-            // 新周期重置
-            accumulated = BigDecimal.ZERO;
-        }
-    }
-
-    /**
-     * 从简化单元中获取起始周期索引
-     */
-    @SuppressWarnings("unchecked")
-    private int getSimplifiedCycleIndex(BillingUnit unit) {
-        if (isSimplifiedUnit(unit)) {
-            Map<String, Object> data = (Map<String, Object>) unit.getRuleData();
-            return (Integer) data.get("cycleIndex");
-        }
-        return 0;
     }
 
     /**
@@ -951,7 +870,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
      * CONTINUOUS 模式计算
      * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
      */
-    private BillingSegmentResult calculateContinuous(BillingContext context, RelativeTimeConfig config, PromotionAggregate promotionAggregate) {
+    BillingSegmentResult calculateContinuousInternal(BillingContext context, RelativeTimeConfig config, PromotionAggregate promotionAggregate) {
         validateConfig(config);
 
         CalculationWindow window = context.getWindow();
@@ -985,6 +904,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
 
         // 检查是否启用简化计算
         List<BillingUnit> allUnits = new ArrayList<>();
+        BigDecimal cycleCapAmount = getCycleCapAmount(config);
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
             && isSimplificationEnabled(config, context.getBillingConfigResolver(), context);
         int threshold = context.getBillingConfigResolver() != null
@@ -1038,7 +958,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                     lastCycleAccumulated = maxCharge; // 封顶金额
                 } else {
                     List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
-                    lastCycleAccumulated = applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneCycle(), carryOverAccumulated);
+                    lastCycleAccumulated = continuousCapHandler.applyWithCarryOver(cycleUnits, config.getMaxChargeOneCycle(), carryOverAccumulated);
                     allUnits.addAll(cycleUnits);
                 }
                 // 新周期重置累计金额
@@ -1062,33 +982,18 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         } else {
             // 简化计算模式：更新状态
             if (!allUnits.isEmpty()) {
-                BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
-                if (isSimplifiedUnit(lastUnit)) {
-                    // 简化单元：使用 simplifiedCycleAmount 作为周期累计金额
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> ruleData = (Map<String, Object>) lastUnit.getRuleData();
-                    BigDecimal cycleAmount = (BigDecimal) ruleData.get("simplifiedCycleAmount");
-                    state.setCycleAccumulated(cycleAmount);
-                    int beginCycleIndex = (Integer) ruleData.get("cycleIndex");
-                    int cycleCount = (Integer) ruleData.get("simplifiedCycleCount");
-                    state.setCycleIndex(beginCycleIndex + cycleCount - 1);
-                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                    if (state.getCycleBoundary() != null) {
-                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
-                    } else {
-                        state.setCycleBoundary(getCycleBoundary(beginCycleIndex + cycleCount, calcBegin).plusMinutes(bubbleExtension));
-                    }
-                } else {
-                    // 非简化单元
-                    state.setCycleAccumulated(BigDecimal.ZERO);
-                    state.setCycleIndex(state.getCycleIndex() + cycles.size() - 1);
-                    int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-                    if (state.getCycleBoundary() != null) {
-                        state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
-                    } else {
-                        state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE).plusMinutes(bubbleExtension));
-                    }
-                }
+                int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
+                simplifiedCycleStateManager.updateStateAfterSimplified(
+                        allUnits,
+                        state,
+                        cycles.size(),
+                        cycleCapAmount,
+                        calcBegin,
+                        bubbleExtension,
+                        cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_CYCLE),
+                        this::getCycleBoundary,
+                        this::isSimplifiedUnit
+                );
             }
         }
 
@@ -1104,7 +1009,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
             // 对于 CONTINUOUS 模式，使用最后一个单元的开始时间计算对应的单元长度
             int minutesFromCalcBegin = (int) Duration.between(calcBegin, lastUnit.getBeginTime()).toMinutes();
-            RelativeTimePeriod period = findPeriodForMinute(minutesFromCalcBegin, config.getPeriods());
+            RelativeTimePeriod period = periodResolver.findPeriodForMinute(minutesFromCalcBegin, config.getPeriods());
             int unitMinutes = period.getUnitMinutes();
             if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
                 lastUnit.setIsTruncated(true);
@@ -1282,7 +1187,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         while (current.isBefore(fragment.endTime)) {
             // 找到当前时间点对应的 period
             int minutesFromCycleStart = (int) Duration.between(cycleStart, current).toMinutes();
-            RelativeTimePeriod period = findPeriodForMinute(minutesFromCycleStart, config.getPeriods());
+            RelativeTimePeriod period = periodResolver.findPeriodForMinute(minutesFromCycleStart, config.getPeriods());
 
             int unitMinutes = period.getUnitMinutes();
             BigDecimal unitPrice = period.getUnitPrice();
@@ -1296,7 +1201,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
 
             // 截断到 period 边界
             int periodEndMinute = period.getEndMinute();
-            LocalDateTime periodEnd = cycleStart.plusMinutes(periodEndMinute);
+            LocalDateTime periodEnd = periodResolver.resolvePeriodEnd(cycleStart, period);
             if (unitEnd.isAfter(periodEnd)) {
                 unitEnd = periodEnd;
             }
@@ -1324,126 +1229,17 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
     }
 
     /**
-     * 找到对应的 period
-     */
-    private RelativeTimePeriod findPeriodForMinute(int minute, List<RelativeTimePeriod> periods) {
-        for (RelativeTimePeriod period : periods) {
-            if (minute >= period.getBeginMinute() && minute < period.getEndMinute()) {
-                return period;
-            }
-        }
-        // 如果超出最后一个 period，返回最后一个
-        return periods.get(periods.size() - 1);
-    }
-
-    /**
      * CONTINUOUS 模式封顶处理
      * 封顶后截止，剩余时间合并为免费单元
      */
     private void applyContinuousCap(List<BillingUnit> units, BigDecimal maxCharge) {
-        applyContinuousCapWithCarryOver(units, maxCharge, BigDecimal.ZERO);
+        continuousCapHandler.applyWithCarryOver(units, maxCharge, BigDecimal.ZERO);
     }
 
     /**
      * CONTINUOUS 模式封顶处理（考虑结转的累计金额）
      * @return 累计金额（封顶后为封顶金额，未封顶为实际累计）
      */
-    private BigDecimal applyContinuousCapWithCarryOver(List<BillingUnit> units, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
-        if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
-            // 不封顶时，返回累计金额
-            BigDecimal total = carryOverAccumulated;
-            for (BillingUnit unit : units) {
-                if (!unit.isFree()) {
-                    total = total.add(unit.getChargedAmount());
-                }
-            }
-            return total;
-        }
-
-        // 如果继承的累计金额已达到封顶，将所有收费单元合并为一个免费单元
-        if (carryOverAccumulated.compareTo(maxCharge) >= 0) {
-            List<BillingUnit> chargeableUnits = units.stream()
-                    .filter(u -> !u.isFree())
-                    .toList();
-
-            if (!chargeableUnits.isEmpty()) {
-                BillingUnit firstChargeable = chargeableUnits.get(0);
-                BillingUnit lastChargeable = chargeableUnits.get(chargeableUnits.size() - 1);
-
-                // 移除所有收费单元
-                units.removeIf(u -> !u.isFree());
-
-                // 添加一个合并的免费单元
-                BillingUnit mergedFreeUnit = BillingUnit.builder()
-                        .beginTime(firstChargeable.getBeginTime())
-                        .endTime(lastChargeable.getEndTime())
-                        .durationMinutes((int) Duration.between(firstChargeable.getBeginTime(), lastChargeable.getEndTime()).toMinutes())
-                        .unitPrice(BigDecimal.ZERO)
-                        .originalAmount(BigDecimal.ZERO)
-                        .free(true)
-                        .freePromotionId("CYCLE_CAP")
-                        .chargedAmount(BigDecimal.ZERO)
-                        .build();
-                units.add(mergedFreeUnit);
-            }
-            return maxCharge;
-        }
-
-        BigDecimal accumulated = carryOverAccumulated;
-        int capIndex = -1;
-        BigDecimal lastChargeAmount = null;
-
-        for (int i = 0; i < units.size(); i++) {
-            BillingUnit unit = units.get(i);
-            if (unit.isFree()) {
-                continue;
-            }
-
-            BigDecimal newAccumulated = accumulated.add(unit.getChargedAmount());
-
-            if (newAccumulated.compareTo(maxCharge) >= 0) {
-                capIndex = i;
-                lastChargeAmount = maxCharge.subtract(accumulated);
-                break;
-            }
-
-            accumulated = newAccumulated;
-        }
-
-        if (capIndex < 0) {
-            // 未封顶，返回累计金额
-            return accumulated;
-        }
-
-        units.get(capIndex).setChargedAmount(lastChargeAmount.setScale(2, RoundingMode.HALF_UP));
-        if (units.get(capIndex).getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
-            units.get(capIndex).setFree(true);
-            units.get(capIndex).setFreePromotionId("CYCLE_CAP");
-        }
-
-        if (capIndex < units.size() - 1) {
-            BillingUnit firstAfterCap = units.get(capIndex + 1);
-            BillingUnit lastAfterCap = units.get(units.size() - 1);
-
-            BillingUnit mergedFreeUnit = BillingUnit.builder()
-                    .beginTime(firstAfterCap.getBeginTime())
-                    .endTime(lastAfterCap.getEndTime())
-                    .durationMinutes((int) Duration.between(firstAfterCap.getBeginTime(), lastAfterCap.getEndTime()).toMinutes())
-                    .unitPrice(BigDecimal.ZERO)
-                    .originalAmount(BigDecimal.ZERO)
-                    .free(true)
-                    .freePromotionId("CYCLE_CAP")
-                    .chargedAmount(BigDecimal.ZERO)
-                    .build();
-
-            units.subList(capIndex + 1, units.size()).clear();
-            units.add(mergedFreeUnit);
-        }
-
-        // 封顶时返回封顶金额
-        return maxCharge;
-    }
-
     /**
      * 为 CONTINUOUS 模式生成简化单元
      */
@@ -1496,7 +1292,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
 
                 // 生成当前有优惠周期的详细单元
                 List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
-                applyContinuousCapWithCarryOver(cycleUnits, config.getMaxChargeOneCycle(), carryOverAccumulated);
+                continuousCapHandler.applyWithCarryOver(cycleUnits, config.getMaxChargeOneCycle(), carryOverAccumulated);
                 allUnits.addAll(cycleUnits);
                 carryOverAccumulated = BigDecimal.ZERO;
             }

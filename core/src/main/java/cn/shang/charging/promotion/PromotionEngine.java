@@ -7,6 +7,7 @@ import cn.shang.charging.promotion.rules.PromotionRule;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
 import lombok.AllArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,6 +17,14 @@ import java.util.stream.Stream;
 
 /**
  * 优惠计算engine
+ * <p>
+ * 支持四种优惠类型：
+ * - FREE_RANGE: 免费时间段
+ * - FREE_MINUTES: 免费分钟数
+ * - AMOUNT: 金额减免
+ * - DISCOUNT: 折扣优惠
+ * <p>
+ * 优惠叠加顺序：先折扣后减免，多个 AMOUNT 总和扣除，多个 DISCOUNT 取最优折扣。
  */
 @AllArgsConstructor
 public class PromotionEngine {
@@ -28,12 +37,9 @@ public class PromotionEngine {
     public PromotionAggregate evaluate(BillingContext context) {
         // 1️⃣ 确定本次 promotion 计算的时间窗口
         CalculationWindow window = context.getWindow();
-        // window 内部已经处理了：
-        // - 方案分段
-        // - SEGMENT_ORIGIN / GLOBAL_ORIGIN
         List<FreeTimeRange> timeRangePromotions = new ArrayList<>();
         List<FreeMinutes> freeMinutesPromotions = new ArrayList<>();
-
+        List<PromotionAggregate.AmountDiscount> amountDiscounts = new ArrayList<>();
 
         // 2.1 来自优惠规则（按方案 + 时间段）
         for (PromotionRuleConfig ruleConfig : context.getPromotionRules()) {
@@ -44,6 +50,12 @@ public class PromotionEngine {
                 }
                 if (grant.getType() == BConstants.PromotionType.FREE_MINUTES) {
                     freeMinutesPromotions.add(convertMinutesFromRule(grant));
+                }
+                if (grant.getType() == BConstants.PromotionType.AMOUNT) {
+                    amountDiscounts.add(convertAmountFromGrant(grant));
+                }
+                if (grant.getType() == BConstants.PromotionType.DISCOUNT) {
+                    amountDiscounts.add(convertDiscountFromGrant(grant));
                 }
             });
         }
@@ -56,6 +68,12 @@ public class PromotionEngine {
                 }
                 if (externalPromotion.getType() == BConstants.PromotionType.FREE_MINUTES) {
                     freeMinutesPromotions.add(convertMinutesFromRule(externalPromotion));
+                }
+                if (externalPromotion.getType() == BConstants.PromotionType.AMOUNT) {
+                    amountDiscounts.add(convertAmountFromGrant(externalPromotion));
+                }
+                if (externalPromotion.getType() == BConstants.PromotionType.DISCOUNT) {
+                    amountDiscounts.add(convertDiscountFromGrant(externalPromotion));
                 }
             }
         }
@@ -117,11 +135,18 @@ public class PromotionEngine {
                 .mapToLong(fm -> fm.getMinutes())
                 .sum();
 
+        // 8️⃣ 计算 AMOUNT/DISCOUNT 优惠汇总
+        BigDecimal totalAmountDiscount = calculateTotalAmountDiscount(amountDiscounts);
+        BigDecimal bestDiscountRate = calculateBestDiscountRate(amountDiscounts);
+
         return PromotionAggregate.builder()
                 .freeTimeRanges(finalFreeRanges)
                 .freeMinutes(totalFreeMinutes)
                 .usages(minuteResult.getPromotionUsages())
                 .promotionCarryOver(outputCarryOver)
+                .amountDiscounts(amountDiscounts.isEmpty() ? null : amountDiscounts)
+                .totalAmountDiscount(totalAmountDiscount)
+                .bestDiscountRate(bestDiscountRate)
                 .build();
     }
 
@@ -303,5 +328,52 @@ public class PromotionEngine {
                 .build();
     }
 
+    /**
+     * 将金额减免优惠转换为 AmountDiscount
+     */
+    private PromotionAggregate.AmountDiscount convertAmountFromGrant(PromotionGrant grant) {
+        return PromotionAggregate.AmountDiscount.builder()
+                .id(grant.getId())
+                .type(BConstants.PromotionType.AMOUNT)
+                .amount(grant.getAmount())
+                .priority(grant.getPriority())
+                .build();
+    }
+
+    /**
+     * 将折扣优惠转换为 AmountDiscount
+     */
+    private PromotionAggregate.AmountDiscount convertDiscountFromGrant(PromotionGrant grant) {
+        return PromotionAggregate.AmountDiscount.builder()
+                .id(grant.getId())
+                .type(BConstants.PromotionType.DISCOUNT)
+                .discountRate(grant.getDiscountRate())
+                .priority(grant.getPriority())
+                .build();
+    }
+
+    /**
+     * 计算总金额减免（所有 AMOUNT 优惠的总和）
+     */
+    private BigDecimal calculateTotalAmountDiscount(List<PromotionAggregate.AmountDiscount> amountDiscounts) {
+        return amountDiscounts.stream()
+                .filter(ad -> ad.getType() == BConstants.PromotionType.AMOUNT)
+                .filter(ad -> ad.getAmount() != null)
+                .map(PromotionAggregate.AmountDiscount::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * 计算最优折扣率（所有 DISCOUNT 中折扣力度最大的 = 最小值）
+     * 如 0.8（8折）比 0.9（9折）更优
+     */
+    private BigDecimal calculateBestDiscountRate(List<PromotionAggregate.AmountDiscount> amountDiscounts) {
+        return amountDiscounts.stream()
+                .filter(ad -> ad.getType() == BConstants.PromotionType.DISCOUNT)
+                .filter(ad -> ad.getDiscountRate() != null)
+                .map(PromotionAggregate.AmountDiscount::getDiscountRate)
+                .min(BigDecimal::compareTo)
+                .orElse(BigDecimal.ONE);
+    }
 
 }

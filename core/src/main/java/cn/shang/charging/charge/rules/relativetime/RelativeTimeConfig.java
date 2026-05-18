@@ -50,4 +50,21 @@ public class RelativeTimeConfig implements RuleConfig {
      * 是否支持简化计算，null 表示默认支持
      */
     private Boolean simplifiedSupported;
+
+    /**
+     * 不完整计费单元收费模式
+     * 默认 FULL_CHARGE（完整收费）
+     */
+    @Builder.Default
+    private BConstants.IncompleteUnitChargeMode incompleteUnitChargeMode = BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
+
+    /**
+     * 分钟阈值（仅 THRESHOLD_MINUTES 模式使用）
+     */
+    private Integer thresholdMinutes;
+
+    /**
+     * 比例阈值（仅 THRESHOLD_RATIO 模式使用）
+     */
+    private BigDecimal thresholdRatio;
 }

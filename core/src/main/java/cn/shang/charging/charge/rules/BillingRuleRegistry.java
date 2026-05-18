@@ -3,6 +3,8 @@ package cn.shang.charging.charge.rules;
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeRule;
 import cn.shang.charging.charge.rules.daynight.DayNightRule;
+import cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule;
+import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -25,6 +27,10 @@ public class BillingRuleRegistry {
         ruleMap = new HashMap<>();
         // 日夜分段计费
         ruleMap.put(BConstants.ChargeRuleType.DAY_NIGHT, new DayNightRule());
+        // 相对时间计费
+        ruleMap.put(BConstants.ChargeRuleType.RELATIVE_TIME, new RelativeTimeRule());
+        // 多自然时段计费
+        ruleMap.put(BConstants.ChargeRuleType.NATURAL_TIME, new NaturalTimeRule());
         // 混合时间计费
         ruleMap.put(BConstants.ChargeRuleType.COMPOSITE_TIME, new CompositeTimeRule());
     }

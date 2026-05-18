@@ -5,6 +5,7 @@ import cn.shang.charging.billing.BillingService;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.pojo.SimplifiedUnitMeta;
 import cn.shang.charging.billing.pojo.TimeRoundingMode;
 
 import java.math.BigDecimal;
@@ -190,10 +191,8 @@ public class BillingTemplate {
     }
 
     private boolean isSimplifiedUnit(BillingUnit unit) {
-        if (unit == null || !(unit.getRuleData() instanceof Map<?, ?> ruleData)) {
-            return false;
-        }
-        return Boolean.TRUE.equals(ruleData.get("isSimplified"));
+        SimplifiedUnitMeta meta = SimplifiedUnitMeta.from(unit);
+        return meta != null && meta.simplified();
     }
 
     private BillingRequest copyRequest(BillingRequest request) {

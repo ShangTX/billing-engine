@@ -13,7 +13,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 优惠计算
+ * 优惠计算结果
+ * <p>
+ * 包含免费时段、免费分钟数、金额减免和折扣优惠的组合结果。
  */
 @Builder
 @AllArgsConstructor
@@ -37,31 +39,53 @@ public class PromotionAggregate {
      */
     PromotionCarryOver promotionCarryOver;
 
+    // ==================== AMOUNT/DISCOUNT 优惠 ====================
+
+    /**
+     * 金额减免列表
+     */
+    List<AmountDiscount> amountDiscounts;
+
+    /**
+     * 总减免金额（所有 AMOUNT 优惠的总和）
+     */
+    BigDecimal totalAmountDiscount;
+
+    /**
+     * 最优折扣率（所有 DISCOUNT 优惠中折扣力度最大的）
+     * 如有多个折扣，取 min(discountRate)
+     */
+    BigDecimal bestDiscountRate;
+
     // ==================== 优惠类型判断方法 ====================
 
     /**
      * 是否为空（无优惠）
      */
     public boolean isEmpty() {
-        return (freeTimeRanges == null || freeTimeRanges.isEmpty()) && freeMinutes <= 0;
+        return (freeTimeRanges == null || freeTimeRanges.isEmpty()) && freeMinutes <= 0
+                && (amountDiscounts == null || amountDiscounts.isEmpty());
     }
 
     /**
      * 是否有多种优惠类型
      */
     public boolean hasMultiplePromotionTypes() {
-        if (freeTimeRanges == null || freeTimeRanges.isEmpty()) {
-            return freeMinutes > 0;
-        }
         Set<BConstants.PromotionType> types = new HashSet<>();
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (range.getPromotionType() != null) {
-                types.add(range.getPromotionType());
+        if (freeTimeRanges != null && !freeTimeRanges.isEmpty()) {
+            for (FreeTimeRange range : freeTimeRanges) {
+                if (range.getPromotionType() != null) {
+                    types.add(range.getPromotionType());
+                }
             }
         }
-        // 如果有免费分钟数，也算一种类型
         if (freeMinutes > 0) {
             types.add(BConstants.PromotionType.FREE_MINUTES);
+        }
+        if (amountDiscounts != null && !amountDiscounts.isEmpty()) {
+            for (AmountDiscount ad : amountDiscounts) {
+                types.add(ad.type);
+            }
         }
         return types.size() > 1;
     }
@@ -70,7 +94,7 @@ public class PromotionAggregate {
      * 是否为单一优惠类型
      */
     public boolean hasSinglePromotionType() {
-        if ((freeTimeRanges == null || freeTimeRanges.isEmpty()) && freeMinutes <= 0) {
+        if (isEmpty()) {
             return false;
         }
         Set<BConstants.PromotionType> types = new HashSet<>();
@@ -84,6 +108,40 @@ public class PromotionAggregate {
         if (freeMinutes > 0) {
             types.add(BConstants.PromotionType.FREE_MINUTES);
         }
+        if (amountDiscounts != null && !amountDiscounts.isEmpty()) {
+            for (AmountDiscount ad : amountDiscounts) {
+                types.add(ad.type);
+            }
+        }
         return types.size() == 1;
+    }
+
+    /**
+     * 是否有金额减免优惠
+     */
+    public boolean hasAmountDiscount() {
+        return totalAmountDiscount != null && totalAmountDiscount.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    /**
+     * 是否有折扣优惠
+     */
+    public boolean hasRateDiscount() {
+        return bestDiscountRate != null && bestDiscountRate.compareTo(BigDecimal.ONE) < 0;
+    }
+
+    /**
+     * 金额减免或折扣优惠记录
+     */
+    @Data
+    @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class AmountDiscount {
+        String id;
+        BConstants.PromotionType type;
+        BigDecimal amount;       // AMOUNT 类型的减免金额
+        BigDecimal discountRate; // DISCOUNT 类型的折扣率
+        Integer priority;
     }
 }

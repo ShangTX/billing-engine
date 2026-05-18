@@ -6,6 +6,7 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.pojo.SimplifiedUnitMeta;
 import cn.shang.charging.billing.value.FixedValueSpec;
 import cn.shang.charging.billing.value.StepValueSpec;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
@@ -195,7 +196,8 @@ class BillingResultViewerTest {
 
         CalculationWithQueryResult result = template.calculateWithQuery(request, query);
 
-        assertFalse(Boolean.TRUE.equals(((java.util.Map<?, ?>) result.getCalculationResult().getUnits().get(0).getRuleData()).get("isSimplified")));
+        SimplifiedUnitMeta meta = SimplifiedUnitMeta.from(result.getCalculationResult().getUnits().get(0));
+        assertTrue(meta == null || !meta.simplified());
         assertEquals(new BigDecimal("8.00"), result.getQueryResult().getAmount());
     }
 

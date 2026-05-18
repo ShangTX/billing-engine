@@ -70,7 +70,8 @@ For a full compilable setup, rule registration, Spring Boot integration, query-t
 
 - Implemented billing rules include `dayNight`, `relativeTime`, `compositeTime`, and `flatFree`.
 - Implemented promotion capabilities focus on `FREE_RANGE`, `FREE_MINUTES`, `freeMinutes`, and `startFree`.
-- `AMOUNT`, `DISCOUNT`, `times`, `naturalTime`, and `nrTimeMix` are reserved or pending capabilities.
+- `naturalTime` and `nrTimeMix` are now covered by `compositeTime` and will not be implemented separately.
+- `AMOUNT` and `DISCOUNT` are reserved promotion types; `times` is a reserved billing type (for non-time-based scenarios).
 - Query-time amount is calculated from the hit unit's `valueSpec`; it is not read directly from `accumulatedAmount`.
 
 See [Billing Engine Capabilities](docs/billing-engine-capabilities.md) for the full implemented capability matrix and known gaps.

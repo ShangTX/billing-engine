@@ -377,11 +377,8 @@ public class SimplifiedCalculationTest {
      */
     @SuppressWarnings("unchecked")
     static boolean isSimplifiedUnit(BillingUnit unit) {
-        if (unit.getRuleData() instanceof Map) {
-            Map<String, Object> data = (Map<String, Object>) unit.getRuleData();
-            return Boolean.TRUE.equals(data.get("isSimplified"));
-        }
-        return false;
+        SimplifiedUnitMeta meta = SimplifiedUnitMeta.from(unit);
+        return meta != null && meta.simplified();
     }
 
     /**

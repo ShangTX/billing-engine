@@ -1,0 +1,21 @@
+package cn.shang.charging.charge.rules.compositetime;
+
+import cn.shang.charging.billing.pojo.BillingContext;
+import cn.shang.charging.billing.pojo.BillingSegmentResult;
+import cn.shang.charging.promotion.pojo.PromotionAggregate;
+
+/**
+ * `compositeTime` 规则在 CONTINUOUS 模式下的计算入口。
+ * <p>
+ * 当前阶段先做模式职责拆分，不改变原有计算语义；
+ * 具体计算逻辑仍委托给 `CompositeTimeRule` 中的原实现。
+ */
+final class CompositeTimeContinuousCalculator {
+
+    BillingSegmentResult calculate(CompositeTimeRule owner,
+                                   BillingContext context,
+                                   CompositeTimeConfig config,
+                                   PromotionAggregate promotionAggregate) {
+        return owner.calculateContinuousInternal(context, config, promotionAggregate);
+    }
+}

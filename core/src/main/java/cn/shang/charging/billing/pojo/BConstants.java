@@ -49,16 +49,60 @@ public class BConstants {
     }
 
     /**
+     * 不完整计费单元收费模式
+     * <p>
+     * 当计费单元时长不足 unitMinutes 时，如何计费。
+     */
+    public enum IncompleteUnitChargeMode {
+        /**
+         * 完整收费（默认）
+         * 不完整单元收取完整单元价格
+         */
+        FULL_CHARGE,
+
+        /**
+         * 按时长比例收费
+         * chargedAmount = unitPrice * (durationMinutes / unitMinutes)
+         */
+        PROPORTIONAL,
+
+        /**
+         * 不收费
+         * 不完整单元免费
+         */
+        FREE,
+
+        /**
+         * 分钟阈值模式
+         * 超过阈值分钟数后全额收费，否则免费
+         * 需配合 thresholdMinutes 配置
+         */
+        THRESHOLD_MINUTES,
+
+        /**
+         * 比例阈值模式
+         * 超过阈值比例后全额收费，否则按比例收费
+         * 需配合 thresholdRatio 配置
+         */
+        THRESHOLD_RATIO
+    }
+
+    /**
      * 计费规则类型
      */
     public static class ChargeRuleType {
         public static String DAY_NIGHT = "dayNight"; // 日夜分时段计费
-        public static String TIMES = "times"; // 按次数
-        public static String NATURAL_TIME = "naturalTime"; // 按自然时间段计费
+        public static String NATURAL_TIME = "naturalTime"; // 多自然时段计费
         public static String RELATIVE_TIME = "relativeTime"; // 按相对时间段计费
-        public static String NR_TIME_MIX = "nrTimeMix"; // 按自然时间、相对时间混合时间段计费
         public static String COMPOSITE_TIME = "compositeTime"; // 混合时间计费
         public static String FLAT_FREE = "flatFree"; // 统一免费计费
+
+        /** @deprecated 使用 compositeTime 替代 */
+        @Deprecated
+        public static String NR_TIME_MIX = "nrTimeMix"; // 已被 compositeTime 覆盖
+
+        /** 预留：按次数计费（非时间计费场景，需另行设计） */
+        public static String TIMES = "times"; // 按次数（预留）
     }
 
     public static class PromotionRuleType {

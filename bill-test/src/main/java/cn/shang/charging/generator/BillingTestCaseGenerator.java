@@ -11,8 +11,20 @@ import cn.shang.charging.billing.pojo.PromotionRuleConfig;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.billing.pojo.TimeRoundingMode;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
+import cn.shang.charging.charge.rules.compositetime.CompositePeriod;
+import cn.shang.charging.charge.rules.compositetime.CompositeTimeConfig;
+import cn.shang.charging.charge.rules.compositetime.CompositeTimeRule;
+import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
+import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
 import cn.shang.charging.charge.rules.daynight.DayNightRule;
+import cn.shang.charging.charge.rules.flatfree.FlatFreeConfig;
+import cn.shang.charging.charge.rules.flatfree.FlatFreeRule;
+import cn.shang.charging.charge.rules.naturaltime.NaturalTimeConfig;
+import cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule;
+import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
+import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
+import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
@@ -70,10 +82,11 @@ public class BillingTestCaseGenerator {
      */
     private GeneratedBillingCase generateCase(TestGenerationRequest generationRequest, int index, Random random) {
         Set<TestFeature> features = normalizeFeatures(generationRequest.getFeatures());
-        DayNightConfig ruleConfig = createDayNightConfig(features, index);
+        String ruleType = generationRequest.getChargeRuleType();
+        RuleConfig ruleConfig = createRuleConfig(ruleType, features, index);
         List<PromotionRuleConfig> promotionConfigs = createPromotionConfigs(features, index);
         BConstants.BillingMode billingMode = selectBillingMode(features);
-        BillingService billingService = createBillingService(ruleConfig, promotionConfigs, billingMode, features);
+        BillingService billingService = createBillingService(ruleType, ruleConfig, promotionConfigs, billingMode, features);
         BillingResultViewer viewer = new BillingResultViewer();
 
         BillingRequest request = createRequest("case-" + (index + 1), features, index, random);
@@ -94,7 +107,7 @@ public class BillingTestCaseGenerator {
 
         return GeneratedBillingCase.builder()
                 .caseId(request.getId())
-                .chargeRuleType(generationRequest.getChargeRuleType())
+                .chargeRuleType(ruleType)
                 .features(features)
                 .request(request)
                 .ruleConfig(ruleConfig)
@@ -107,14 +120,19 @@ public class BillingTestCaseGenerator {
     }
 
     /**
-     * 校验第一版生成器的硬约束。
+     * 校验生成器参数。
      */
     private void validate(TestGenerationRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("generation request must not be null");
         }
-        if (!BConstants.ChargeRuleType.DAY_NIGHT.equals(request.getChargeRuleType())) {
-            throw new IllegalArgumentException("first generator version only supports dayNight");
+        String ruleType = request.getChargeRuleType();
+        if (!BConstants.ChargeRuleType.DAY_NIGHT.equals(ruleType)
+                && !BConstants.ChargeRuleType.RELATIVE_TIME.equals(ruleType)
+                && !BConstants.ChargeRuleType.NATURAL_TIME.equals(ruleType)
+                && !BConstants.ChargeRuleType.COMPOSITE_TIME.equals(ruleType)
+                && !BConstants.ChargeRuleType.FLAT_FREE.equals(ruleType)) {
+            throw new IllegalArgumentException("unsupported rule type: " + ruleType);
         }
         if (request.getCount() <= 0) {
             throw new IllegalArgumentException("count must be positive");
@@ -157,6 +175,28 @@ public class BillingTestCaseGenerator {
     }
 
     /**
+     * 根据规则类型创建规则配置。
+     */
+    private RuleConfig createRuleConfig(String ruleType, Set<TestFeature> features, int index) {
+        if (BConstants.ChargeRuleType.DAY_NIGHT.equals(ruleType)) {
+            return createDayNightConfig(features, index);
+        }
+        if (BConstants.ChargeRuleType.RELATIVE_TIME.equals(ruleType)) {
+            return createRelativeTimeConfig(features, index);
+        }
+        if (BConstants.ChargeRuleType.NATURAL_TIME.equals(ruleType)) {
+            return createNaturalTimeConfig(features, index);
+        }
+        if (BConstants.ChargeRuleType.COMPOSITE_TIME.equals(ruleType)) {
+            return createCompositeTimeConfig(features, index);
+        }
+        if (BConstants.ChargeRuleType.FLAT_FREE.equals(ruleType)) {
+            return createFlatFreeConfig(features, index);
+        }
+        throw new IllegalArgumentException("unsupported rule type: " + ruleType);
+    }
+
+    /**
      * 构造日夜计费规则配置。
      * <p>
      * 当前使用固定的白天/夜间边界和价格，功能点只影响封顶、简化计算等关键开关。
@@ -171,10 +211,99 @@ public class BillingTestCaseGenerator {
                 .dayEndMinute(19 * 60)
                 .unitMinutes(60)
                 .blockWeight(new BigDecimal("0.5"))
+                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                 .dayUnitPrice(new BigDecimal("2.00"))
                 .nightUnitPrice(new BigDecimal("1.00"))
                 .maxChargeOneDay(maxChargeOneDay)
                 .simplifiedSupported(features.contains(TestFeature.SIMPLIFICATION) ? Boolean.TRUE : null)
+                .build();
+    }
+
+    /**
+     * 构造相对时间计费规则配置。
+     */
+    private RelativeTimeConfig createRelativeTimeConfig(Set<TestFeature> features, int index) {
+        BigDecimal maxChargeOneCycle = features.contains(TestFeature.RELATIVE_CYCLE_CAP)
+                ? new BigDecimal("10.00")
+                : new BigDecimal("100.00");
+        return RelativeTimeConfig.builder()
+                .id("generated-relative-time-" + (index + 1))
+                .periods(List.of(
+                        RelativeTimePeriod.builder()
+                                .beginMinute(0)
+                                .endMinute(120)
+                                .unitMinutes(30)
+                                .unitPrice(new BigDecimal("2.00"))
+                                .build(),
+                        RelativeTimePeriod.builder()
+                                .beginMinute(120)
+                                .endMinute(480)
+                                .unitMinutes(60)
+                                .unitPrice(new BigDecimal("3.00"))
+                                .build(),
+                        RelativeTimePeriod.builder()
+                                .beginMinute(480)
+                                .endMinute(1440)
+                                .unitMinutes(60)
+                                .unitPrice(new BigDecimal("1.50"))
+                                .build()
+                ))
+                .maxChargeOneCycle(maxChargeOneCycle)
+                .simplifiedSupported(features.contains(TestFeature.SIMPLIFICATION) ? Boolean.TRUE : null)
+                .build();
+    }
+
+    /**
+     * 构造自然时间计费规则配置。
+     */
+    private NaturalTimeConfig createNaturalTimeConfig(Set<TestFeature> features, int index) {
+        return NaturalTimeConfig.builder()
+                .id("generated-natural-time-" + (index + 1))
+                .unitMinutes(60)
+                .crossPeriodMode(features.contains(TestFeature.COMPOSITE_CROSS_PERIOD_MODE)
+                        ? CrossPeriodMode.HIGHER_PRICE : CrossPeriodMode.BEGIN_TIME_TRUNCATE)
+                .periods(List.of(
+                        NaturalPeriod.builder().beginMinute(0).endMinute(360).unitPrice(new BigDecimal("1.00")).build(),
+                        NaturalPeriod.builder().beginMinute(360).endMinute(720).unitPrice(new BigDecimal("2.00")).build(),
+                        NaturalPeriod.builder().beginMinute(720).endMinute(1080).unitPrice(new BigDecimal("1.50")).build(),
+                        NaturalPeriod.builder().beginMinute(1080).endMinute(1440).unitPrice(new BigDecimal("1.00")).build()
+                ))
+                .maxChargeOneDay(new BigDecimal("20.00"))
+                .simplifiedSupported(features.contains(TestFeature.SIMPLIFICATION) ? Boolean.TRUE : null)
+                .build();
+    }
+
+    /**
+     * 构造组合时间计费规则配置。
+     */
+    private CompositeTimeConfig createCompositeTimeConfig(Set<TestFeature> features, int index) {
+        return CompositeTimeConfig.builder()
+                .id("generated-composite-time-" + (index + 1))
+                .maxChargeOneCycle(new BigDecimal("30.00"))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0)
+                                .endMinute(1440)
+                                .unitMinutes(60)
+                                .crossPeriodMode(features.contains(TestFeature.COMPOSITE_CROSS_PERIOD_MODE)
+                                        ? CrossPeriodMode.HIGHER_PRICE : CrossPeriodMode.BEGIN_TIME_TRUNCATE)
+                                .naturalPeriods(List.of(
+                                        NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(new BigDecimal("1.00")).build(),
+                                        NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(new BigDecimal("2.00")).build(),
+                                        NaturalPeriod.builder().beginMinute(1200).endMinute(1440).unitPrice(new BigDecimal("1.00")).build()
+                                ))
+                                .build()
+                ))
+                .simplifiedSupported(features.contains(TestFeature.SIMPLIFICATION) ? Boolean.TRUE : null)
+                .build();
+    }
+
+    /**
+     * 构造统一免费计费规则配置。
+     */
+    private FlatFreeConfig createFlatFreeConfig(Set<TestFeature> features, int index) {
+        return FlatFreeConfig.builder()
+                .id("generated-flat-free-" + (index + 1))
                 .build();
     }
 
@@ -375,7 +504,8 @@ public class BillingTestCaseGenerator {
      * 为样本装配一套纯内存 BillingService。
      */
     private BillingService createBillingService(
-            DayNightConfig ruleConfig,
+            String ruleType,
+            RuleConfig ruleConfig,
             List<PromotionRuleConfig> promotionConfigs,
             BConstants.BillingMode billingMode,
             Set<TestFeature> features) {
@@ -386,7 +516,6 @@ public class BillingTestCaseGenerator {
         promotionRegistry.register(BConstants.PromotionRuleType.START_FREE, new StartFreePromotionRule());
 
         BillingRuleRegistry ruleRegistry = new BillingRuleRegistry();
-        ruleRegistry.register(BConstants.ChargeRuleType.DAY_NIGHT, new DayNightRule());
 
         return new BillingService(
                 new SegmentBuilder(),
@@ -448,13 +577,13 @@ public class BillingTestCaseGenerator {
      * 生成器不接入数据库或外部服务，所有规则和优惠都由当前样本直接提供。
      */
     private static class StaticResolver implements BillingConfigResolver {
-        private final DayNightConfig ruleConfig;
+        private final RuleConfig ruleConfig;
         private final List<PromotionRuleConfig> promotionConfigs;
         private final BConstants.BillingMode billingMode;
         private final Set<TestFeature> features;
 
         StaticResolver(
-                DayNightConfig ruleConfig,
+                RuleConfig ruleConfig,
                 List<PromotionRuleConfig> promotionConfigs,
                 BConstants.BillingMode billingMode,
                 Set<TestFeature> features) {

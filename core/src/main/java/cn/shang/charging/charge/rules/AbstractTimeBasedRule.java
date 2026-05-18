@@ -6,6 +6,7 @@ import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.RuleConfig;
+import cn.shang.charging.billing.pojo.SimplifiedUnitMeta;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
@@ -224,11 +225,8 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
      */
     @SuppressWarnings("unchecked")
     protected boolean isSimplifiedUnit(BillingUnit unit) {
-        if (unit.getRuleData() instanceof Map) {
-            Map<String, Object> data = (Map<String, Object>) unit.getRuleData();
-            return Boolean.TRUE.equals(data.get("isSimplified"));
-        }
-        return false;
+        SimplifiedUnitMeta meta = extractSimplifiedUnitMeta(unit);
+        return meta != null && meta.simplified();
     }
 
     /**
@@ -240,15 +238,20 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
             return state;
         }
 
-        Map<String, Object> data = (Map<String, Object>) simplifiedUnit.getRuleData();
-        int simplifiedCount = (Integer) data.get("simplifiedCycleCount");
-        BigDecimal cycleAmount = (BigDecimal) data.get("simplifiedCycleAmount");
+        SimplifiedUnitMeta meta = extractSimplifiedUnitMeta(simplifiedUnit);
+        if (meta == null) {
+            return state;
+        }
 
-        state.setCycleIndex(state.getCycleIndex() + simplifiedCount);
-        state.setCycleAccumulated(cycleAmount);
+        state.setCycleIndex(state.getCycleIndex() + meta.simplifiedCycleCount());
+        state.setCycleAccumulated(meta.simplifiedCycleAmount());
         state.setCycleBoundary(getCycleBoundary(state.getCycleIndex() + 1, calcBegin));
 
         return state;
+    }
+
+    protected SimplifiedUnitMeta extractSimplifiedUnitMeta(BillingUnit unit) {
+        return SimplifiedUnitMeta.from(unit);
     }
 
     /**
