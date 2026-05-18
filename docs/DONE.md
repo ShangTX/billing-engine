@@ -12,10 +12,10 @@
 
 | 完成日期 | ID | 类型 | 标题 | completed_git | 详情 |
 |----------|----|------|------|---------------|------|
-| 2026-05-18 | TODO-20260514-007 | feature | 收敛核心引擎职责边界与规则复杂度 | | [engine-boundary-and-rule-complexity.md](tracking/items/engine-boundary-and-rule-complexity.md) |
-| 2026-05-18 | TODO-20260508-002 | feature | 落地预留计费规则常量 | | [reserved-charge-rule-types.md](tracking/items/reserved-charge-rule-types.md) |
-| 2026-05-18 | TODO-20260508-005 | feature | 明确跨时间段计费单元处理的语义边界 | | [cross-period-unit-handling.md](tracking/items/cross-period-unit-handling.md) |
-| 2026-05-18 | TODO-20260508-006 | feature | 新增 naturalTime 多自然时段计费规则 | | [multi-natural-period-rule.md](tracking/items/multi-natural-period-rule.md) |
-| 2026-05-18 | TODO-20260508-001 | feature | 实现金额减免和折扣优惠 | | [promotion-amount-discount.md](tracking/items/promotion-amount-discount.md) |
-| 2026-05-18 | TODO-20260508-004 | feature | 支持不完整计费单元的多种计费方式 | | [incomplete-unit-charge-modes.md](tracking/items/incomplete-unit-charge-modes.md) |
-| 2026-05-18 | TODO-20260508-003 | feature | 扩展测试结果生成器规则覆盖 | | [billing-test-generator-rule-coverage.md](tracking/items/billing-test-generator-rule-coverage.md) |
+| 2026-05-18 | TODO-20260514-007 | feature | 收敛核心引擎职责边界与规则复杂度 | d70eb72 | [engine-boundary-and-rule-complexity.md](tracking/items/engine-boundary-and-rule-complexity.md) |
+| 2026-05-18 | TODO-20260508-002 | feature | 落地预留计费规则常量 | d70eb72 | [reserved-charge-rule-types.md](tracking/items/reserved-charge-rule-types.md) |
+| 2026-05-18 | TODO-20260508-005 | feature | 明确跨时间段计费单元处理的语义边界 | d70eb72 | [cross-period-unit-handling.md](tracking/items/cross-period-unit-handling.md) |
+| 2026-05-18 | TODO-20260508-006 | feature | 新增 naturalTime 多自然时段计费规则 | d70eb72 | [multi-natural-period-rule.md](tracking/items/multi-natural-period-rule.md) |
+| 2026-05-18 | TODO-20260508-001 | feature | 实现金额减免和折扣优惠 | d70eb72 | [promotion-amount-discount.md](tracking/items/promotion-amount-discount.md) |
+| 2026-05-18 | TODO-20260508-004 | feature | 支持不完整计费单元的多种计费方式 | d70eb72 | [incomplete-unit-charge-modes.md](tracking/items/incomplete-unit-charge-modes.md) |
+| 2026-05-18 | TODO-20260508-003 | feature | 扩展测试结果生成器规则覆盖 | d70eb72 | [billing-test-generator-rule-coverage.md](tracking/items/billing-test-generator-rule-coverage.md) |
