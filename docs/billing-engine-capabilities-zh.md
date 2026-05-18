@@ -1,8 +1,8 @@
-# 计费引擎能力文档
+﻿# 计费引擎能力文档
 
 本文描述当前代码中已经实现的能力，用于后续设计讨论和实现对齐。它不是历史方案记录。
 
-最后复核日期：2026-05-08
+最后复核日期：2026-05-18
 
 ---
 
@@ -134,7 +134,7 @@ BillingRequest
 
 | 常量 | 状态 | 说明 |
 |------|------|------|
-| `naturalTime` | 已废弃 | 被 `compositeTime.NaturalPeriod` 覆盖 |
+| `naturalTime` | 已实现 | 多自然时段计费规则，当前由 `NaturalTimeRule` 支持 |
 | `nrTimeMix` | 已废弃 | 被 `compositeTime` 整体覆盖（CompositePeriod + NaturalPeriod） |
 | `times` | 预留 | 按次数计费，非时间计费场景，需另行设计 |
 
@@ -153,8 +153,8 @@ BillingRequest
 
 | 类型 | 状态 |
 |------|------|
-| `AMOUNT` | 预留，尚未完整实现为优惠规则 |
-| `DISCOUNT` | 预留，尚未完整实现为优惠规则 |
+| `AMOUNT` | 已实现为优惠类型能力；当前通过 `PromotionEngine` 汇总并由 `AmountDiscountApplier` 应用，不属于独立 `PromotionRuleType` |
+| `DISCOUNT` | 已实现为优惠类型能力；当前通过 `PromotionEngine` 汇总并由 `AmountDiscountApplier` 应用，不属于独立 `PromotionRuleType` |
 
 已实现优惠规则：
 
@@ -316,8 +316,8 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 
 重要缺口包括：
 
-- `AMOUNT` 和 `DISCOUNT` 优惠规则尚未完整实现。
-- `times`、`naturalTime`、`nrTimeMix` 等预留规则常量尚未实现。
+- `AMOUNT` 和 `DISCOUNT` 已作为优惠类型能力接入，但当前仍不是独立 `PromotionRuleType`。
+- `times` 仍为预留规则常量；`naturalTime` 已实现；`nrTimeMix` 已废弃并由 `compositeTime` 覆盖。
 - `relativeTime` 和 `compositeTime` 尚未拥有和 `dayNight` 同等级别的复杂 `valueSpec` 覆盖。
 - 分钟级 `valueSpec` 是已预留的扩展方向，但当前尚未实现。
 
@@ -334,3 +334,5 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 | `docs/DONE.md` | 已完成事项归档 |
 | `docs/superpowers/specs/2026-04-20-unit-value-spec-design.md` | `valueSpec` 设计文档 |
 | `docs/superpowers/plans/2026-04-20-unit-value-spec-implementation.md` | `valueSpec` 实施计划 |
+
+

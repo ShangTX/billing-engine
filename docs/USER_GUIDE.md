@@ -1,4 +1,4 @@
-# 时间计费引擎使用指南
+﻿# 时间计费引擎使用指南
 
 本文是面向调用者的主要使用文档。README 只作为项目入口；完整接入方式、常见场景和字段语义以本文为准。
 
@@ -405,7 +405,7 @@ PromotionGrant bubbleRange = PromotionGrant.builder()
         .build();
 ```
 
-`AMOUNT` 和 `DISCOUNT` 当前是预留优惠类型，尚未完整实现为可用优惠规则。
+`AMOUNT` 和 `DISCOUNT` 当前已作为优惠类型能力接入：会被 `PromotionEngine` 汇总，并由 `AmountDiscountApplier` 作用到结算结果；但它们仍不是独立 `PromotionRuleType`。
 
 ---
 
@@ -604,8 +604,8 @@ billingRuleRegistry.register("myRule", new MyBillingRule());
 |------|------|
 | `FREE_RANGE` | 免费时间段 |
 | `FREE_MINUTES` | 免费分钟数 |
-| `AMOUNT` | 金额减免，待实现 |
-| `DISCOUNT` | 折扣优惠，待实现 |
+| `AMOUNT` | 金额减免，已作为优惠类型能力接入 |
+| `DISCOUNT` | 折扣优惠，已作为优惠类型能力接入 |
 
 ### `ChargeRuleType`
 
@@ -615,9 +615,9 @@ billingRuleRegistry.register("myRule", new MyBillingRule());
 | `RELATIVE_TIME` | `relativeTime` | 已实现 |
 | `COMPOSITE_TIME` | `compositeTime` | 已实现 |
 | `FLAT_FREE` | `flatFree` | 已实现 |
-| `TIMES` | `times` | 预留 |
-| `NATURAL_TIME` | `naturalTime` | 预留 |
-| `NR_TIME_MIX` | `nrTimeMix` | 预留 |
+| `TIMES` | `times` | 预留，当前无实现 |
+| `NATURAL_TIME` | `naturalTime` | 已实现 |
+| `NR_TIME_MIX` | `nrTimeMix` | 已废弃，由 `compositeTime` 覆盖 |
 
 ---
 
@@ -640,3 +640,5 @@ billingRuleRegistry.register("myRule", new MyBillingRule());
 - 规则配置和规则实现分离。
 - 规则之间不相互调用，由引擎统一编排。
 - 查询时点金额通过 `valueSpec` 表达，避免查询层理解规则私有细节。
+
+

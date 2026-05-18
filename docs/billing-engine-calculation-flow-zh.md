@@ -1,8 +1,8 @@
-# 计费引擎完整计算流程
+﻿# 计费引擎完整计算流程
 
 本文描述当前代码中的主计算链路。能力边界和规则覆盖范围见 `docs/billing-engine-capabilities-zh.md`。
 
-最后复核日期：2026-05-08
+最后复核日期：2026-05-18
 
 ---
 
@@ -131,9 +131,10 @@ schemeChanges -> multiple BillingSegment
 4. 合并显式 `FREE_RANGE`。
 5. 将 `FREE_MINUTES` 分配到可用空隙。
 6. 合并最终免费时段。
-7. 生成新的 `PromotionCarryOver`。
+7. 汇总 AMOUNT / DISCOUNT 优惠。
+8. 生成新的 PromotionCarryOver。
 
-输出中的 `freeTimeRanges` 会交给计费规则决定如何影响计费单元。
+输出中的 `freeTimeRanges` 会交给计费规则决定如何影响计费单元；`AMOUNT` / `DISCOUNT` 不参与免费时段切分，而是在计费结果生成后统一结算。
 
 ---
 
@@ -145,7 +146,7 @@ schemeChanges -> multiple BillingSegment
 2. 校验规则是否支持当前 `BillingMode`。
 3. 校验配置类型后调用 `BillingRule.calculate()`。
 
-具体的单元切割、单价判断、封顶、规则状态输出由各 `BillingRule` 实现。
+具体的单元切割、单价判断、封顶、规则状态输出由各 `BillingRule` 实现。当前已实现的主要规则包括 `dayNight`、`relativeTime`、`naturalTime`、`compositeTime` 和 `flatFree`。
 
 ---
 
@@ -271,7 +272,7 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 
 优惠等效金额由 `billing-api` 中的 `PromotionEquivalentCalculator` 计算。
 
-它基于完整结算结果做对比分析，不依赖查询时点投影。只要完整结果中的 `chargedAmount`、`accumulatedAmount` 和 `promotionUsages` 一致，`valueSpec` 不会改变优惠等效金额语义。
+它基于完整结算结果做对比分析，不依赖查询时点投影；金额减免和折扣优惠的最终应用由 `AmountDiscountApplier` 完成。只要完整结果中的 `chargedAmount`、`accumulatedAmount` 和 `promotionUsages` 一致，`valueSpec` 不会改变优惠等效金额语义。
 
 ---
 
@@ -284,3 +285,4 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 | `docs/USER_GUIDE.md` | 调用方使用指南 |
 | `docs/TODO.md` | 待办和问题索引 |
 | `docs/superpowers/specs/2026-04-20-unit-value-spec-design.md` | `valueSpec` 设计 |
+
