@@ -950,7 +950,8 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                         // 计算气泡延长并累加到当前 cycleBoundary
                         int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
                         if (state.getCycleBoundary() != null) {
-                            state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
+                            int traversedCycleMinutes = Math.max(0, cycles.size() - 1) * getCycleMinutes();
+                            state.setCycleBoundary(state.getCycleBoundary().plusMinutes(traversedCycleMinutes + bubbleExtension));
                         } else {
                             state.setCycleBoundary(cycles.get(cycles.size() - 1).cycleStart.plusHours(24).plusMinutes(bubbleExtension));
                         }
