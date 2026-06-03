@@ -182,6 +182,7 @@
                 <extensions>true</extensions>
                 <configuration>
                     <publishingServerId>central-portal</publishingServerId>
+                    <deploymentName>billing-engine-${project.version}</deploymentName>
                 </configuration>
             </plugin>
 
