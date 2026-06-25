@@ -83,6 +83,21 @@ public class BillingUnit {
     private Object ruleData;
 
     /**
+     * 是否为 compact 单元（合并了 N 个连续相同子单元）。
+     * <p>
+     * 当 compact=true 时，{@link #count} 表示子单元数量，
+     * {@link #durationMinutes} = count * 子单元时长。
+     * compact 单元由边界驱动循环自然产出，截断单元（isTruncated=true）永不 compact。
+     */
+    private boolean compact;
+
+    /**
+     * compact 单元代表的子单元数量。非 compact 单元始终为 1。
+     */
+    @Builder.Default
+    private int count = 1;
+
+    /**
      * 此单元是否是通过 CONTINUE 模式合并生成的
      * 如果为 true，此单元的开始时间在上次计算的截断单元位置
      * @deprecated 已废弃，改用 accumulatedAmount 字段

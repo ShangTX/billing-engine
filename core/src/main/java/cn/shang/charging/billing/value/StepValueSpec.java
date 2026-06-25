@@ -34,4 +34,20 @@ public class StepValueSpec implements UnitValueSpec {
         }
         return new UnitValueProjection(afterAmount, unitEndTime);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof StepValueSpec that)) return false;
+        return switchTime.equals(that.switchTime)
+                && beforeAmount.compareTo(that.beforeAmount) == 0
+                && afterAmount.compareTo(that.afterAmount) == 0;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(switchTime,
+                beforeAmount.stripTrailingZeros(),
+                afterAmount.stripTrailingZeros());
+    }
 }
