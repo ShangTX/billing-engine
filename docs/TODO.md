@@ -12,4 +12,7 @@
 
 ## 待办列表
 
-暂无待办事项。
+| ID | 类型 | 优先级 | 标题 | source_git | 详情 |
+|----|------|--------|------|------------|------|
+| TODO-20260623-002 | feature | P2 | Compact 计费结果模式 | 4e081b3 | [compact-billing-result-mode.md](tracking/items/compact-billing-result-mode.md) |
+| TODO-20260623-001 | feature | P2 | 优化自定义规则扩展体验 | 4e081b3 | [custom-rule-extension-experience.md](tracking/items/custom-rule-extension-experience.md) |
