@@ -1123,108 +1123,9 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         return allUnits;
     }
 
-    /**
-     * 按免费时段边界切分时间轴
-     */
-    private List<TimeFragment> splitTimeAxis(LocalDateTime begin, LocalDateTime end, List<FreeTimeRange> freeTimeRanges) {
-        List<TimeFragment> fragments = new ArrayList<>();
-
-        // 收集所有切分点（免费时段边界）
-        List<LocalDateTime> cutPoints = new ArrayList<>();
-        cutPoints.add(begin);
-
-        for (FreeTimeRange range : freeTimeRanges) {
-            // 只处理在计费范围内的免费时段
-            if (range.getBeginTime().isAfter(end) || range.getEndTime().isBefore(begin)) {
-                continue;
-            }
-            if (range.getBeginTime().isAfter(begin) && range.getBeginTime().isBefore(end)) {
-                cutPoints.add(range.getBeginTime());
-            }
-            if (range.getEndTime().isAfter(begin) && range.getEndTime().isBefore(end)) {
-                cutPoints.add(range.getEndTime());
-            }
-        }
-
-        cutPoints.add(end);
-
-        // 去重并排序
-        cutPoints = cutPoints.stream().distinct().sorted().toList();
-
-        // 生成片段
-        for (int i = 0; i < cutPoints.size() - 1; i++) {
-            LocalDateTime fragBegin = cutPoints.get(i);
-            LocalDateTime fragEnd = cutPoints.get(i + 1);
-
-            TimeFragment fragment = new TimeFragment(fragBegin, fragEnd);
-
-            // 检查是否匹配某个免费时段
-            for (FreeTimeRange range : freeTimeRanges) {
-                if (!range.getBeginTime().isAfter(fragBegin) && !range.getEndTime().isBefore(fragEnd)) {
-                    fragment.isFree = true;
-                    fragment.freePromotionId = range.getId();
-                    fragment.conditional = range.isConditional();
-                    fragment.conditionalUntil = range.getConditionalUntil();
-                    break;
-                }
-            }
-
-            fragments.add(fragment);
-        }
-
-        return fragments;
-    }
-
-    /**
-     * 按周期组织片段
-     * @param calcBegin 计算窗口起点（可能是 CONTINUE 模式的继续起点）
-     * @param calcEnd 计算窗口终点
-     * @param fragments 时间片段列表
-     * @param cycleOriginBegin 原始计费起点（用于确定周期边界）
-     */
-    private List<CycleFragments> organizeByCycle(LocalDateTime calcBegin, LocalDateTime calcEnd, List<TimeFragment> fragments, LocalDateTime cycleOriginBegin) {
-        List<CycleFragments> cycles = new ArrayList<>();
-
-        // 使用原始计费起点计算周期边界
-        LocalDateTime cycleStart = cycleOriginBegin;
-        LocalDateTime cycleEnd = cycleOriginBegin.plusHours(24);
-
-        // 找到包含 calcBegin 的周期
-        while (cycleEnd.isBefore(calcBegin) || cycleEnd.equals(calcBegin)) {
-            cycleStart = cycleEnd;
-            cycleEnd = cycleStart.plusHours(24);
-        }
-
-        CycleFragments currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
-
-        for (TimeFragment fragment : fragments) {
-            // 检查片段是否跨越周期边界
-            while (fragment.endTime.isAfter(currentCycle.cycleEnd)) {
-                // 切分片段
-                TimeFragment beforeBoundary = new TimeFragment(fragment.beginTime, currentCycle.cycleEnd);
-                beforeBoundary.isFree = fragment.isFree;
-                beforeBoundary.freePromotionId = fragment.freePromotionId;
-
-                currentCycle.fragments.add(beforeBoundary);
-                cycles.add(currentCycle);
-
-                // 开始新周期
-                cycleStart = currentCycle.cycleEnd;
-                cycleEnd = cycleStart.plusHours(24);
-                currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
-
-                // 更新原片段
-                fragment.beginTime = currentCycle.cycleStart;
-            }
-
-            currentCycle.fragments.add(fragment);
-        }
-
-        if (!currentCycle.fragments.isEmpty()) {
-            cycles.add(currentCycle);
-        }
-
-        return cycles;
+    @Override
+    protected TimeFragment createFragment(LocalDateTime beginTime, LocalDateTime endTime) {
+        return new DayNightTimeFragment(beginTime, endTime);
     }
 
     /**
@@ -1233,10 +1134,9 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     private List<BillingUnit> generateUnitsForCycle(CycleFragments cycle, DayNightConfig config) {
         List<BillingUnit> units = new ArrayList<>();
         int unitMinutes = config.getUnitMinutes();
-
         for (TimeFragment fragment : cycle.fragments) {
             if (fragment.isFree) {
-                if (fragment.conditional) {
+                if (fragment.isConditional()) {
                     LocalDateTime current = fragment.beginTime;
                     while (current.isBefore(fragment.endTime)) {
                         LocalDateTime pricingEnd = resolvePricingEnd(current, unitMinutes, cycle.cycleEnd);
@@ -1258,7 +1158,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                                 .free(false)
                                 .freePromotionId(fragment.freePromotionId)
                                 .chargedAmount(originalAmount)
-                                .valueSpec(new StepValueSpec(fragment.conditionalUntil, BigDecimal.ZERO, originalAmount))
+                                .valueSpec(new StepValueSpec(fragment.getConditionalUntil(), BigDecimal.ZERO, originalAmount))
                                 .build();
 
                         units.add(unit);
@@ -1353,37 +1253,34 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     }
 
     /**
-     * 时间片段（切分后的时间范围）- CONTINUOUS模式专用
+     * DayNight 专用时间片段，在公共 {@link TimeFragment} 基础上携带条件免费信息。
+     * <p>
+     * {@link #copy(LocalDateTime, LocalDateTime)} 不覆盖，沿用基类实现：周期边界切分产生的
+     * beforeBoundary 为基类 TimeFragment（isConditional()=false），与历史行为一致。
      */
-    private static class TimeFragment {
-        LocalDateTime beginTime;
-        LocalDateTime endTime;
-        boolean isFree;
-        String freePromotionId;  // 如果是免费片段，记录优惠ID
-        boolean conditional;
-        LocalDateTime conditionalUntil;
+    private static class DayNightTimeFragment extends TimeFragment {
+        private boolean conditional;
+        private LocalDateTime conditionalUntil;
 
-        TimeFragment(LocalDateTime beginTime, LocalDateTime endTime) {
-            this.beginTime = beginTime;
-            this.endTime = endTime;
-            this.isFree = false;
-            this.freePromotionId = null;
-            this.conditional = false;
-            this.conditionalUntil = null;
+        DayNightTimeFragment(LocalDateTime beginTime, LocalDateTime endTime) {
+            super(beginTime, endTime);
         }
-    }
 
-    /**
-     * 周期片段容器 - CONTINUOUS模式专用
-     */
-    private static class CycleFragments {
-        final LocalDateTime cycleStart;
-        final LocalDateTime cycleEnd;
-        final List<TimeFragment> fragments = new ArrayList<>();
+        @Override
+        public void applyFreeRange(FreeTimeRange range) {
+            super.applyFreeRange(range);
+            this.conditional = range.isConditional();
+            this.conditionalUntil = range.getConditionalUntil();
+        }
 
-        CycleFragments(LocalDateTime cycleStart, LocalDateTime cycleEnd) {
-            this.cycleStart = cycleStart;
-            this.cycleEnd = cycleEnd;
+        @Override
+        public boolean isConditional() {
+            return conditional;
+        }
+
+        @Override
+        public LocalDateTime getConditionalUntil() {
+            return conditionalUntil;
         }
     }
 }

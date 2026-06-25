@@ -698,94 +698,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
     }
 
     /**
-     * 按免费时段边界切分时间轴
-     */
-    private List<TimeFragment> splitTimeAxis(LocalDateTime begin, LocalDateTime end, List<FreeTimeRange> freeTimeRanges) {
-        List<TimeFragment> fragments = new ArrayList<>();
-
-        List<LocalDateTime> cutPoints = new ArrayList<>();
-        cutPoints.add(begin);
-
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (range.getBeginTime().isAfter(end) || range.getEndTime().isBefore(begin)) {
-                continue;
-            }
-            if (range.getBeginTime().isAfter(begin) && range.getBeginTime().isBefore(end)) {
-                cutPoints.add(range.getBeginTime());
-            }
-            if (range.getEndTime().isAfter(begin) && range.getEndTime().isBefore(end)) {
-                cutPoints.add(range.getEndTime());
-            }
-        }
-
-        cutPoints.add(end);
-        cutPoints = cutPoints.stream().distinct().sorted().toList();
-
-        for (int i = 0; i < cutPoints.size() - 1; i++) {
-            LocalDateTime fragBegin = cutPoints.get(i);
-            LocalDateTime fragEnd = cutPoints.get(i + 1);
-
-            TimeFragment fragment = new TimeFragment(fragBegin, fragEnd);
-
-            for (FreeTimeRange range : freeTimeRanges) {
-                if (!range.getBeginTime().isAfter(fragBegin) && !range.getEndTime().isBefore(fragEnd)) {
-                    fragment.isFree = true;
-                    fragment.freePromotionId = range.getId();
-                    break;
-                }
-            }
-
-            fragments.add(fragment);
-        }
-
-        return fragments;
-    }
-
-    /**
-     * 按周期组织片段
-     */
-    private List<CycleFragments> organizeByCycle(LocalDateTime calcBegin, LocalDateTime calcEnd,
-                                                  List<TimeFragment> fragments, LocalDateTime billingOrigin) {
-        List<CycleFragments> cycles = new ArrayList<>();
-
-        LocalDateTime cycleStart = billingOrigin;
-        LocalDateTime cycleEnd = billingOrigin.plusMinutes(MINUTES_PER_DAY);
-
-        // 找到包含 calcBegin 的周期
-        while (cycleEnd.isBefore(calcBegin) || cycleEnd.equals(calcBegin)) {
-            cycleStart = cycleEnd;
-            cycleEnd = cycleStart.plusMinutes(MINUTES_PER_DAY);
-        }
-
-        CycleFragments currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
-
-        for (TimeFragment fragment : fragments) {
-            while (fragment.endTime.isAfter(currentCycle.cycleEnd)) {
-                TimeFragment beforeBoundary = new TimeFragment(fragment.beginTime, currentCycle.cycleEnd);
-                beforeBoundary.isFree = fragment.isFree;
-                beforeBoundary.freePromotionId = fragment.freePromotionId;
-
-                currentCycle.fragments.add(beforeBoundary);
-                cycles.add(currentCycle);
-
-                cycleStart = currentCycle.cycleEnd;
-                cycleEnd = cycleStart.plusMinutes(MINUTES_PER_DAY);
-                currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
-
-                fragment.beginTime = currentCycle.cycleStart;
-            }
-
-            currentCycle.fragments.add(fragment);
-        }
-
-        if (!currentCycle.fragments.isEmpty()) {
-            cycles.add(currentCycle);
-        }
-
-        return cycles;
-    }
-
-    /**
      * 为一个周期生成计费单元
      */
     private List<BillingUnit> generateUnitsForCycle(CycleFragments cycle, CompositeTimeConfig config, LocalDateTime billingOrigin) {
@@ -1002,37 +914,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         }
 
         return maxCharge;
-    }
-
-    /**
-     * 时间片段（切分后的时间范围）- CONTINUOUS模式专用
-     */
-    private static class TimeFragment {
-        LocalDateTime beginTime;
-        LocalDateTime endTime;
-        boolean isFree;
-        String freePromotionId;
-
-        TimeFragment(LocalDateTime beginTime, LocalDateTime endTime) {
-            this.beginTime = beginTime;
-            this.endTime = endTime;
-            this.isFree = false;
-            this.freePromotionId = null;
-        }
-    }
-
-    /**
-     * 周期片段容器 - CONTINUOUS模式专用
-     */
-    private static class CycleFragments {
-        final LocalDateTime cycleStart;
-        final LocalDateTime cycleEnd;
-        final List<TimeFragment> fragments = new ArrayList<>();
-
-        CycleFragments(LocalDateTime cycleStart, LocalDateTime cycleEnd) {
-            this.cycleStart = cycleStart;
-            this.cycleEnd = cycleEnd;
-        }
     }
 
     /**
