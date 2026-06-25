@@ -566,4 +566,50 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
 
         return cycles;
     }
+
+    // ==================== 边界驱动循环（CONTINUOUS 模式公共实现） ====================
+
+    /**
+     * 边界驱动的公共循环入口。
+     * <p>
+     * 取代逐单元迭代：从当前时间开始，反复查询所有边界来源中最近的边界，
+     * 跳到那里并调用 {@code segmentBuilder} 生成一个同质段，直到抵达 calcEnd。
+     * 子类只需提供边界来源与段构造回调，无需关心循环步进。
+     *
+     * @param calcBegin       计算窗口起点（含）
+     * @param calcEnd         计算窗口终点（含上界）
+     * @param providers       边界来源列表
+     * @param segmentBuilder  段构造回调：给定一个同质区间 [current, next)，返回对应的 HomogeneousSegment
+     * @return 按时间顺序排列的同质段列表
+     */
+    protected List<HomogeneousSegment> runBoundaryDrivenLoop(
+            LocalDateTime calcBegin,
+            LocalDateTime calcEnd,
+            List<BoundaryProvider> providers,
+            SegmentBuilder segmentBuilder) {
+        List<HomogeneousSegment> segments = new ArrayList<>();
+        LocalDateTime current = calcBegin;
+        while (current.isBefore(calcEnd)) {
+            LocalDateTime next = BoundaryProviders.findNearest(current, calcEnd, providers);
+            if (!next.isAfter(current)) {
+                // 防御：避免无限循环（所有边界都在 current 之前）
+                break;
+            }
+            HomogeneousSegment segment = segmentBuilder.build(current, next);
+            if (segment != null) {
+                segments.add(segment);
+            }
+            current = next;
+        }
+        return segments;
+    }
+
+    /**
+     * 边界驱动循环的段构造回调接口。
+     * 给定 [begin, end) 同质区间，返回一个 HomogeneousSegment（或 null 跳过该段）。
+     */
+    @FunctionalInterface
+    protected interface SegmentBuilder {
+        HomogeneousSegment build(LocalDateTime begin, LocalDateTime end);
+    }
 }
