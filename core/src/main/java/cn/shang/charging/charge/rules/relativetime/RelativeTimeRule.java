@@ -963,17 +963,20 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         });
 
         // 应用封顶 + 累计 + 截断标记（自然日 24h 周期内统计）
-        List<BillingUnit> allUnits = applyCapAndAccumulate(segments, maxCharge, context, periods, periodResolver, cycleOriginBegin);
+        ContinuousResult capResult = applyCapAndAccumulate(segments, maxCharge, state.getCycleAccumulated(),
+                context, periods, periodResolver, cycleOriginBegin, calcBegin);
+        List<BillingUnit> allUnits = capResult.units;
+        BigDecimal lastCycleAccumulated = capResult.lastCycleAccumulated;
 
-        // 简化计算模式（如启用）
+        // 简化计算模式：边界驱动已直接产出 compact 单元，简化路径暂不再叠加
+        // （简化与 compact 正交，后续可在 compact 基础上进一步合并无优惠周期）
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
             && isSimplificationEnabled(config, context.getBillingConfigResolver(), context);
         int threshold = context.getBillingConfigResolver() != null
             ? context.getBillingConfigResolver().getSimplifiedCycleThreshold()
             : 0;
-
-        if (simplificationEnabled && allUnits.stream().noneMatch(u -> u.isCompact())) {
-            // 已生成 compact 时不再启用简化；否则走原简化路径
+        if (simplificationEnabled && threshold > 0) {
+            // 预留：简化路径已由 compact 合并替代，此处保留判断供后续扩展
         }
 
         BigDecimal totalAmount = allUnits.stream()
@@ -1015,7 +1018,8 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
 
         // 更新状态
         if (!allUnits.isEmpty()) {
-            state.setCycleIndex(state.getCycleIndex() + 0); // cycleIndex 由 cycle boundary 维护
+            // 周期索引由 cycleBoundary 推进逻辑维护，此处仅同步最后周期累计
+            state.setCycleAccumulated(lastCycleAccumulated);
             int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
             if (state.getCycleBoundary() != null) {
                 state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
@@ -1051,18 +1055,27 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
      * 累计：基于 previousAccumulatedAmount + 截断单元已扣金额。
      * 截断：最后一个段的 duration &lt; 单元长度且 endTime == calcEnd 时标记 isTruncated。
      */
-    private List<BillingUnit> applyCapAndAccumulate(List<HomogeneousSegment> segments,
-                                                     BigDecimal maxCharge,
-                                                     BillingContext context,
-                                                     List<RelativeTimePeriod> periods,
-                                                     RelativeTimePeriodResolver resolver,
-                                                     LocalDateTime cycleOriginBegin) {
+    private ContinuousResult applyCapAndAccumulate(List<HomogeneousSegment> segments,
+                                                    BigDecimal maxCharge,
+                                                    BigDecimal carryOverAccumulated,
+                                                    BillingContext context,
+                                                    List<RelativeTimePeriod> periods,
+                                                    RelativeTimePeriodResolver resolver,
+                                                    LocalDateTime cycleOriginBegin,
+                                                    LocalDateTime calcBegin) {
         List<BillingUnit> units = new ArrayList<>();
-        if (segments.isEmpty()) return units;
+        if (segments.isEmpty()) {
+            return new ContinuousResult(units, carryOverAccumulated != null ? carryOverAccumulated : BigDecimal.ZERO);
+        }
 
         LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
-        BigDecimal dayAccumulated = BigDecimal.ZERO;
-        long nextCycleBoundaryOffset = MINUTES_PER_CYCLE;
+        // 当前周期累计：初始为结转累计（CONTINUE 模式下上次计算遗留的本周期累计）
+        BigDecimal cycleAccumulated = carryOverAccumulated != null ? carryOverAccumulated : BigDecimal.ZERO;
+        // 下一个周期边界（相对于 cycleOriginBegin 的分钟数）：初始化为包含 calcBegin 的周期的下一个边界
+        long calcBeginOffset = Duration.between(cycleOriginBegin, calcBegin).toMinutes();
+        long nextCycleBoundaryOffset = ((calcBeginOffset / MINUTES_PER_CYCLE) + 1) * MINUTES_PER_CYCLE;
+        // 最后一个周期的累计（用于状态输出）
+        BigDecimal lastCycleAccumulated = cycleAccumulated;
 
         BigDecimal accumulated = context.getPreviousAccumulatedAmount();
         if (accumulated == null) accumulated = BigDecimal.ZERO;
@@ -1079,7 +1092,8 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             if (subCount < 1) subCount = 1;
 
             boolean cycleCapped = false;
-            if (maxCharge != null && !seg.isFree() && dayAccumulated.compareTo(maxCharge) >= 0) {
+            if (maxCharge != null && maxCharge.compareTo(BigDecimal.ZERO) > 0
+                    && !seg.isFree() && cycleAccumulated.compareTo(maxCharge) >= 0) {
                 cycleCapped = true;
             }
 
@@ -1092,7 +1106,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                 charged = BigDecimal.ZERO;
             } else {
                 BigDecimal budget = maxCharge != null
-                        ? maxCharge.subtract(dayAccumulated)
+                        ? maxCharge.subtract(cycleAccumulated)
                         : null;
                 if (budget != null && budget.signum() < 0) budget = BigDecimal.ZERO;
                 BigDecimal fullTotal = originalPerSub.multiply(BigDecimal.valueOf(subCount));
@@ -1111,8 +1125,10 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
 
             accumulated = accumulated.add(charged);
             if (!seg.isFree() && !cycleCapped) {
-                dayAccumulated = dayAccumulated.add(charged);
+                cycleAccumulated = cycleAccumulated.add(charged);
             }
+            // 跟踪当前周期累计（用于状态输出）
+            lastCycleAccumulated = cycleAccumulated;
 
             boolean isTruncated = isLast
                     && unitMinutes > 0
@@ -1138,14 +1154,29 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                     .build();
             units.add(unit);
 
-            // 24h 周期切换
+            // 24h 周期切换：段终点越过下一个周期边界时，进入新周期，重置累计
             long offsetFromOrigin = Duration.between(cycleOriginBegin, seg.getEndTime()).toMinutes();
             if (offsetFromOrigin >= nextCycleBoundaryOffset) {
                 nextCycleBoundaryOffset = ((offsetFromOrigin / MINUTES_PER_CYCLE) + 1) * MINUTES_PER_CYCLE;
-                dayAccumulated = BigDecimal.ZERO;
+                cycleAccumulated = BigDecimal.ZERO;
+                // 周期切换后，lastCycleAccumulated 将由后续段更新；若无后续段，保持为 0（新周期无单元）
+                lastCycleAccumulated = BigDecimal.ZERO;
             }
         }
-        return units;
+        return new ContinuousResult(units, lastCycleAccumulated);
+    }
+
+    /**
+     * CONTINUOUS 边界驱动结果：单元列表 + 最后一个周期的累计金额（用于状态输出）。
+     */
+    private static final class ContinuousResult {
+        final List<BillingUnit> units;
+        final BigDecimal lastCycleAccumulated;
+
+        ContinuousResult(List<BillingUnit> units, BigDecimal lastCycleAccumulated) {
+            this.units = units;
+            this.lastCycleAccumulated = lastCycleAccumulated;
+        }
     }
 
     /**
