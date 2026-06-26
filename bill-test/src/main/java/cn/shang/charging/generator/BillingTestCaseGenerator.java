@@ -168,7 +168,9 @@ public class BillingTestCaseGenerator {
      * 未显式指定计费模式时，根据功能点选择更自然的默认模式。
      */
     private TestFeature selectDefaultModeFeature(Set<TestFeature> features) {
-        if (features.contains(TestFeature.BUBBLE_FREE_RANGE) || features.contains(TestFeature.SIMPLIFICATION)) {
+        if (features.contains(TestFeature.BUBBLE_FREE_RANGE)
+                || features.contains(TestFeature.SIMPLIFICATION)
+                || features.contains(TestFeature.COMPACT)) {
             return TestFeature.CONTINUOUS;
         }
         return TestFeature.UNIT_BASED;
@@ -368,6 +370,11 @@ public class BillingTestCaseGenerator {
                 || features.contains(TestFeature.DAY_NIGHT_MIXED_VALUE_SPEC)) {
             LocalDateTime begin = day.withHour(18).withMinute(40 + minuteNoise % 10);
             return new TimeWindow(begin, day.withHour(22).withMinute(20 + minuteNoise % 5));
+        }
+        if (features.contains(TestFeature.COMPACT)) {
+            // 纯白天长窗口（8:00-16:00）：DayNight 60min 单元同价产出 1 个 count=8 的 compact；
+            // RelativeTime 单时段产出 1 个 compact；NaturalTime 跨两个自然时段产出 2 个 compact。
+            return new TimeWindow(day.withHour(8).withMinute(0), day.withHour(16).withMinute(0));
         }
         if (features.contains(TestFeature.BUBBLE_FREE_RANGE)) {
             return new TimeWindow(day.withHour(8).withMinute(30 + minuteNoise), day.withHour(18).withMinute(30));

@@ -52,6 +52,15 @@ public enum TestFeature {
     SIMPLIFICATION,
 
     /**
+     * 长同价时段窗口，用于稳定产出 compact 单元。
+     * <p>
+     * 选择纯白天或单时段的长窗口，使边界驱动循环产出的同质段足够长，
+     * 便于人工校验 compact 单元的 JSON 结构和查询时点投影。
+     * 与 {@link #DAY_NIGHT_CROSS_PERIOD_UNIT} 互斥（跨边界场景不产出 compact）。
+     */
+    COMPACT,
+
+    /**
      * 规则免费分钟数。
      */
     FREE_MINUTES,
