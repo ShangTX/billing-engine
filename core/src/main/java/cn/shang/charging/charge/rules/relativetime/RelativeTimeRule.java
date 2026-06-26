@@ -817,60 +817,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
     }
 
     /**
-     * 查找下一个时间段边界
-     * @param current 当前时间点
-     * @param calcBegin 计费起点
-     * @param config 规则配置
-     * @return 下一个时间段边界时间，如果没有则返回 null
-     */
-    private LocalDateTime findNextPeriodBoundary(LocalDateTime current, LocalDateTime calcBegin, RelativeTimeConfig config) {
-        if (config.getPeriods() == null || config.getPeriods().isEmpty()) {
-            return null;
-        }
-
-        // 计算当前位置相对于计费起点的分钟偏移
-        long minutesFromCalcBegin = Duration.between(calcBegin, current).toMinutes();
-
-        // 计算当前在周期内的位置（取模）
-        long positionInCycle = minutesFromCalcBegin % MINUTES_PER_CYCLE;
-        if (positionInCycle < 0) {
-            positionInCycle += MINUTES_PER_CYCLE;
-        }
-
-        // 当前周期的起点
-        long cycleCount = minutesFromCalcBegin / MINUTES_PER_CYCLE;
-        LocalDateTime cycleStart = calcBegin.plusMinutes(cycleCount * MINUTES_PER_CYCLE);
-
-        // 遍历所有时间段，找到第一个大于当前位置的边界
-        for (RelativeTimePeriod period : config.getPeriods()) {
-            long periodEndMinute = period.getEndMinute();
-            if (periodEndMinute > positionInCycle) {
-                return cycleStart.plusMinutes(periodEndMinute);
-            }
-        }
-
-        // 如果当前周期内没有，返回下一个周期的起点
-        return cycleStart.plusMinutes(MINUTES_PER_CYCLE);
-    }
-
-    /**
-     * 查找下一个周期边界
-     * @param current 当前时间点
-     * @param calcBegin 计费起点
-     * @return 下一个周期边界时间（24小时后）
-     */
-    private LocalDateTime findNextCycleBoundary(LocalDateTime current, LocalDateTime calcBegin) {
-        // 找到包含 current 的周期起点
-        LocalDateTime cycleStart = calcBegin;
-        while (cycleStart.plusMinutes(MINUTES_PER_CYCLE).isBefore(current) ||
-               cycleStart.plusMinutes(MINUTES_PER_CYCLE).equals(current)) {
-            cycleStart = cycleStart.plusMinutes(MINUTES_PER_CYCLE);
-        }
-        // 下一个周期边界
-        return cycleStart.plusMinutes(MINUTES_PER_CYCLE);
-    }
-
-    /**
      * CONTINUOUS 模式计算
      * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
      */
@@ -1259,18 +1205,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         return units;
     }
 
-    /**
-     * CONTINUOUS 模式封顶处理
-     * 封顶后截止，剩余时间合并为免费单元
-     */
-    private void applyContinuousCap(List<BillingUnit> units, BigDecimal maxCharge) {
-        continuousCapHandler.applyWithCarryOver(units, maxCharge, BigDecimal.ZERO);
-    }
-
-    /**
-     * CONTINUOUS 模式封顶处理（考虑结转的累计金额）
-     * @return 累计金额（封顶后为封顶金额，未封顶为实际累计）
-     */
     /**
      * 为 CONTINUOUS 模式生成简化单元
      */
