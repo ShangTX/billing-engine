@@ -4,11 +4,11 @@
 id: TODO-20260623-002
 type: feature
 priority: P2
-status: todo
+status: done
 source_git: 4e081b3
 created_at: 2026-06-23
-completed_at:
-completed_git:
+completed_at: 2026-06-26
+completed_git: 9f75d8d
 ---
 
 ## 背景
