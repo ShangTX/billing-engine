@@ -1,0 +1,83 @@
+# 物化索引预估收入能力
+
+---
+id: TODO-20260630-002
+type: feature
+priority: P2
+status: todo
+source_git: ec62357
+created_at: 2026-06-30
+completed_at:
+completed_git:
+---
+
+## 背景
+
+项目最初愿景之一：停车场可查看当前整个停车场的当前预估收入。原设想是"预计算 + 时间索引"——把计费单元物化存储，按时间索引查询此时刻所有有效单元，总额求和，避免每辆车重算。
+
+随着功能演进（valueSpec 单元内投影、conditional 免费段、compact 合并、CONTINUE 续算、截断处理策略），发现愿景的两个目标——**精确预估**与**免计算物化**——本质存在张力。经分析，物化索引预估并非"随开随用的简单开关"，而是**分情况、有条件**的能力。
+
+## 愿景落地的条件矩阵
+
+| 预估精度 | 截断策略 | 计费模式 | 物化内容 | 查询方式 | 可行性 |
+|---------|---------|---------|---------|---------|--------|
+| 粗略（≤1单元误差） | 任意 | 单元模式 | accumulatedAmount + endTime | 索引最后单元求和 | ✓ 可物化 |
+| 精确 | FULL_CHARGE | 单元模式 | chargedAmount + endTime | 索引求和 | ✓ 可物化 |
+| 精确 | PROPORTIONAL等 | 单元模式 | — | 必须查询时算 | ✗ 不可物化 |
+| 精确 | 任意 | 时长模式 | validMinutes + unitPrice | 索引有效分钟求和 | ✓ 可物化 |
+
+## 关键约束
+
+1. **精确预估 ↔ 截断策略互斥**：FULL_CHARGE 下截断单元 = 整单元金额，物化值精确。引入 PROPORTIONAL/FREE/THRESHOLD 后，截断单元金额依赖"实际时长/单元时长"比例，查询时点动态变化，物化固定金额不够。精确预估只与 FULL_CHARGE 兼容。
+2. **compact 数据不适合物化索引**：compact 合并 N 个子单元，queryTime 落在中间子单元时物化值无法直接用，需拆解 count。compact 服务"结果传输压缩"，非"按 queryTime 索引查询"。两者是正交优化，不应混用。
+3. **时长模式更适配物化索引**：时长模式下物化的不是费用而是"有效分钟数"（validMinutes，免费段扣除后的收费分钟）。queryTime 落在段内时只需算 `queryTime - beginTime` 累加分钟，不需要 valueSpec 投影、不拆 compact。查询退化为纯时间累加，可物化可索引。时长模式是物化索引预估愿景的唯一精确路径。
+
+## 目标
+
+引擎**只提供实现的可能，不提供实现**。具体地：
+
+- 引擎产出物化所需的原始数据（accumulatedAmount / chargedAmount / validMinutes）
+- 引擎提供能力查询（告知当前配置支持哪种预估精度）
+- 物化存储、时间索引、求和由业务层实现
+- 未来若引擎内建物化存储，作为新模块提供，不污染 core 计算逻辑
+
+## 范围
+
+包含：
+
+- **时长模式产出 validMinutes**：时长模式（待立 TODO）的 BillingUnit 携带 validMinutes 字段，供物化索引使用
+- **能力查询接口**：`BillingConfigResolver` 或独立接口，告知当前配置（截断策略 + 计费模式）支持的预估精度等级（ROUGH / PRECISE_FULL_CHARGE / PRECISE_DURATION / UNSUPPORTED）
+- **文档**：在能力文档中说明物化索引预估的条件矩阵，指导调用方按场景选择配置
+
+不包含：
+
+- 物化存储实现（业务层职责，或未来新模块）
+- 时间索引实现
+- 批量查询接口（业务层遍历在场车辆）
+
+## 关键设计决策
+
+1. **引擎与业务层边界**：引擎提供物化原始数据 + 能力查询，存储/索引/求和由业务层做。未来内建物化作为新模块，不污染 core。
+2. **时长模式是精确物化预估的唯一路径**：这提升了时长模式的优先级——它不仅是单元模式的替代，更是物化索引预估愿景的基础。
+3. **compact 与物化索引正交**：compact 服务传输压缩，物化索引服务查询预估，各自适用不同场景，不混用。
+4. **能力查询暴露配置约束**：配了 PROPORTIONAL + 单元模式的调用方想用物化预估时，引擎应能告知"此配置不支持精确物化"，引导改用 FULL_CHARGE 或时长模式。
+
+## 验收标准
+
+- 时长模式的 BillingUnit 包含 validMinutes 字段
+- 能力查询接口可返回当前配置支持的预估精度等级
+- 能力文档包含条件矩阵，指导调用方按场景选配置
+- 现有功能不受影响
+
+## 相关文件
+
+- `core/src/main/java/cn/shang/charging/billing/pojo/BillingUnit.java` - 时长模式新增 validMinutes
+- `core/src/main/java/cn/shang/charging/billing/BillingConfigResolver.java` - 能力查询
+- `docs/billing-engine-capabilities-zh.md` - 能力文档补充物化预估说明
+- 时长模式实现（待立 TODO）
+
+## 备注
+
+- 与时长计费模式强关联：时长模式是本愿景精确路径的基础，应协同设计
+- 与 TODO-20260626-001（不足单元计费策略）关联：PROPORTIONAL 等策略引入后，单元模式失去精确物化能力，本 TODO 的条件矩阵说明了这一约束
+- 优先级 P2：愿景支撑能力，依赖时长模式落地
