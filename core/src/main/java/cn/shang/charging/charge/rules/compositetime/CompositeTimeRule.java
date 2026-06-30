@@ -404,23 +404,31 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             return List.of();
         }
 
-        // 使用临时的 CycleUnits 容器生成单元
-        CycleUnits cycle = new CycleUnits(cycleStart, cycleEnd);
-
-        // 在当前周期内按相对时间段生成计费单元
-        for (CompositePeriod period : config.getPeriods()) {
-            generateUnitsInPeriod(cycle, period, freeTimeRanges, config.getInsufficientUnitMode());
-        }
+        // CONTINUOUS 风格：按免费时段切段后用 generateUnitsForCycle 生成
+        // 简化路径仅用于无优惠周期（freeTimeRanges 为空），切段后只有一段非免费片段
+        List<TimeFragment> fragments = splitTimeAxis(cycleStart, cycleEnd, freeTimeRanges);
+        CycleFragments cycle = new CycleFragments(cycleStart, cycleEnd);
+        cycle.fragments.addAll(fragments);
+        List<BillingUnit> units = generateUnitsForCycle(cycle, config, billingOrigin);
 
         // 应用周期封顶
-        applyCycleCapWithCarryOver(cycle, config.getMaxChargeOneCycle(), BigDecimal.ZERO);
+        applyCycleCapWithCarryOver(toCycleUnits(cycleStart, cycleEnd, units), config.getMaxChargeOneCycle(), BigDecimal.ZERO);
 
         // 为每个单元设置周期索引
-        for (BillingUnit unit : cycle.units) {
+        for (BillingUnit unit : units) {
             unit.setRuleData(cycleIndex);
         }
 
-        return cycle.units;
+        return units;
+    }
+
+    /**
+     * 把 BillingUnit 列表包装为 CycleUnits（供 applyCycleCapWithCarryOver 使用）。
+     */
+    private CycleUnits toCycleUnits(LocalDateTime cycleStart, LocalDateTime cycleEnd, List<BillingUnit> units) {
+        CycleUnits cycle = new CycleUnits(cycleStart, cycleEnd);
+        cycle.units.addAll(units);
+        return cycle;
     }
 
     /**

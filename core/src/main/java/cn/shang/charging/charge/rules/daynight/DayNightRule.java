@@ -446,19 +446,16 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             return List.of();
         }
 
-        // 使用现有的 buildUnitsWithContextWithState 逻辑
-        RuleState tempState = RuleState.builder()
-                .cycleIndex(cycleIndex)
-                .cycleAccumulated(BigDecimal.ZERO)
-                .cycleBoundary(cycleEnd)
-                .build();
+        // CONTINUOUS 风格：按免费时段切段后用 generateUnitsForCycle 生成
+        // 简化路径仅用于无优惠周期（freeTimeRanges 为空），切段后只有一段非免费片段
+        List<TimeFragment> fragments = splitTimeAxis(cycleStart, cycleEnd, freeTimeRanges);
+        CycleFragments cycle = new CycleFragments(cycleStart, cycleEnd);
+        cycle.fragments.addAll(fragments);
+        List<BillingUnit> units = generateUnitsForCycle(cycle, config);
 
-        List<UnitWithContext> unitsWithContext = buildUnitsWithContextWithState(cycleStart, cycleEnd, config, tempState);
-
-        List<BillingUnit> units = new ArrayList<>();
-        for (UnitWithContext unitCtx : unitsWithContext) {
-            BillingUnit unit = calculateUnit(unitCtx, config, freeTimeRanges);
-            units.add(unit);
+        // 为每个单元设置周期索引
+        for (BillingUnit unit : units) {
+            unit.setRuleData(cycleIndex);
         }
 
         return units;
