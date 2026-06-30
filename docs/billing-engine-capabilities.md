@@ -2,6 +2,8 @@
 
 This document describes the capabilities that are implemented in the current codebase. It is a working reference for design and implementation discussions, not a historical design note.
 
+> **Note**: This English version is currently out of date. The Chinese version (`docs/billing-engine-capabilities-zh.md`) is the authoritative, up-to-date reference. Updates are pending.
+
 Last reviewed: 2026-05-08
 
 ---

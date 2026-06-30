@@ -103,7 +103,7 @@
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>2.1.1</version>
+    <version>2.1.2</version>
 </dependency>
 ```
 
@@ -114,14 +114,14 @@
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>2.1.1</version>
+    <version>2.1.2</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>2.1.1</version>
+    <version>2.1.2</version>
 </dependency>
 ```
 
@@ -323,8 +323,10 @@ starter 的自动装配范围见能力文档。复杂注册需求仍可手动装
 | `isTruncated` | 是否被 `calcEndTime` 截断 |
 | `valueSpec` | 单元内查询投影模型 |
 | `ruleData` | 规则私有扩展数据 |
+| `compact` | 是否为 compact 单元（合并了 N 个连续相同子单元） |
+| `count` | compact 单元代表的子单元数量，非 compact 始终为 1 |
 
-调用方通常只需要消费 `beginTime`、`endTime`、`chargedAmount`、`accumulatedAmount`、`free` 和 `freePromotionId`。`valueSpec` 和 `ruleData` 主要用于框架和诊断，不建议业务侧解析。
+调用方通常只需要消费 `beginTime`、`endTime`、`chargedAmount`、`accumulatedAmount`、`free` 和 `freePromotionId`。`valueSpec` 和 `ruleData` 主要用于框架和诊断，不建议业务侧解析。`compact`/`count` 表示该单元合并了若干连续相同的子单元，`chargedAmount`/`accumulatedAmount` 为合并后的总值，查询时点金额由 `billing-api` 自动按子单元投影。
 
 ---
 

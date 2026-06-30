@@ -2,7 +2,7 @@
 
 本文描述当前代码中已经实现的能力，用于后续设计讨论和实现对齐。它不是历史方案记录。
 
-最后复核日期：2026-05-18
+最后复核日期：2026-06-30
 
 ---
 
@@ -67,10 +67,25 @@ BillingRequest
 
 | 模式 | 当前语义 |
 |------|----------|
+| `CONTINUOUS` | 边界驱动循环为唯一计算路径：找到最近边界（免费时段起止、时段结束、周期结束、单元对齐、calcEnd）跳过去，一次迭代产出一个同质段，compact 单元为自然产物 |
 | `UNIT_BASED` | 按固定单元长度生成计费单元；免费时段必须完整覆盖单元才使其免费 |
-| `CONTINUOUS` | 时间轴可被免费时段和规则边界切分；生成的单元可以变长 |
 
 计费规则必须通过 `BillingRule.supportedModes()` 声明自己支持的模式。
+
+**计划变更**（见 `docs/TODO.md`）：
+
+- `UNIT_BASED` 计划从"每个规则的内置模式"降级为"独立计费规则类型"（TODO-20260630-001）。普通规则将只保留 `CONTINUOUS`，`UNIT_BASED` 语义按需单独实现规则类。
+- 时长计费模式（按时长累加、免费时段扣除分钟）待引入，作为与单元计费并列的新模式。
+
+边界驱动框架已上提到 `AbstractTimeBasedRule`，关键抽象：
+
+| 抽象 | 职责 |
+|------|------|
+| `BoundaryProvider` | 边界来源接口，规则注册自己的边界（免费时段、时段结束、周期结束、单元对齐等） |
+| `BoundaryProviders` | 边界来源工厂 + `findNearest` 最近边界查找 |
+| `HomogeneousSegment` | 同质段，边界驱动循环的最小产出 |
+| `HomogeneousSegmentCalculator` | 同质段 → BillingUnit（含 compact 合并） |
+| `CompactMerger` | 通用 compact 合并器，跨分段连续相同单元合并 |
 
 ---
 
@@ -87,14 +102,15 @@ BillingRequest
 - `dayUnitPrice` 和 `nightUnitPrice` 定义日夜价格。
 - `blockWeight` 决定跨日夜混合单元的最终价格。
 - `maxChargeOneDay` 支持每日封顶。
-- 同时支持 `UNIT_BASED` 和 `CONTINUOUS`。
+- `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
 - 已为稳定单元、条件免费单元、跨日夜混合单元和封顶单元生成 `valueSpec`。
 
 查询行为：
 
 - 跨日夜混合单元通过 `MixedUnitValueSpec` 保留规则私有的单元内求值逻辑。
-- 单元内查询金额代表“如果此刻结束计费应收多少”，因此可能随查询时间增加或减少。
+- 单元内查询金额代表"如果此刻结束计费应收多少"，因此可能随查询时间增加或减少。
 - 每日封顶会进入命中单元的 `valueSpec`，保证查询金额和最终结算金额一致。
+- compact 单元的查询投影由 `BillingResultViewer.projectCompactUnit` 处理：按子单元时长定位 queryTime 落在第 k 个子单元，累计金额 = (k+1) × 子单元单价。
 
 ### `relativeTime`
 
@@ -106,6 +122,7 @@ BillingRequest
 - 每个时段可配置单元长度和价格。
 - 支持周期封顶 `maxChargeOneCycle`。
 - 支持简化周期计算。
+- `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
 
 当前限制：
 
@@ -121,10 +138,23 @@ BillingRequest
 - 支持周期和时段级别的复杂规则。
 - 支持跨时段处理模式。
 - 支持简化计算。
+- `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
 
 当前限制：
 
 - 尚未像 `dayNight` 一样补齐规则私有的复杂 `valueSpec`。
+
+### `naturalTime`
+
+由 `NaturalTimeRule` 实现。
+
+能力：
+
+- 24 小时自然周期，按自然时段划分。
+- 每个时段有独立价格，统一单元时长。
+- 跨时段处理可配置（复用 `CrossPeriodMode`）。
+- 支持每日封顶 `maxChargeOneDay`。
+- `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
 
 ### `flatFree`
 
@@ -134,7 +164,6 @@ BillingRequest
 
 | 常量 | 状态 | 说明 |
 |------|------|------|
-| `naturalTime` | 已实现 | 多自然时段计费规则，当前由 `NaturalTimeRule` 支持 |
 | `nrTimeMix` | 已废弃 | 被 `compositeTime` 整体覆盖（CompositePeriod + NaturalPeriod） |
 | `times` | 预留 | 按次数计费，非时间计费场景，需另行设计 |
 
@@ -204,6 +233,10 @@ BillingRequest
 | `accumulatedAmount` | 单元完整结束后的累计金额 |
 | `valueSpec` | 单元内查询投影模型 |
 | `ruleData` | 规则私有数据，包括简化单元标记 |
+| `compact` | 是否为 compact 单元（合并了 N 个连续相同子单元） |
+| `count` | compact 单元代表的子单元数量，非 compact 始终为 1 |
+
+compact 单元由边界驱动循环自然产出：连续 N 个相同单价、相同时长、相同免费状态、相同 valueSpec、未被截断、时间连续的子单元合并为一个 compact 单元。截断单元（`isTruncated=true`）始终以非 compact 形式输出。compact 单元的 `accumulatedAmount` 指向合并段最后一个子单元的累计值。
 
 当前公共求值协议：
 
@@ -317,9 +350,13 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 重要缺口包括：
 
 - `AMOUNT` 和 `DISCOUNT` 已作为优惠类型能力接入，但当前仍不是独立 `PromotionRuleType`。
-- `times` 仍为预留规则常量；`naturalTime` 已实现；`nrTimeMix` 已废弃并由 `compositeTime` 覆盖。
+- `times` 仍为预留规则常量；`nrTimeMix` 已废弃并由 `compositeTime` 覆盖。
 - `relativeTime` 和 `compositeTime` 尚未拥有和 `dayNight` 同等级别的复杂 `valueSpec` 覆盖。
 - 分钟级 `valueSpec` 是已预留的扩展方向，但当前尚未实现。
+- 不足单元计费方式配置（`IncompleteUnitChargeMode` 的 PROPORTIONAL/FREE/THRESHOLD 档位）尚未接入计费逻辑，截断单元一律按 FULL_CHARGE 收全额（TODO-20260626-001）。
+- `UNIT_BASED` 模式计划降级为独立计费规则类型，普通规则只保留 `CONTINUOUS`（TODO-20260630-001）。
+- 时长计费模式（按分钟累加、免费时段扣除分钟）待引入，作为单元计费的并列新模式。
+- 物化索引预估收入能力：引擎只提供实现可能（产出 validMinutes/accumulatedAmount 等），存储/索引由业务层实现（TODO-20260630-002）。
 
 ---
 

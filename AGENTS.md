@@ -129,8 +129,11 @@ BillingService.calculate()
 - `BillingContext` - 计算上下文
 - `BillingRule` / `PromotionRule` - 规则接口（新增规则时实现）
 - `PromotionAggregate` - 聚合免费时段
+- `AbstractTimeBasedRule` - 时间计费规则基类，提供边界驱动公共循环、状态管理、简化计算框架
+- `BoundaryProvider` / `BoundaryProviders` / `HomogeneousSegment` - 边界驱动框架抽象
+- `CompactMerger` - compact 单元合并器（跨分段连续相同单元合并）
 - `BillingTemplate` - 便捷 API 入口（billing-api 模块）
-- `BillingResultViewer` - 查询时点视图逻辑
+- `BillingResultViewer` - 查询时点视图逻辑（含 compact 单元子单元投影）
 - `PromotionEquivalentCalculator` - 优惠等效金额计算
 
 查询时点金额通过 `BillingUnit.valueSpec` 和 `BillingResultViewer` 计算；通用查询层不应解析规则私有 `ruleData`。
@@ -196,10 +199,12 @@ BillingService.calculate()
 
 | 模式 | 说明 |
 |------|------|
-| `CONTINUOUS` | 连续时间模式，时间单位可被优惠/规则打断 |
-| `UNIT_BASED` | 计费单位模式，固定单位长度，独立计算 |
+| `CONTINUOUS` | 边界驱动循环为唯一计算路径：找最近边界跳过去，每次迭代产出一个同质段，compact 单元为自然产物 |
+| `UNIT_BASED` | 固定单元长度，单元边界不被免费时段切断；计划降级为独立计费规则类型（见 `docs/TODO.md` TODO-20260630-001） |
 
-规则必须通过 `supportedModes()` 声明支持的模式。
+规则必须通过 `supportedModes()` 声明支持的模式。时长计费模式（按分钟累加）待引入。
+
+边界驱动框架关键类：`BoundaryProvider`、`BoundaryProviders`、`HomogeneousSegment`、`HomogeneousSegmentCalculator`、`CompactMerger`，均位于 `core` 的 `charge.rules` 包，公共循环入口为 `AbstractTimeBasedRule.runBoundaryDrivenLoop`。
 
 ---
 

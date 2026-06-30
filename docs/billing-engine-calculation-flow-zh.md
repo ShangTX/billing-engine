@@ -2,7 +2,7 @@
 
 本文描述当前代码中的主计算链路。能力边界和规则覆盖范围见 `docs/billing-engine-capabilities-zh.md`。
 
-最后复核日期：2026-05-18
+最后复核日期：2026-06-30
 
 ---
 
@@ -148,6 +148,8 @@ schemeChanges -> multiple BillingSegment
 
 具体的单元切割、单价判断、封顶、规则状态输出由各 `BillingRule` 实现。当前已实现的主要规则包括 `dayNight`、`relativeTime`、`naturalTime`、`compositeTime` 和 `flatFree`。
 
+`CONTINUOUS` 模式下，时间计费规则（`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`）通过 `AbstractTimeBasedRule.runBoundaryDrivenLoop` 公共循环切割时间轴：每次迭代从当前位置查询所有边界来源中最近的边界，跳到那里产出一个同质段（`HomogeneousSegment`），再由各规则的 `applyCapAndAccumulate` 转换为 `BillingUnit`（含封顶、累计金额、compact 合并、截断标记）。边界来源由各规则通过 `BoundaryProvider` 注册（免费时段起止、时段结束、周期结束、单元对齐、calcEnd 等）。compact 单元是该循环的自然产物，无需后处理合并。
+
 ---
 
 ## 9. 计费单元：`BillingUnit`
@@ -166,6 +168,8 @@ schemeChanges -> multiple BillingSegment
 | `valueSpec` | 单元内查询时点投影模型 |
 | `ruleData` | 规则私有数据，例如周期序号或简化单元标记 |
 | `isTruncated` | 是否被 `calcEndTime` 截断 |
+| `compact` | 是否为 compact 单元（合并了 N 个连续相同子单元） |
+| `count` | compact 单元代表的子单元数量，非 compact 始终为 1 |
 
 `conditionalFree` 和 `conditionalFreeUntil` 已不再是主模型字段。条件起始免费通过 `StepValueSpec` 表达。
 
@@ -258,7 +262,7 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 
 `ResultAssembler.assemble()` 合并所有分段结果：
 
-- 合并 `BillingUnit`。
+- 通过 `CompactMerger.merge` 合并 `BillingUnit`，跨分段的连续相同单元合并为 compact 单元（跨分段边界不合并）。
 - 合并 `PromotionUsage`。
 - 计算最终金额和累计金额。
 - 计算 `effectiveFrom`、`effectiveTo` 和 `calculationEndTime`。

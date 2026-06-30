@@ -28,7 +28,7 @@ JDK 25 同样兼容，已在 OpenJDK 25 上验证。
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>2.1.1</version>
+    <version>2.1.2</version>
 </dependency>
 ```
 
@@ -39,14 +39,14 @@ JDK 25 同样兼容，已在 OpenJDK 25 上验证。
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>2.1.1</version>
+    <version>2.1.2</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>2.1.1</version>
+    <version>2.1.2</version>
 </dependency>
 ```
 
@@ -68,11 +68,12 @@ BillingResult result = billingTemplate.calculate(request);
 
 ## 当前能力说明
 
-- 已实现计费规则包括 `dayNight`、`relativeTime`、`compositeTime` 和 `flatFree`。
+- 已实现计费规则包括 `dayNight`、`relativeTime`、`naturalTime`、`compositeTime` 和 `flatFree`。
 - 已实现优惠能力主要包括 `FREE_RANGE`、`FREE_MINUTES`、`freeMinutes` 和 `startFree`。
-- `naturalTime`、`nrTimeMix` 已被 `compositeTime` 覆盖，不再单独实现。
+- `CONTINUOUS` 模式采用边界驱动循环，连续相同单元合并为 compact 单元，显著减少细粒度计费场景下的结果体积。
+- `UNIT_BASED` 模式计划降级为独立计费规则类型，普通规则只保留 `CONTINUOUS`（见 TODO）。
 - `AMOUNT`、`DISCOUNT` 是预留优惠类型，`times` 是预留计费类型（非时间计费场景）。
-- 查询时点金额由命中单元的 `valueSpec` 计算，不再直接读取 `accumulatedAmount`。
+- 查询时点金额由命中单元的 `valueSpec` 计算，不再直接读取 `accumulatedAmount`；compact 单元按子单元投影。
 
 完整能力矩阵和已知限制见 [计费引擎能力文档](docs/billing-engine-capabilities-zh.md)。
 

@@ -28,7 +28,7 @@ JDK 25 is also compatible and has been verified with OpenJDK 25.
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>2.1.1</version>
+    <version>2.1.2</version>
 </dependency>
 ```
 
@@ -39,14 +39,14 @@ JDK 25 is also compatible and has been verified with OpenJDK 25.
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>2.1.1</version>
+    <version>2.1.2</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>2.1.1</version>
+    <version>2.1.2</version>
 </dependency>
 ```
 
@@ -68,11 +68,12 @@ For a full compilable setup, rule registration, Spring Boot integration, query-t
 
 ## Current Capability Notes
 
-- Implemented billing rules include `dayNight`, `relativeTime`, `compositeTime`, and `flatFree`.
+- Implemented billing rules include `dayNight`, `relativeTime`, `naturalTime`, `compositeTime`, and `flatFree`.
 - Implemented promotion capabilities focus on `FREE_RANGE`, `FREE_MINUTES`, `freeMinutes`, and `startFree`.
-- `naturalTime` and `nrTimeMix` are now covered by `compositeTime` and will not be implemented separately.
+- `CONTINUOUS` mode uses a boundary-driven loop; consecutive identical units merge into compact units, significantly reducing result volume in fine-grained billing scenarios.
+- `UNIT_BASED` mode is planned to be downgraded to an independent billing rule type, leaving `CONTINUOUS` as the only mode for general rules (see TODO).
 - `AMOUNT` and `DISCOUNT` are reserved promotion types; `times` is a reserved billing type (for non-time-based scenarios).
-- Query-time amount is calculated from the hit unit's `valueSpec`; it is not read directly from `accumulatedAmount`.
+- Query-time amount is calculated from the hit unit's `valueSpec`; compact units project by sub-unit.
 
 See [Billing Engine Capabilities](docs/billing-engine-capabilities.md) for the full implemented capability matrix and known gaps.
 
