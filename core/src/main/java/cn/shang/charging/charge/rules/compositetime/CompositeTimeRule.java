@@ -755,6 +755,10 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         long nextCycleBoundaryOffset = ((calcBeginOffset / MINUTES_PER_DAY) + 1) * MINUTES_PER_DAY;
         BigDecimal lastCycleAccumulated = cycleAccumulated;
 
+        // 时段独立封顶跟踪：当前 period 及其在 units 列表的起始索引
+        CompositePeriod currentPeriod = null;
+        int periodStartIndex = 0;
+
         BigDecimal accumulated = context.getPreviousAccumulatedAmount();
         if (accumulated == null) accumulated = BigDecimal.ZERO;
         BigDecimal truncatedDeduction = context.getTruncatedUnitChargedAmount();
@@ -766,6 +770,17 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             int positionInCycle = (int) (((Duration.between(billingOrigin, seg.getBeginTime()).toMinutes() % MINUTES_PER_DAY)
                     + MINUTES_PER_DAY) % MINUTES_PER_DAY);
             CompositePeriod period = periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
+
+            // 时段切换：对前一 period 应用独立封顶
+            if (currentPeriod == null) {
+                currentPeriod = period;
+                periodStartIndex = units.size();
+            } else if (!period.equals(currentPeriod)) {
+                applyPeriodCapToUnits(units, periodStartIndex, currentPeriod.getMaxCharge());
+                currentPeriod = period;
+                periodStartIndex = units.size();
+            }
+
             int unitMinutes = period.getUnitMinutes();
             int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
             if (subCount < 1) subCount = 1;
@@ -840,7 +855,109 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 lastCycleAccumulated = BigDecimal.ZERO;
             }
         }
+
+        // 对最后一个 period 应用独立封顶
+        if (currentPeriod != null) {
+            applyPeriodCapToUnits(units, periodStartIndex, currentPeriod.getMaxCharge());
+        }
+
+        // 时段封顶削减后，重新计算累计金额（削减改变了 chargedAmount）
+        if (hasPeriodCap(config)) {
+            recomputeAccumulatedAmounts(units, context);
+        }
+
         return new ContinuousResult(units, lastCycleAccumulated);
+    }
+
+    /**
+     * 是否配置了任意时段独立封顶。
+     */
+    private boolean hasPeriodCap(CompositeTimeConfig config) {
+        if (config.getPeriods() == null) return false;
+        for (CompositePeriod period : config.getPeriods()) {
+            if (period.getMaxCharge() != null && period.getMaxCharge().compareTo(BigDecimal.ZERO) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 对 units 列表中 [startIndex, end) 范围内的收费单元应用时段独立封顶。
+     * 从最后一个收费单元开始削减，削减为 0 标记 free + PERIOD_CAP。
+     * 削减会破坏 compact 合并前提，命中单元标记为非 compact。
+     */
+    private void applyPeriodCapToUnits(List<BillingUnit> units, int startIndex, BigDecimal maxCharge) {
+        if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        if (startIndex >= units.size()) {
+            return;
+        }
+        List<BillingUnit> periodUnits = units.subList(startIndex, units.size());
+        List<BillingUnit> chargeableUnits = new ArrayList<>(periodUnits.stream()
+                .filter(u -> !u.isFree())
+                .toList());
+
+        if (chargeableUnits.isEmpty()) {
+            return;
+        }
+
+        BigDecimal totalCharge = chargeableUnits.stream()
+                .map(BillingUnit::getChargedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        if (totalCharge.compareTo(maxCharge) <= 0) {
+            return;
+        }
+
+        BigDecimal excess = totalCharge.subtract(maxCharge);
+
+        for (int i = chargeableUnits.size() - 1; i >= 0 && excess.compareTo(BigDecimal.ZERO) > 0; i--) {
+            BillingUnit unit = chargeableUnits.get(i);
+            BigDecimal charged = unit.getChargedAmount();
+
+            if (charged.compareTo(excess) >= 0) {
+                unit.setChargedAmount(charged.subtract(excess).setScale(2, RoundingMode.HALF_UP));
+                if (unit.getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
+                    unit.setFree(true);
+                    unit.setFreePromotionId("PERIOD_CAP");
+                }
+                excess = BigDecimal.ZERO;
+            } else {
+                unit.setChargedAmount(BigDecimal.ZERO);
+                unit.setFree(true);
+                unit.setFreePromotionId("PERIOD_CAP");
+                excess = excess.subtract(charged);
+            }
+            // 削减破坏 compact 合并前提，标记为非 compact
+            if (unit.isCompact()) {
+                unit.setCompact(false);
+                unit.setCount(1);
+            }
+        }
+    }
+
+    /**
+     * 时段封顶削减后重新计算 accumulatedAmount。
+     * 削减只改变 chargedAmount，需重算前缀累计。
+     */
+    private void recomputeAccumulatedAmounts(List<BillingUnit> units, BillingContext context) {
+        BigDecimal accumulated = context.getPreviousAccumulatedAmount();
+        if (accumulated == null) accumulated = BigDecimal.ZERO;
+        BigDecimal truncatedDeduction = context.getTruncatedUnitChargedAmount();
+        for (int i = 0; i < units.size(); i++) {
+            BillingUnit unit = units.get(i);
+            BigDecimal charged = unit.getChargedAmount();
+            if (truncatedDeduction != null && i == 0) {
+                BigDecimal adjusted = charged.subtract(truncatedDeduction);
+                if (adjusted.signum() < 0) adjusted = BigDecimal.ZERO;
+                charged = adjusted;
+                unit.setChargedAmount(charged);
+            }
+            accumulated = accumulated.add(charged);
+            unit.setAccumulatedAmount(accumulated);
+        }
     }
 
     /**
