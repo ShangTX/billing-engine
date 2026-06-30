@@ -201,6 +201,32 @@ class BillingResultViewerTest {
         assertEquals(new BigDecimal("8.00"), result.getQueryResult().getAmount());
     }
 
+    @Test
+    void createQuerySummary_compactUnit_projectsBySubUnit() {
+        // compact 单元：5 个子单元，每子单元 60 分钟、单价 2.00，总 300 分钟、charged 10.00
+        LocalDateTime t0 = LocalDateTime.of(2024, 1, 1, 8, 0);
+        LocalDateTime t5 = t0.plusMinutes(300);
+        BillingUnit compact = BillingUnit.builder()
+            .beginTime(t0).endTime(t5)
+            .durationMinutes(300)
+            .unitPrice(new BigDecimal("2.00"))
+            .originalAmount(new BigDecimal("10.00"))
+            .chargedAmount(new BigDecimal("10.00"))
+            .accumulatedAmount(new BigDecimal("10.00"))
+            .compact(true).count(5)
+            .build();
+        BillingResult result = BillingResult.builder()
+            .units(List.of(compact))
+            .calculationEndTime(t5)
+            .build();
+
+        BillingResultViewer viewer = new BillingResultViewer();
+        // queryTime 在第 2 个子单元（t0+150），应累计 3 个子单元 = 6.00
+        QuerySummary q = viewer.createQuerySummary(result, t0.plusMinutes(150));
+
+        assertEquals(0, new BigDecimal("6.00").compareTo(q.getAmount()));
+    }
+
     private static class StubBillingService extends BillingService {
         private final BillingResult simplifiedResult;
         private final BillingResult detailedResult;

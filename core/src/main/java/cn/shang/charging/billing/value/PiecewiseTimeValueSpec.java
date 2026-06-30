@@ -67,6 +67,18 @@ public class PiecewiseTimeValueSpec implements UnitValueSpec {
         return new UnitValueProjection(normalize(amount), unitEndTime);
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof PiecewiseTimeValueSpec that)) return false;
+        return segments.equals(that.segments);
+    }
+
+    @Override
+    public int hashCode() {
+        return segments.hashCode();
+    }
+
     private static BigDecimal normalize(BigDecimal value) {
         return value.stripTrailingZeros().scale() < 0
                 ? value.setScale(0, RoundingMode.UNNECESSARY)

@@ -55,11 +55,6 @@ public class FreeTimeRange {
 
     // TODO 免费时间段特性
 
-    @Override
-    public int hashCode() {
-        return id.hashCode();
-    }
-
     // 检查时间段是否有效（开始时间早于结束时间）
     public boolean isValid() {
         return beginTime != null && endTime != null && !beginTime.isAfter(endTime);

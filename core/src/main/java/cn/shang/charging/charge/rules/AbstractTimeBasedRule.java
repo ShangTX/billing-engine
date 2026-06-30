@@ -19,6 +19,7 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -391,5 +392,224 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
         Map<String, Object> ruleOutputState = new HashMap<>();
         ruleOutputState.put(getRuleType(), toMap(state));
         return ruleOutputState;
+    }
+
+    // ==================== CONTINUOUS 模式公共时间轴切分基础设施 ====================
+
+    /**
+     * 时间片段（按免费时段边界切分后的时间范围）。
+     * <p>
+     * 子类如需携带额外字段（如 DayNight 的 conditional 信息），可继承本类并覆盖
+     * {@link #applyFreeRange(FreeTimeRange)}、{@link #copy(LocalDateTime, LocalDateTime)}
+     * 以及 {@link #isConditional()} / {@link #getConditionalUntil()} 钩子。
+     */
+    protected static class TimeFragment {
+        public LocalDateTime beginTime;
+        public LocalDateTime endTime;
+        public boolean isFree;
+        public String freePromotionId;
+
+        public TimeFragment(LocalDateTime beginTime, LocalDateTime endTime) {
+            this.beginTime = beginTime;
+            this.endTime = endTime;
+            this.isFree = false;
+            this.freePromotionId = null;
+        }
+
+        /**
+         * 应用免费时段信息到本片段。子类可覆盖以复制额外字段。
+         */
+        public void applyFreeRange(FreeTimeRange range) {
+            this.isFree = true;
+            this.freePromotionId = range.getId();
+        }
+
+        /**
+         * 创建覆盖 [beginTime, endTime] 的副本，继承本片段的免费信息。
+         * 用于 {@link #organizeByCycle} 在周期边界切分片段。
+         * 子类可覆盖以复制额外字段。
+         */
+        public TimeFragment copy(LocalDateTime beginTime, LocalDateTime endTime) {
+            TimeFragment f = new TimeFragment(beginTime, endTime);
+            f.isFree = this.isFree;
+            f.freePromotionId = this.freePromotionId;
+            return f;
+        }
+
+        /** 是否为条件免费片段。默认 false，DayNight 等规则覆盖。 */
+        public boolean isConditional() {
+            return false;
+        }
+
+        /** 条件免费用效截止时间。默认 null。 */
+        public LocalDateTime getConditionalUntil() {
+            return null;
+        }
+    }
+
+    /**
+     * 周期片段容器：一个 24h 周期内的时间片段列表。
+     */
+    protected static class CycleFragments {
+        public final LocalDateTime cycleStart;
+        public final LocalDateTime cycleEnd;
+        public final List<TimeFragment> fragments = new ArrayList<>();
+
+        public CycleFragments(LocalDateTime cycleStart, LocalDateTime cycleEnd) {
+            this.cycleStart = cycleStart;
+            this.cycleEnd = cycleEnd;
+        }
+    }
+
+    /**
+     * 创建时间片段。子类可覆盖以返回携带额外字段的子类型。
+     */
+    protected TimeFragment createFragment(LocalDateTime beginTime, LocalDateTime endTime) {
+        return new TimeFragment(beginTime, endTime);
+    }
+
+    /**
+     * 按免费时段边界切分时间轴（CONTINUOUS 模式公共实现）。
+     * <p>
+     * 收集所有落在 [begin, end] 内的免费时段起止点作为切分点，去重排序后逐段生成片段，
+     * 并标记每段是否被某个免费时段完全覆盖。
+     */
+    protected List<TimeFragment> splitTimeAxis(LocalDateTime begin,
+                                               LocalDateTime end,
+                                               List<FreeTimeRange> freeTimeRanges) {
+        List<TimeFragment> fragments = new ArrayList<>();
+
+        List<LocalDateTime> cutPoints = new ArrayList<>();
+        cutPoints.add(begin);
+
+        if (freeTimeRanges != null) {
+            for (FreeTimeRange range : freeTimeRanges) {
+                if (range.getBeginTime().isAfter(end) || range.getEndTime().isBefore(begin)) {
+                    continue;
+                }
+                if (range.getBeginTime().isAfter(begin) && range.getBeginTime().isBefore(end)) {
+                    cutPoints.add(range.getBeginTime());
+                }
+                if (range.getEndTime().isAfter(begin) && range.getEndTime().isBefore(end)) {
+                    cutPoints.add(range.getEndTime());
+                }
+            }
+        }
+
+        cutPoints.add(end);
+        cutPoints = cutPoints.stream().distinct().sorted().toList();
+
+        for (int i = 0; i < cutPoints.size() - 1; i++) {
+            LocalDateTime fragBegin = cutPoints.get(i);
+            LocalDateTime fragEnd = cutPoints.get(i + 1);
+
+            TimeFragment fragment = createFragment(fragBegin, fragEnd);
+
+            if (freeTimeRanges != null) {
+                for (FreeTimeRange range : freeTimeRanges) {
+                    if (!range.getBeginTime().isAfter(fragBegin) && !range.getEndTime().isBefore(fragEnd)) {
+                        fragment.applyFreeRange(range);
+                        break;
+                    }
+                }
+            }
+
+            fragments.add(fragment);
+        }
+
+        return fragments;
+    }
+
+    /**
+     * 按周期（24h）组织片段（CONTINUOUS 模式公共实现）。
+     * <p>
+     * 以 cycleOriginBegin 为周期起点，将跨越周期边界的片段切分到对应周期。
+     */
+    protected List<CycleFragments> organizeByCycle(LocalDateTime calcBegin,
+                                                   LocalDateTime calcEnd,
+                                                   List<TimeFragment> fragments,
+                                                   LocalDateTime cycleOriginBegin) {
+        List<CycleFragments> cycles = new ArrayList<>();
+
+        int cycleMinutes = getCycleMinutes();
+        LocalDateTime cycleStart = cycleOriginBegin;
+        LocalDateTime cycleEnd = cycleOriginBegin.plusMinutes(cycleMinutes);
+
+        // 找到包含 calcBegin 的周期
+        while (cycleEnd.isBefore(calcBegin) || cycleEnd.equals(calcBegin)) {
+            cycleStart = cycleEnd;
+            cycleEnd = cycleStart.plusMinutes(cycleMinutes);
+        }
+
+        CycleFragments currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
+
+        for (TimeFragment fragment : fragments) {
+            while (fragment.endTime.isAfter(currentCycle.cycleEnd)) {
+                TimeFragment beforeBoundary = fragment.copy(fragment.beginTime, currentCycle.cycleEnd);
+
+                currentCycle.fragments.add(beforeBoundary);
+                cycles.add(currentCycle);
+
+                cycleStart = currentCycle.cycleEnd;
+                cycleEnd = cycleStart.plusMinutes(cycleMinutes);
+                currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
+
+                fragment.beginTime = currentCycle.cycleStart;
+            }
+
+            currentCycle.fragments.add(fragment);
+        }
+
+        if (!currentCycle.fragments.isEmpty()) {
+            cycles.add(currentCycle);
+        }
+
+        return cycles;
+    }
+
+    // ==================== 边界驱动循环（CONTINUOUS 模式公共实现） ====================
+
+    /**
+     * 边界驱动的公共循环入口。
+     * <p>
+     * 取代逐单元迭代：从当前时间开始，反复查询所有边界来源中最近的边界，
+     * 跳到那里并调用 {@code segmentBuilder} 生成一个同质段，直到抵达 calcEnd。
+     * 子类只需提供边界来源与段构造回调，无需关心循环步进。
+     *
+     * @param calcBegin       计算窗口起点（含）
+     * @param calcEnd         计算窗口终点（含上界）
+     * @param providers       边界来源列表
+     * @param segmentBuilder  段构造回调：给定一个同质区间 [current, next)，返回对应的 HomogeneousSegment
+     * @return 按时间顺序排列的同质段列表
+     */
+    protected List<HomogeneousSegment> runBoundaryDrivenLoop(
+            LocalDateTime calcBegin,
+            LocalDateTime calcEnd,
+            List<BoundaryProvider> providers,
+            SegmentBuilder segmentBuilder) {
+        List<HomogeneousSegment> segments = new ArrayList<>();
+        LocalDateTime current = calcBegin;
+        while (current.isBefore(calcEnd)) {
+            LocalDateTime next = BoundaryProviders.findNearest(current, calcEnd, providers);
+            if (!next.isAfter(current)) {
+                // 防御：避免无限循环（所有边界都在 current 之前）
+                break;
+            }
+            HomogeneousSegment segment = segmentBuilder.build(current, next);
+            if (segment != null) {
+                segments.add(segment);
+            }
+            current = next;
+        }
+        return segments;
+    }
+
+    /**
+     * 边界驱动循环的段构造回调接口。
+     * 给定 [begin, end) 同质区间，返回一个 HomogeneousSegment（或 null 跳过该段）。
+     */
+    @FunctionalInterface
+    protected interface SegmentBuilder {
+        HomogeneousSegment build(LocalDateTime begin, LocalDateTime end);
     }
 }

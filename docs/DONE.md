@@ -19,3 +19,4 @@
 | 2026-05-18 | TODO-20260508-001 | feature | 实现金额减免和折扣优惠 | d70eb72 | [promotion-amount-discount.md](tracking/items/promotion-amount-discount.md) |
 | 2026-05-18 | TODO-20260508-004 | feature | 支持不完整计费单元的多种计费方式 | d70eb72 | [incomplete-unit-charge-modes.md](tracking/items/incomplete-unit-charge-modes.md) |
 | 2026-05-18 | TODO-20260508-003 | feature | 扩展测试结果生成器规则覆盖 | d70eb72 | [billing-test-generator-rule-coverage.md](tracking/items/billing-test-generator-rule-coverage.md) |
+| 2026-06-26 | TODO-20260623-002 | feature | Compact 计费结果模式 | 9f75d8d | [compact-billing-result-mode.md](tracking/items/compact-billing-result-mode.md) |

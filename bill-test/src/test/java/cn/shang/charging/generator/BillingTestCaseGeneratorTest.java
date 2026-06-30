@@ -1,6 +1,7 @@
 package cn.shang.charging.generator;
 
 import cn.shang.charging.billing.pojo.BConstants;
+import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.util.JacksonUtils;
 import org.junit.jupiter.api.Test;
 
@@ -45,6 +46,33 @@ class BillingTestCaseGeneratorTest {
             assertFalse(generatedCase.getResult().getUnits().isEmpty());
             assertFalse(generatedCase.getQuerySummaries().isEmpty());
             assertFalse(generatedCase.getContinueSteps().isEmpty());
+        }
+    }
+
+    @Test
+    void generatesCompactCasesProducingCompactUnits() {
+        TestGenerationRequest request = TestGenerationRequest.builder()
+                .chargeRuleType(BConstants.ChargeRuleType.DAY_NIGHT)
+                .features(Set.of(
+                        TestFeature.COMPACT,
+                        TestFeature.QUERY_TIME
+                ))
+                .count(2)
+                .seed(20260626L)
+                .build();
+
+        List<GeneratedBillingCase> cases = new BillingTestCaseGenerator().generate(request);
+
+        assertEquals(2, cases.size());
+        for (GeneratedBillingCase generatedCase : cases) {
+            assertTrue(generatedCase.getFeatures().contains(TestFeature.COMPACT));
+            assertTrue(generatedCase.getFeatures().contains(TestFeature.CONTINUOUS),
+                    "COMPACT 应默认走 CONTINUOUS 模式");
+            long compactCount = generatedCase.getResult().getUnits().stream()
+                    .filter(BillingUnit::isCompact).count();
+            assertTrue(compactCount > 0, "COMPACT 场景应产出 compact 单元");
+            assertFalse(generatedCase.getQuerySummaries().isEmpty(),
+                    "COMPACT + QUERY_TIME 应产出查询摘要以校验投影");
         }
     }
 }

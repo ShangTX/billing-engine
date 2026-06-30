@@ -121,12 +121,39 @@ public class BillingResultViewer {
     }
 
     private UnitValueProjection projectUnitValue(BillingUnit unit, LocalDateTime queryTime) {
+        if (unit.isCompact() && unit.getCount() > 1) {
+            return projectCompactUnit(unit, queryTime);
+        }
         UnitValueSpec spec = unit.getValueSpec();
         if (spec == null) {
             // Old results may not carry `valueSpec` yet; treat them as stable full-value units.
             spec = new FixedValueSpec(unit.getChargedAmount() != null ? unit.getChargedAmount() : BigDecimal.ZERO);
         }
         return UnitValueEvaluator.evaluate(spec, queryTime, unit.getBeginTime(), unit.getEndTime());
+    }
+
+    /**
+     * compact 单元的子单元投影：按子单元时长定位 queryTime 落在第 k 个子单元，
+     * 累计金额 = (k+1) * 子单元单价，下一个变化点为第 k+1 个子单元结束。
+     */
+    private UnitValueProjection projectCompactUnit(BillingUnit unit, LocalDateTime queryTime) {
+        int count = unit.getCount();
+        int totalMinutes = unit.getDurationMinutes();
+        int subDuration = count > 0 ? totalMinutes / count : totalMinutes;
+        if (subDuration <= 0) {
+            subDuration = totalMinutes;
+        }
+        long elapsed = Duration.between(unit.getBeginTime(), queryTime).toMinutes();
+        int k = subDuration > 0 ? (int) (elapsed / subDuration) : 0;
+        if (k < 0) k = 0;
+        if (k > count - 1) k = count - 1;
+        BigDecimal subPrice = unit.getUnitPrice() != null ? unit.getUnitPrice() : BigDecimal.ZERO;
+        BigDecimal currentAmount = subPrice.multiply(BigDecimal.valueOf(k + 1));
+        LocalDateTime nextChange = unit.getBeginTime().plusMinutes((long) (k + 1) * subDuration);
+        if (nextChange.isAfter(unit.getEndTime())) {
+            nextChange = unit.getEndTime();
+        }
+        return new UnitValueProjection(currentAmount, nextChange);
     }
 
     private List<BillingUnit> filterUnits(List<BillingUnit> units, LocalDateTime queryTime) {

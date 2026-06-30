@@ -12,6 +12,7 @@ import lombok.experimental.Accessors;
 @Data
 public class FreeMinutesPromotionConfig implements PromotionRuleConfig {
     String id;
+    @Builder.Default
     String type = BConstants.PromotionRuleType.FREE_MINUTES;
     Integer priority;
     int minutes;

@@ -22,4 +22,16 @@ public class FixedValueSpec implements UnitValueSpec {
         Objects.requireNonNull(unitEndTime, "unitEndTime cannot be null");
         return new UnitValueProjection(amount, unitEndTime);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof FixedValueSpec that)) return false;
+        return amount.compareTo(that.amount) == 0;
+    }
+
+    @Override
+    public int hashCode() {
+        return amount.stripTrailingZeros().hashCode();
+    }
 }
