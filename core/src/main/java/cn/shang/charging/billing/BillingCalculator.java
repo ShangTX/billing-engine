@@ -35,6 +35,18 @@ public class BillingCalculator {
             );
         }
 
+        // 校验时长计费模式支持：指定了时长模式但规则不支持时抛异常（不静默降级）
+        cn.shang.charging.billing.pojo.BConstants.DurationMode durationMode = context.getDurationMode();
+        if (durationMode != null && durationMode != cn.shang.charging.billing.pojo.BConstants.DurationMode.NONE) {
+            if (!billingRule.supportedDurationModes().contains(durationMode)) {
+                throw new IllegalStateException(
+                        "Rule " + billingRule.getClass().getSimpleName() +
+                        " (type=" + ruleConfig.getType() + ") does not support duration mode: " +
+                        durationMode
+                );
+            }
+        }
+
         return calculateInternal(context, billingRule, ruleConfig, promotionAggregate);
     }
 

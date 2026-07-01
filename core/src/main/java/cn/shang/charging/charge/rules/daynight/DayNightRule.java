@@ -134,7 +134,8 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     /**
      * 时长计费模式计算
      * <p>
-     * 复用边界驱动循环，将 HomogeneousSegment 转换为 DurationSegment
+     * 复用边界驱动循环，将 HomogeneousSegment 转换为 DurationSegment。
+     * DayNight 无 period 级封顶，periodResolver 仅提供 day/night 标签。
      */
     private BillingSegmentResult calculateDurationMode(BillingContext context, DayNightConfig config,
                                                         PromotionAggregate promotionAggregate,
@@ -149,24 +150,29 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         List<FreeTimeRange> freeTimeRanges = promotionAggregate != null && promotionAggregate.getFreeTimeRanges() != null
                 ? promotionAggregate.getFreeTimeRanges() : List.of();
 
-        // 边界来源：日夜时段边界 + 免费时段边界 + 周期边界 + calcEnd
-        List<BoundaryProvider> providers = new ArrayList<>();
-        providers.add(BoundaryProviders.cycleEnd(calcBegin, getCycleMinutes()));
-        // 日夜时段边界
-        providers.add((current, end) -> {
-            LocalDateTime day = current.toLocalDate().atStartOfDay();
-            LocalDateTime dayBegin = day.plusMinutes(config.getDayBeginMinute());
-            LocalDateTime dayEnd = day.plusMinutes(config.getDayEndMinute());
+        // 日夜时段边界 provider（PERIOD/GLOBAL 共用）
+        BoundaryProvider dayNightBoundary = (current, end) -> {
             List<LocalDateTime> result = new ArrayList<>();
-            if (dayBegin.isAfter(current) && !dayBegin.isAfter(end)) result.add(dayBegin);
-            if (dayEnd.isAfter(current) && !dayEnd.isAfter(end)) result.add(dayEnd);
-            // 检查下一天
-            dayBegin = dayBegin.plusDays(1);
-            dayEnd = dayEnd.plusDays(1);
-            if (dayBegin.isAfter(current) && !dayBegin.isAfter(end)) result.add(dayBegin);
-            if (dayEnd.isAfter(current) && !dayEnd.isAfter(end)) result.add(dayEnd);
+            LocalDateTime day = current.toLocalDate().atStartOfDay();
+            // 检查今天和明天两天的 dayBegin/dayEnd，覆盖 current 到 end 的范围
+            for (int d = 0; d <= 1; d++) {
+                LocalDateTime dayBegin = day.plusMinutes(config.getDayBeginMinute());
+                LocalDateTime dayEnd = day.plusMinutes(config.getDayEndMinute());
+                if (dayBegin.isAfter(current) && !dayBegin.isAfter(end)) result.add(dayBegin);
+                if (dayEnd.isAfter(current) && !dayEnd.isAfter(end)) result.add(dayEnd);
+                day = day.plusDays(1);
+            }
             return result;
-        });
+        };
+
+        // 边界来源
+        List<BoundaryProvider> providers = new ArrayList<>();
+        if (durationMode == BConstants.DurationMode.PERIOD) {
+            // PERIOD 模式：周期边界 + 日夜边界 + 免费段 + calcEnd
+            providers.add(BoundaryProviders.cycleEnd(calcBegin, getCycleMinutes()));
+        }
+        // GLOBAL 模式：不含周期边界，segment 跨周期合并
+        providers.add(dayNightBoundary);
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
@@ -184,24 +190,36 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             return new HomogeneousSegment(current, next, unitPrice, unitPrice, false, null, null, null);
         });
 
+        // period 解析器：仅提供 day/night 标签，无 period 级封顶
+        PeriodResolver periodResolver = new PeriodResolver() {
+            @Override
+            public int getPeriodIndex(LocalDateTime time) {
+                int minute = time.getHour() * 60 + time.getMinute();
+                int dayBegin = config.getDayBeginMinute();
+                int dayEnd = config.getDayEndMinute();
+                boolean inDay;
+                if (dayBegin < dayEnd) {
+                    inDay = minute >= dayBegin && minute < dayEnd;
+                } else {
+                    inDay = minute >= dayBegin || minute < dayEnd;
+                }
+                return inDay ? 0 : 1;
+            }
+
+            @Override
+            public String getPeriodLabel(LocalDateTime time) {
+                return getPeriodIndex(time) == 0 ? "day" : "night";
+            }
+        };
+
         // 转换为 DurationSegment
         long totalMinutes = Duration.between(calcBegin, calcEnd).toMinutes();
-        List<cn.shang.charging.billing.pojo.DurationSegment> durationSegments;
-
+        DurationResult durationResult;
         if (durationMode == BConstants.DurationMode.PERIOD) {
-            // PERIOD 模式：按时段类型分组，时段封顶按每个周期独立计算
-            // DayNightRule 没有时段封顶，periodCapResolver 传 null
-            durationSegments = buildDurationSegmentsPeriodMode(segments, calcBegin, unitMinutes, maxCharge, null);
+            durationResult = buildDurationSegmentsPeriodMode(segments, unitMinutes, maxCharge, periodResolver);
         } else {
-            // GLOBAL 模式：全局按时长计费，时段封顶 = period.maxCharge × 周期数
-            // DayNightRule 没有时段封顶，periodCapResolver 传 null
-            durationSegments = buildDurationSegmentsGlobalMode(segments, calcBegin, unitMinutes, totalMinutes, maxCharge, null);
+            durationResult = buildDurationSegmentsGlobalMode(segments, unitMinutes, totalMinutes, maxCharge, periodResolver);
         }
-
-        // 构建 BillingSegmentResult
-        BigDecimal totalAmount = durationSegments.stream()
-                .map(cn.shang.charging.billing.pojo.DurationSegment::chargedAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         Map<String, Object> ruleOutputState = buildRuleOutputState(initializeState(calcBegin));
 
@@ -211,9 +229,11 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                 .segmentEndTime(context.getSegment().getEndTime())
                 .calculationStartTime(calcBegin)
                 .calculationEndTime(calcEnd)
-                .chargedAmount(totalAmount)
+                .chargedAmount(durationResult.chargedAmount)
                 .billingUnits(List.of())  // 时长模式不产出 BillingUnit
-                .durationSegments(durationSegments)
+                .durationSegments(durationResult.segments)
+                .durationMode(durationMode)
+                .cycleCapApplied(durationResult.cycleCapApplied)
                 .promotionUsages(new ArrayList<>())
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(calcBegin)

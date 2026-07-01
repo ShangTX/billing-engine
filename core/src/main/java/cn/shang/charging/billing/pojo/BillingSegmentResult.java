@@ -81,6 +81,19 @@ public class BillingSegmentResult {
      */
     private List<DurationSegment> durationSegments;
 
+    /**
+     * 时长计费模式标记（NONE 表示非时长模式）
+     * 用于 ResultAssembler 区分 finalAmount 计算路径
+     */
+    private BConstants.DurationMode durationMode;
+
+    /**
+     * 周期封顶金额（时长模式下填充，null=无封顶或未配置）
+     * DurationSegment.chargedAmount 是时段封顶后的应收（周期封顶前），
+     * 本字段记录周期封顶约束，实际实收 = chargedAmount（已应用周期封顶 min）
+     */
+    private BigDecimal cycleCapApplied;
+
 
     /* ========== 六、继续计算支持（状态输出） ========== */
 

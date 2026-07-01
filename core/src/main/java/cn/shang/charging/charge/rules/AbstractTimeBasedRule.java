@@ -5,6 +5,7 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.pojo.DurationSegment;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.billing.pojo.SimplifiedUnitMeta;
 import cn.shang.charging.billing.value.FixedValueSpec;
@@ -757,251 +758,266 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
     // ==================== 时长计费模式（Duration-Based Billing Mode） ====================
 
     /**
-     * PERIOD 模式：将 HomogeneousSegment 列表转换为 DurationSegment 列表。
+     * 时段解析器：为时长模式提供 period 标识、标签和封顶信息。
      * <p>
-     * 每个周期内按时长计费，周期封顶。
-     * 时段封顶按每个周期独立计算。
-     *
-     * @param segments           同质段列表
-     * @param billingOrigin      计费起点
-     * @param unitMinutes        单元时长（分钟）
-     * @param cycleCap           周期封顶金额（null 表示不封顶）
-     * @param periodCapResolver  时段封顶解析器（返回当前段的时段封顶，null 表示不封顶）
-     * @return DurationSegment 列表
+     * 规则在构造 DurationSegment 时通过本接口确定每段属于哪个 period、
+     * 该 period 的封顶金额以及人类可读标签。
      */
-    protected List<cn.shang.charging.billing.pojo.DurationSegment> buildDurationSegmentsPeriodMode(
+    public interface PeriodResolver {
+        /** 该时间点所属 period 的稳定标识（同一 period 类型跨周期返回相同值）。 */
+        int getPeriodIndex(LocalDateTime time);
+
+        /** 该 period 的人类可读标签（如 "day"/"night"/"period-1"）。 */
+        String getPeriodLabel(LocalDateTime time);
+
+        /** 该 period 的封顶金额（null 表示无封顶）。 */
+        default BigDecimal getPeriodCap(LocalDateTime time) {
+            return null;
+        }
+    }
+
+    /**
+     * 时长模式产出结果：DurationSegment 列表 + 周期封顶金额 + 周期封顶后实收。
+     */
+    public static final class DurationResult {
+        public final List<DurationSegment> segments;
+        /** 周期封顶金额（null=无封顶或未配置），DurationSegment 不落盘周期封顶。 */
+        public final BigDecimal cycleCapApplied;
+        /** 周期封顶后的实收（= 各段 chargedAmount 之和与周期封顶取 min）。 */
+        public final BigDecimal chargedAmount;
+
+        public DurationResult(List<DurationSegment> segments, BigDecimal cycleCapApplied, BigDecimal chargedAmount) {
+            this.segments = segments;
+            this.cycleCapApplied = cycleCapApplied;
+            this.chargedAmount = chargedAmount;
+        }
+    }
+
+    /**
+     * 计算单个同质段的应收金额（时段封顶前）。
+     * 免费段返回 0。
+     */
+    private static BigDecimal segmentCharge(HomogeneousSegment seg, int unitMinutes) {
+        if (seg.isFree()) return BigDecimal.ZERO;
+        BigDecimal price = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
+        if (unitMinutes <= 0) return BigDecimal.ZERO;
+        return price.multiply(BigDecimal.valueOf(seg.durationMinutes()))
+                .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * PERIOD 模式：周期内按时长计费。
+     * <p>
+     * - 时段封顶：周期内同 period 累计达 period.maxCharge，该 period 后续段 chargedAmount 削减（落盘）<br>
+     * - 周期封顶：每周期内所有段 chargedAmount 之和达 maxChargeOneCycle，该周期实收 = min(cap, 之和)（不落盘到段）<br>
+     * - 跨周期：period 累计每周期重置
+     *
+     * @param segments        同质段列表（已按周期+时段切分）
+     * @param unitMinutes     单元时长（分钟）
+     * @param cycleCap        周期封顶金额（null=无封顶）
+     * @param periodResolver  时段解析器（null=无时段封顶，所有段视为同一 period）
+     * @return DurationResult（segments + cycleCapApplied + chargedAmount）
+     */
+    protected DurationResult buildDurationSegmentsPeriodMode(
             List<HomogeneousSegment> segments,
-            LocalDateTime billingOrigin,
             int unitMinutes,
             BigDecimal cycleCap,
-            PeriodCapResolver periodCapResolver) {
+            PeriodResolver periodResolver) {
 
-        List<cn.shang.charging.billing.pojo.DurationSegment> result = new ArrayList<>();
-        if (segments.isEmpty()) return result;
+        List<DurationSegment> result = new ArrayList<>();
+        if (segments.isEmpty()) {
+            return new DurationResult(result, cycleCap, BigDecimal.ZERO);
+        }
 
-        // 按周期分组
-        LocalDateTime currentCycleStart = billingOrigin;
         int cycleMinutes = getCycleMinutes();
+        BigDecimal totalCharged = BigDecimal.ZERO;
+
+        // 周期跟踪
+        LocalDateTime cycleStart = segments.get(0).getBeginTime();
         BigDecimal cycleAccumulated = BigDecimal.ZERO;
+
+        // period 跟踪（周期内）
         int currentPeriodIndex = -1;
         BigDecimal periodAccumulated = BigDecimal.ZERO;
         BigDecimal periodCap = null;
+        String periodLabel = null;
 
         for (HomogeneousSegment seg : segments) {
-            // 检测周期切换
-            while (seg.getBeginTime().isAfter(currentCycleStart.plusMinutes(cycleMinutes))) {
-                // 应用周期封顶到当前周期
-                if (cycleCap != null && cycleAccumulated.compareTo(cycleCap) > 0) {
-                    // 简化处理：周期封顶在总和中处理，不在单个段上
-                }
-                currentCycleStart = currentCycleStart.plusMinutes(cycleMinutes);
+            // 周期切换检测：段起点越过当前周期终点
+            while (seg.getBeginTime().compareTo(cycleStart.plusMinutes(cycleMinutes)) >= 0) {
+                // 结算刚结束的周期：min(cycleCap, cycleAccumulated)
+                totalCharged = totalCharged.add(applyCycleCap(cycleCap, cycleAccumulated));
+                cycleStart = cycleStart.plusMinutes(cycleMinutes);
                 cycleAccumulated = BigDecimal.ZERO;
+                // 周期切换后 period 累计重置
                 currentPeriodIndex = -1;
                 periodAccumulated = BigDecimal.ZERO;
                 periodCap = null;
             }
 
-            // 获取当前段的时段信息
             int segMinutes = seg.durationMinutes();
-            BigDecimal chargedAmount = seg.isFree() ? BigDecimal.ZERO
-                    : seg.getUnitPrice().multiply(BigDecimal.valueOf(segMinutes))
-                    .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP);
+            BigDecimal charged = segmentCharge(seg, unitMinutes);
 
-            // 检测时段切换
-            if (periodCapResolver != null) {
-                int newPeriodIndex = periodCapResolver.getPeriodIndex(seg.getBeginTime());
+            // period 识别（周期内切换）
+            if (periodResolver != null) {
+                int newPeriodIndex = periodResolver.getPeriodIndex(seg.getBeginTime());
                 if (newPeriodIndex != currentPeriodIndex) {
                     currentPeriodIndex = newPeriodIndex;
                     periodAccumulated = BigDecimal.ZERO;
-                    periodCap = periodCapResolver.getPeriodCap(seg.getBeginTime());
+                    periodCap = periodResolver.getPeriodCap(seg.getBeginTime());
+                    periodLabel = periodResolver.getPeriodLabel(seg.getBeginTime());
                 }
             }
 
-            // 应用时段封顶
+            // 时段封顶（周期内累计，落盘到 chargedAmount）
             if (periodCap != null && !seg.isFree()) {
-                BigDecimal newPeriodAccumulated = periodAccumulated.add(chargedAmount);
-                if (newPeriodAccumulated.compareTo(periodCap) > 0) {
-                    chargedAmount = periodCap.subtract(periodAccumulated);
-                    if (chargedAmount.compareTo(BigDecimal.ZERO) < 0) {
-                        chargedAmount = BigDecimal.ZERO;
-                    }
+                BigDecimal newAccum = periodAccumulated.add(charged);
+                if (newAccum.compareTo(periodCap) > 0) {
+                    charged = periodCap.subtract(periodAccumulated);
+                    if (charged.signum() < 0) charged = BigDecimal.ZERO;
                     periodAccumulated = periodCap;
                 } else {
-                    periodAccumulated = newPeriodAccumulated;
+                    periodAccumulated = newAccum;
                 }
             }
 
-            cycleAccumulated = cycleAccumulated.add(chargedAmount);
+            cycleAccumulated = cycleAccumulated.add(charged);
 
-            result.add(new cn.shang.charging.billing.pojo.DurationSegment(
+            result.add(new DurationSegment(
                     seg.getBeginTime(),
                     seg.getEndTime(),
+                    periodLabel,
                     seg.isFree() ? 0 : segMinutes,
                     seg.getUnitPrice(),
-                    chargedAmount,
-                    seg.isFree() ? seg.getFreePromotionId() : null,
-                    seg.getRuleData()
+                    charged,
+                    periodCap
             ));
         }
 
-        // 应用周期封顶（如果周期累计超过封顶，按比例削减）
-        if (cycleCap != null && cycleAccumulated.compareTo(cycleCap) > 0) {
-            // 简化处理：保留原样，由调用方在总和中处理
-        }
+        // 结算最后一个周期
+        totalCharged = totalCharged.add(applyCycleCap(cycleCap, cycleAccumulated));
 
-        return result;
+        return new DurationResult(result, cycleCap, totalCharged);
     }
 
     /**
-     * GLOBAL 模式：将 HomogeneousSegment 列表转换为 DurationSegment 列表。
-     * <p>
-     * 不关心周期边界，全局按时长计费。
-     * 时段封顶 = period.maxCharge × 周期数
-     * 周期封顶 = maxChargeOneCycle × 周期数
-     *
-     * @param segments           同质段列表
-     * @param billingOrigin      计费起点
-     * @param unitMinutes        单元时长（分钟）
-     * @param totalMinutes       总时长（分钟）
-     * @param cycleCap           周期封顶金额（null 表示不封顶）
-     * @param periodCapResolver  时段封顶解析器（返回当前段的时段封顶，null 表示不封顶）
-     * @return DurationSegment 列表
+     * 应用周期封顶：返回 min(cycleCap, accumulated)。
+     * cycleCap 为 null 时直接返回 accumulated。
      */
-    protected List<cn.shang.charging.billing.pojo.DurationSegment> buildDurationSegmentsGlobalMode(
+    private static BigDecimal applyCycleCap(BigDecimal cycleCap, BigDecimal accumulated) {
+        if (cycleCap == null || accumulated.compareTo(cycleCap) <= 0) {
+            return accumulated;
+        }
+        return cycleCap;
+    }
+
+    /**
+     * GLOBAL 模式：全局按时长计费。
+     * <p>
+     * - 时段封顶：同 period 类型全局累计达 period.maxCharge × 周期数，该 period 后续段削减（落盘）<br>
+     * - 周期封顶：所有段 chargedAmount 之和达 maxChargeOneCycle × 周期数，实收 = min(cap×周期数, 总额)（不落盘到段）<br>
+     * - 周期数 = ceil(总分钟数 / 周期分钟数)
+     *
+     * @param segments        同质段列表（按全局时段切分，不含周期边界）
+     * @param unitMinutes     单元时长（分钟）
+     * @param totalMinutes    总时长（分钟）
+     * @param cycleCap        周期封顶金额（null=无封顶）
+     * @param periodResolver  时段解析器（null=无时段封顶）
+     * @return DurationResult
+     */
+    protected DurationResult buildDurationSegmentsGlobalMode(
             List<HomogeneousSegment> segments,
-            LocalDateTime billingOrigin,
             int unitMinutes,
             long totalMinutes,
             BigDecimal cycleCap,
-            PeriodCapResolver periodCapResolver) {
+            PeriodResolver periodResolver) {
 
-        List<cn.shang.charging.billing.pojo.DurationSegment> result = new ArrayList<>();
-        if (segments.isEmpty()) return result;
+        List<DurationSegment> result = new ArrayList<>();
+        if (segments.isEmpty()) {
+            return new DurationResult(result, cycleCap, BigDecimal.ZERO);
+        }
 
-        // 计算周期数
         int cycleMinutes = getCycleMinutes();
         int cycleCount = (int) Math.ceil((double) totalMinutes / cycleMinutes);
+        if (cycleCount < 1) cycleCount = 1;
 
-        // 按时段类型分组累计
-        Map<Integer, BigDecimal> periodAccumulatedMap = new HashMap<>();
-        Map<Integer, BigDecimal> periodCapMap = new HashMap<>();
+        // 第一遍：计算每段原始应收，并按 period 类型累计
+        BigDecimal[] rawCharges = new BigDecimal[segments.size()];
+        Map<Integer, BigDecimal> periodRawTotal = new HashMap<>();   // 各 period 原始总额
+        Map<Integer, BigDecimal> periodCapMap = new HashMap<>();     // 各 period 封顶
+        Map<Integer, String> periodLabelMap = new HashMap<>();       // 各 period 标签
 
-        // 第一遍：计算每个段的金额
-        List<BigDecimal> chargedAmounts = new ArrayList<>();
-        for (HomogeneousSegment seg : segments) {
-            int segMinutes = seg.durationMinutes();
-            BigDecimal chargedAmount = seg.isFree() ? BigDecimal.ZERO
-                    : seg.getUnitPrice().multiply(BigDecimal.valueOf(segMinutes))
-                    .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP);
-            chargedAmounts.add(chargedAmount);
+        for (int i = 0; i < segments.size(); i++) {
+            HomogeneousSegment seg = segments.get(i);
+            BigDecimal charged = segmentCharge(seg, unitMinutes);
+            rawCharges[i] = charged;
 
-            // 按时段类型累计
-            if (periodCapResolver != null && !seg.isFree()) {
-                int periodIndex = periodCapResolver.getPeriodIndex(seg.getBeginTime());
-                periodAccumulatedMap.merge(periodIndex, chargedAmount, BigDecimal::add);
-                periodCapMap.putIfAbsent(periodIndex, periodCapResolver.getPeriodCap(seg.getBeginTime()));
+            if (periodResolver != null && !seg.isFree()) {
+                int idx = periodResolver.getPeriodIndex(seg.getBeginTime());
+                periodRawTotal.merge(idx, charged, BigDecimal::add);
+                periodCapMap.putIfAbsent(idx, periodResolver.getPeriodCap(seg.getBeginTime()));
+                periodLabelMap.putIfAbsent(idx, periodResolver.getPeriodLabel(seg.getBeginTime()));
             }
         }
 
-        // 第二遍：应用时段封顶
-        Map<Integer, BigDecimal> periodCapApplied = new HashMap<>();
+        // 第二遍：应用时段封顶（period.maxCharge × 周期数），按时间顺序累计削减
+        Map<Integer, BigDecimal> periodApplied = new HashMap<>();
         for (int i = 0; i < segments.size(); i++) {
             HomogeneousSegment seg = segments.get(i);
-            BigDecimal chargedAmount = chargedAmounts.get(i);
+            BigDecimal charged = rawCharges[i];
 
-            if (periodCapResolver != null && !seg.isFree()) {
-                int periodIndex = periodCapResolver.getPeriodIndex(seg.getBeginTime());
-                BigDecimal periodCap = periodCapMap.get(periodIndex);
-
-                if (periodCap != null) {
-                    BigDecimal periodCapMultiplied = periodCap.multiply(BigDecimal.valueOf(cycleCount));
-                    BigDecimal beforeCap = periodCapApplied.getOrDefault(periodIndex, BigDecimal.ZERO);
-                    BigDecimal newAccumulated = beforeCap.add(chargedAmount);
-
-                    if (newAccumulated.compareTo(periodCapMultiplied) > 0) {
-                        chargedAmount = periodCapMultiplied.subtract(beforeCap);
-                        if (chargedAmount.compareTo(BigDecimal.ZERO) < 0) {
-                            chargedAmount = BigDecimal.ZERO;
-                        }
-                        periodCapApplied.put(periodIndex, periodCapMultiplied);
+            if (periodResolver != null && !seg.isFree()) {
+                int idx = periodResolver.getPeriodIndex(seg.getBeginTime());
+                BigDecimal cap = periodCapMap.get(idx);
+                if (cap != null) {
+                    BigDecimal capMultiplied = cap.multiply(BigDecimal.valueOf(cycleCount));
+                    BigDecimal before = periodApplied.getOrDefault(idx, BigDecimal.ZERO);
+                    BigDecimal after = before.add(charged);
+                    if (after.compareTo(capMultiplied) > 0) {
+                        charged = capMultiplied.subtract(before);
+                        if (charged.signum() < 0) charged = BigDecimal.ZERO;
+                        periodApplied.put(idx, capMultiplied);
                     } else {
-                        periodCapApplied.put(periodIndex, newAccumulated);
+                        periodApplied.put(idx, after);
                     }
                 }
             }
-
-            chargedAmounts.set(i, chargedAmount);
+            rawCharges[i] = charged;
         }
 
-        // 第三遍：构建 DurationSegment 列表
+        // 第三遍：构建 DurationSegment，求总额
         BigDecimal totalAmount = BigDecimal.ZERO;
         for (int i = 0; i < segments.size(); i++) {
             HomogeneousSegment seg = segments.get(i);
-            BigDecimal chargedAmount = chargedAmounts.get(i);
+            BigDecimal charged = rawCharges[i];
             int segMinutes = seg.durationMinutes();
+            totalAmount = totalAmount.add(charged);
 
-            totalAmount = totalAmount.add(chargedAmount);
+            String label = null;
+            BigDecimal pCap = null;
+            if (periodResolver != null) {
+                int idx = periodResolver.getPeriodIndex(seg.getBeginTime());
+                label = periodLabelMap.get(idx);
+                pCap = periodCapMap.get(idx);
+            }
 
-            result.add(new cn.shang.charging.billing.pojo.DurationSegment(
+            result.add(new DurationSegment(
                     seg.getBeginTime(),
                     seg.getEndTime(),
+                    label,
                     seg.isFree() ? 0 : segMinutes,
                     seg.getUnitPrice(),
-                    chargedAmount,
-                    seg.isFree() ? seg.getFreePromotionId() : null,
-                    seg.getRuleData()
+                    charged,
+                    pCap
             ));
         }
 
-        // 应用周期封顶
-        if (cycleCap != null) {
-            BigDecimal cycleCapMultiplied = cycleCap.multiply(BigDecimal.valueOf(cycleCount));
-            if (totalAmount.compareTo(cycleCapMultiplied) > 0) {
-                // 按比例削减所有收费段
-                BigDecimal ratio = cycleCapMultiplied.divide(totalAmount, 6, RoundingMode.HALF_UP);
-                BigDecimal newTotal = BigDecimal.ZERO;
+        // 周期封顶（不落盘到段）
+        BigDecimal cycleCapApplied = cycleCap != null
+                ? cycleCap.multiply(BigDecimal.valueOf(cycleCount)) : null;
+        BigDecimal finalAmount = (cycleCapApplied != null && totalAmount.compareTo(cycleCapApplied) > 0)
+                ? cycleCapApplied : totalAmount;
 
-                for (int i = 0; i < result.size(); i++) {
-                    cn.shang.charging.billing.pojo.DurationSegment seg = result.get(i);
-                    if (!seg.freePromotionId().equals("FREE")) {
-                        BigDecimal newCharged = seg.chargedAmount().multiply(ratio)
-                                .setScale(2, RoundingMode.HALF_UP);
-                        result.set(i, new cn.shang.charging.billing.pojo.DurationSegment(
-                                seg.beginTime(),
-                                seg.endTime(),
-                                seg.chargedMinutes(),
-                                seg.unitPrice(),
-                                newCharged,
-                                seg.freePromotionId(),
-                                seg.ruleData()
-                        ));
-                        newTotal = newTotal.add(newCharged);
-                    }
-                }
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * 时段封顶解析器接口。
-     * 用于在时长模式下获取当前段的时段封顶。
-     */
-    @FunctionalInterface
-    protected interface PeriodCapResolver {
-        /**
-         * 获取指定时间点的时段索引。
-         * 不同索引表示不同时段（如 Period 1, Period 2）。
-         */
-        int getPeriodIndex(LocalDateTime time);
-
-        /**
-         * 获取指定时间点的时段封顶。
-         * 返回 null 表示该时段无封顶。
-         */
-        default BigDecimal getPeriodCap(LocalDateTime time) {
-            return null;
-        }
+        return new DurationResult(result, cycleCapApplied, finalAmount);
     }
 }

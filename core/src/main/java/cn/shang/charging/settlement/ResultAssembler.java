@@ -1,6 +1,7 @@
 package cn.shang.charging.settlement;
 
 import cn.shang.charging.billing.pojo.BillingCarryOver;
+import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
@@ -54,8 +55,20 @@ public class ResultAssembler {
                 .map(BillingSegmentResult::getChargedAmount)
                 .reduce(BigDecimal.ZERO, (a, b) -> a.add(b != null ? b : BigDecimal.ZERO));
 
-        // 计算累计金额（从最后一个单元获取）
-        BigDecimal accumulatedAmount = extractAccumulatedAmountFromUnits(allUnits);
+        // 判断是否时长模式：任一分段 durationMode != NONE 即视为时长模式
+        boolean isDurationMode = segmentResultList.stream()
+                .anyMatch(s -> s.getDurationMode() != null
+                        && s.getDurationMode() != BConstants.DurationMode.NONE);
+
+        // 时长模式：finalAmount = 各分段 chargedAmount 之和（已应用周期封顶）
+        // 单元模式：finalAmount = accumulatedAmount（从 BillingUnit 取，CONTINUE 累计）
+        BigDecimal finalAmount;
+        if (isDurationMode) {
+            finalAmount = totalAmount;
+        } else {
+            BigDecimal accumulatedAmount = extractAccumulatedAmountFromUnits(allUnits);
+            finalAmount = accumulatedAmount != null ? accumulatedAmount : totalAmount;
+        }
 
         // 汇总费用稳定时间窗口
         LocalDateTime effectiveFrom = calculateEffectiveFrom(segmentResultList);
@@ -74,7 +87,7 @@ public class ResultAssembler {
                 .units(allUnits)
                 .durationSegments(allDurationSegments.isEmpty() ? null : allDurationSegments)
                 .promotionUsages(allUsages)
-                .finalAmount(accumulatedAmount != null ? accumulatedAmount : totalAmount)
+                .finalAmount(finalAmount)
                 .effectiveFrom(effectiveFrom)
                 .effectiveTo(effectiveTo)
                 .calculationEndTime(calculationEndTime)
