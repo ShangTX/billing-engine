@@ -15,6 +15,5 @@
 | ID | 类型 | 优先级 | 标题 | source_git | 详情 |
 |----|------|--------|------|------------|------|
 | TODO-20260630-002 | feature | P2 | 物化索引预估收入能力 | ec62357 | [materialized-index-revenue-estimation.md](tracking/items/materialized-index-revenue-estimation.md) |
-| TODO-20260630-001 | refactor | P2 | UNIT_BASED 模式降级为独立计费规则 | 0251f21 | [unit-based-mode-as-independent-rule.md](tracking/items/unit-based-mode-as-independent-rule.md) |
 | TODO-20260626-001 | bug | P1 | 实现不足单元计费方式配置的实际计费逻辑 | daf19d2 | [incomplete-unit-charge-logic-implementation.md](tracking/items/incomplete-unit-charge-logic-implementation.md) |
 | TODO-20260623-001 | feature | P2 | 优化自定义规则扩展体验 | 4e081b3 | [custom-rule-extension-experience.md](tracking/items/custom-rule-extension-experience.md) |

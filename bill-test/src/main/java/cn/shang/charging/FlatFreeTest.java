@@ -85,7 +85,7 @@ public class FlatFreeTest {
     static void testUnitBasedMode() {
         System.out.println("=== 测试2: UNIT_BASED 模式 ===");
 
-        var billingService = getBillingService(BConstants.BillingMode.UNIT_BASED);
+        var billingService = getBillingService(BConstants.BillingMode.CONTINUOUS);
         var request = new BillingRequest();
         request.setId("test-2");
         request.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));

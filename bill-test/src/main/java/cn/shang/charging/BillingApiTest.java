@@ -105,7 +105,7 @@ public class BillingApiTest {
                     NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.ONE).build()
             ));
 
-            BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+            BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
             BillingRequest request = createBaseRequest(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0),
                     LocalDateTime.of(2026, Month.MARCH, 10, 10, 0));
             template.calculate(request);
@@ -143,7 +143,7 @@ public class BillingApiTest {
                     ))
                     .build();
 
-            BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+            BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
             BillingRequest request = createBaseRequest(LocalDateTime.of(2026, 1, 1, 8, 0),
                     LocalDateTime.of(2026, 1, 1, 10, 0));
             template.calculate(request);
@@ -172,7 +172,7 @@ public class BillingApiTest {
                     .periods(createValidPeriods())
                     .build();
 
-            BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+            BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
             BillingRequest request = createBaseRequest(LocalDateTime.of(2026, 1, 1, 8, 0),
                     LocalDateTime.of(2026, 1, 1, 10, 0));
             template.calculate(request);
@@ -368,7 +368,7 @@ public class BillingApiTest {
 
         CompositeTimeConfig config = createBaseConfig();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 10, 0));
@@ -419,7 +419,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 11, 0));
@@ -470,7 +470,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 19, 30),
                 LocalDateTime.of(2026, 1, 1, 20, 30));
@@ -512,7 +512,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 19, 30),
                 LocalDateTime.of(2026, 1, 1, 20, 30));
@@ -553,7 +553,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 19, 30),
                 LocalDateTime.of(2026, 1, 1, 20, 30));
@@ -594,7 +594,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 19, 30),
                 LocalDateTime.of(2026, 1, 1, 20, 30));
@@ -646,7 +646,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 11, 0));
@@ -704,7 +704,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 12, 0));
@@ -764,7 +764,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 14, 0));
@@ -819,7 +819,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 14, 0));
@@ -879,7 +879,7 @@ public class BillingApiTest {
                 ))
                 .build();
 
-        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.UNIT_BASED);
+        BillingTemplate template = createBillingTemplate(config, BConstants.BillingMode.CONTINUOUS);
         BillingRequest request = createBaseRequest(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 14, 0));

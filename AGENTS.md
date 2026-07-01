@@ -200,9 +200,9 @@ BillingService.calculate()
 | 模式 | 说明 |
 |------|------|
 | `CONTINUOUS` | 边界驱动循环为唯一计算路径：找最近边界跳过去，每次迭代产出一个同质段，compact 单元为自然产物 |
-| `UNIT_BASED` | 固定单元长度，单元边界不被免费时段切断；计划降级为独立计费规则类型（见 `docs/TODO.md` TODO-20260630-001） |
+| `UNIT_BASED` | 独立计费规则类型，固定单元对齐 + 完整覆盖才免费；不再作为普通规则内置模式（TODO-20260630-001 已完成） |
 
-规则必须通过 `supportedModes()` 声明支持的模式。时长计费模式（按分钟累加）待引入。
+普通规则（`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`）只支持 `CONTINUOUS`。`UNIT_BASED` 语义由独立规则类承载（当前已实现 `DayNightUnitBasedRule`），其余按需添加。时长计费模式待引入。
 
 边界驱动框架关键类：`BoundaryProvider`、`BoundaryProviders`、`HomogeneousSegment`、`HomogeneousSegmentCalculator`、`CompactMerger`，均位于 `core` 的 `charge.rules` 包，公共循环入口为 `AbstractTimeBasedRule.runBoundaryDrivenLoop`。
 

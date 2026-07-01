@@ -535,11 +535,11 @@ public class BillingTestCaseGenerator {
 
     /**
      * 从功能点选择实际计费模式。
+     * UNIT_BASED 已降级为独立规则类型，普通规则只支持 CONTINUOUS；
+     * 生成器统一产出 CONTINUOUS 用例（TestFeature.UNIT_BASED 保留为兼容标记，按 CONTINUOUS 生成）。
      */
     private BConstants.BillingMode selectBillingMode(Set<TestFeature> features) {
-        return features.contains(TestFeature.CONTINUOUS)
-                ? BConstants.BillingMode.CONTINUOUS
-                : BConstants.BillingMode.UNIT_BASED;
+        return BConstants.BillingMode.CONTINUOUS;
     }
 
     /**

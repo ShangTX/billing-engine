@@ -70,7 +70,7 @@ public class DebugTest {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
             public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.UNIT_BASED;  // UNIT_BASED 模式
+                return BConstants.BillingMode.CONTINUOUS;  // UNIT_BASED 模式
             }
 
             @Override

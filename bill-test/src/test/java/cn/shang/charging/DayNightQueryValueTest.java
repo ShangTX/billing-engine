@@ -31,28 +31,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class DayNightQueryValueTest {
 
     @Test
-    void unitBased_mixedDayNightUnit_returnsProgressiveCurrentValue() {
-        BillingService service = createService(BConstants.BillingMode.UNIT_BASED, new BigDecimal("100.00"));
-
-        BillingRequest request = new BillingRequest();
-        request.setBeginTime(LocalDateTime.of(2026, 4, 20, 18, 50));
-        request.setEndTime(LocalDateTime.of(2026, 4, 20, 19, 50));
-        request.setSchemeChanges(List.of());
-        request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request.setSchemeId("scheme-1");
-        request.setExternalPromotions(List.of());
-
-        BillingResult result = service.calculate(request);
-        BillingResultViewer viewer = new BillingResultViewer();
-
-        QuerySummary at1900 = viewer.createQuerySummary(result, LocalDateTime.of(2026, 4, 20, 19, 0));
-        QuerySummary at1920 = viewer.createQuerySummary(result, LocalDateTime.of(2026, 4, 20, 19, 20));
-
-        assertEquals(new BigDecimal("2.00"), at1900.getAmount());
-        assertEquals(new BigDecimal("1.00"), at1920.getAmount());
-    }
-
-    @Test
     void continuous_mixedUnit_returnsProgressiveCurrentValue() {
         BillingService service = createService(BConstants.BillingMode.CONTINUOUS, new BigDecimal("100.00"));
 

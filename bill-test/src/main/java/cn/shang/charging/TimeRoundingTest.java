@@ -74,7 +74,7 @@ public class TimeRoundingTest {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
             public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.UNIT_BASED;
+                return BConstants.BillingMode.CONTINUOUS;
             }
 
             @Override

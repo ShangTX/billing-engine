@@ -68,16 +68,18 @@ BillingRequest
 | 模式 | 当前语义 |
 |------|----------|
 | `CONTINUOUS` | 边界驱动循环为唯一计算路径：找到最近边界（免费时段起止、时段结束、周期结束、单元对齐、calcEnd）跳过去，一次迭代产出一个同质段，compact 单元为自然产物 |
-| `UNIT_BASED` | 按固定单元长度生成计费单元；免费时段必须完整覆盖单元才使其免费 |
+| `UNIT_BASED` | 独立计费规则类型，固定单元对齐 + 完整覆盖才免费。不再作为普通规则内置模式 |
 
 计费规则必须通过 `BillingRule.supportedModes()` 声明自己支持的模式。
 
-**计划变更**（见 `docs/TODO.md`）：
+**UNIT_BASED 降级**（TODO-20260630-001 已完成）：
 
-- `UNIT_BASED` 计划从"每个规则的内置模式"降级为"独立计费规则类型"（TODO-20260630-001）。普通规则将只保留 `CONTINUOUS`，`UNIT_BASED` 语义按需单独实现规则类。
-- 时长计费模式（按时长累加、免费时段扣除分钟）待引入，作为与单元计费并列的新模式。
+- 普通规则（`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`）只支持 `CONTINUOUS`，边界驱动为唯一计算路径
+- `UNIT_BASED` 语义由独立规则类承载，当前已实现 `DayNightUnitBasedRule`（日夜 UNIT_BASED），其余按需添加
+- `BillingMode.UNIT_BASED` 枚举值保留，供独立 UNIT_BASED 规则声明支持
+- 时长计费模式（按时长累加、免费时段扣除分钟）待引入，作为与单元计费并列的新模式
 
-边界驱动框架已上提到 `AbstractTimeBasedRule`，关键抽象：
+边界驱动框架关键抽象：
 
 | 抽象 | 职责 |
 |------|------|
@@ -103,6 +105,7 @@ BillingRequest
 - `blockWeight` 决定跨日夜混合单元的最终价格。
 - `maxChargeOneDay` 支持每日封顶。
 - `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
+- UNIT_BASED 语义由独立规则 `DayNightUnitBasedRule` 承载（固定单元对齐 + 完整覆盖才免费）。
 - 已为稳定单元、条件免费单元、跨日夜混合单元和封顶单元生成 `valueSpec`。
 
 查询行为：
@@ -354,7 +357,6 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 - `relativeTime` 和 `compositeTime` 尚未拥有和 `dayNight` 同等级别的复杂 `valueSpec` 覆盖。
 - 分钟级 `valueSpec` 是已预留的扩展方向，但当前尚未实现。
 - 不足单元计费方式配置（`IncompleteUnitChargeMode` 的 PROPORTIONAL/FREE/THRESHOLD 档位）尚未接入计费逻辑，截断单元一律按 FULL_CHARGE 收全额（TODO-20260626-001）。
-- `UNIT_BASED` 模式计划降级为独立计费规则类型，普通规则只保留 `CONTINUOUS`（TODO-20260630-001）。
 - 时长计费模式（按分钟累加、免费时段扣除分钟）待引入，作为单元计费的并列新模式。
 - 物化索引预估收入能力：引擎只提供实现可能（产出 validMinutes/accumulatedAmount 等），存储/索引由业务层实现（TODO-20260630-002）。
 

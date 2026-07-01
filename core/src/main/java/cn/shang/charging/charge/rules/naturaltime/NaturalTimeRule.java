@@ -35,11 +35,9 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
 
     private static final int MINUTES_PER_DAY = 1440;
     private static final Set<BConstants.BillingMode> SUPPORTED_MODES = Set.of(
-            BConstants.BillingMode.UNIT_BASED,
             BConstants.BillingMode.CONTINUOUS
     );
 
-    private final NaturalTimeUnitBasedCalculator unitBasedCalculator = new NaturalTimeUnitBasedCalculator();
     private final NaturalTimeContinuousCalculator continuousCalculator = new NaturalTimeContinuousCalculator();
 
     @Override
@@ -77,154 +75,10 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
                                           NaturalTimeConfig config,
                                           PromotionAggregate promotionAggregate) {
         validateConfig(config);
-
-        BConstants.BillingMode mode = context.getBillingMode();
-        if (mode == BConstants.BillingMode.UNIT_BASED) {
-            return unitBasedCalculator.calculate(this, context, config, promotionAggregate);
-        } else {
-            return continuousCalculator.calculate(this, context, config, promotionAggregate);
-        }
+        return continuousCalculator.calculate(this, context, config, promotionAggregate);
     }
 
     // ==================== 内部计算方法（供 Calculator 调用） ====================
-
-    BillingSegmentResult calculateUnitBasedInternal(BillingContext context,
-                                                    NaturalTimeConfig config,
-                                                    PromotionAggregate promotionAggregate,
-                                                    NaturalTimePeriodResolver periodResolver,
-                                                    NaturalTimeCrossPeriodPriceResolver priceResolver,
-                                                    NaturalTimeCycleStateManager cycleStateManager) {
-        LocalDateTime calcBegin = context.getWindow().getCalculationBegin();
-        LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
-        int unitMinutes = config.getUnitMinutes();
-        List<NaturalPeriod> periods = config.getPeriods();
-        CrossPeriodMode crossPeriodMode = config.getCrossPeriodMode();
-        BigDecimal maxCharge = config.getMaxChargeOneDay();
-
-        List<FreeTimeRange> freeTimeRanges = promotionAggregate != null
-                && promotionAggregate.getFreeTimeRanges() != null
-                ? promotionAggregate.getFreeTimeRanges() : List.of();
-
-        List<BillingUnit> billingUnits = new ArrayList<>();
-        LocalDateTime current = calcBegin;
-        BigDecimal cycleAccumulated = BigDecimal.ZERO;
-
-        // 计算周期索引
-        int cycleIndex = (int) Duration.between(calcBegin, current).toMinutes() / MINUTES_PER_DAY;
-
-        while (current.isBefore(calcEnd)) {
-            LocalDateTime unitEnd = current.plusMinutes(unitMinutes);
-            if (unitEnd.isAfter(calcEnd)) {
-                unitEnd = calcEnd;
-            }
-
-            int duration = (int) Duration.between(current, unitEnd).toMinutes();
-
-            // 计算单元价格
-            BigDecimal unitPrice = priceResolver.calculateUnitPrice(current, unitEnd, periods, crossPeriodMode);
-
-            // 检查免费时段覆盖
-            boolean isFree = isFullyCoveredByFreeRange(current, unitEnd, freeTimeRanges);
-            String freePromotionId = isFree ? findCoveringPromotionId(current, unitEnd, freeTimeRanges) : null;
-
-            BigDecimal chargedAmount = isFree ? BigDecimal.ZERO : unitPrice;
-
-            // 周期封顶检查
-            if (maxCharge != null && !isFree) {
-                BigDecimal newAccumulated = cycleAccumulated.add(chargedAmount);
-                if (newAccumulated.compareTo(maxCharge) >= 0) {
-                    chargedAmount = maxCharge.subtract(cycleAccumulated).setScale(2, RoundingMode.HALF_UP);
-                    if (chargedAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                        isFree = true;
-                        freePromotionId = "DAILY_CAP";
-                        chargedAmount = BigDecimal.ZERO;
-                    }
-                    cycleAccumulated = maxCharge;
-                } else {
-                    cycleAccumulated = newAccumulated;
-                }
-            } else if (!isFree) {
-                cycleAccumulated = cycleAccumulated.add(chargedAmount);
-            }
-
-            BillingUnit unit = BillingUnit.builder()
-                    .beginTime(current)
-                    .endTime(unitEnd)
-                    .durationMinutes(duration)
-                    .unitPrice(unitPrice)
-                    .originalAmount(unitPrice)
-                    .free(isFree)
-                    .freePromotionId(freePromotionId)
-                    .chargedAmount(chargedAmount)
-                    .ruleData(cycleIndex)
-                    .build();
-
-            billingUnits.add(unit);
-            current = unitEnd;
-
-            // 跨周期处理
-            if (current.equals(calcBegin.plusMinutes((long) (cycleIndex + 1) * MINUTES_PER_DAY))) {
-                cycleIndex++;
-                cycleAccumulated = BigDecimal.ZERO;
-            }
-        }
-
-        // 汇总结果
-        BigDecimal totalAmount = billingUnits.stream()
-                .map(BillingUnit::getChargedAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // 计算累计金额
-        BigDecimal accumulatedAmount = context.getPreviousAccumulatedAmount();
-        if (accumulatedAmount == null) {
-            accumulatedAmount = BigDecimal.ZERO;
-        }
-
-        BigDecimal truncatedUnitChargedAmount = context.getTruncatedUnitChargedAmount();
-        if (truncatedUnitChargedAmount != null && !billingUnits.isEmpty()) {
-            accumulatedAmount = accumulatedAmount.subtract(truncatedUnitChargedAmount);
-            if (accumulatedAmount.compareTo(BigDecimal.ZERO) < 0) {
-                accumulatedAmount = BigDecimal.ZERO;
-            }
-        }
-
-        for (BillingUnit unit : billingUnits) {
-            accumulatedAmount = accumulatedAmount.add(unit.getChargedAmount());
-            unit.setAccumulatedAmount(accumulatedAmount);
-        }
-
-        // 标记截断单元
-        if (!billingUnits.isEmpty()) {
-            BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
-            if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
-                lastUnit.setIsTruncated(true);
-            }
-        }
-
-        LocalDateTime feeEffectiveStart = calculateEffectiveFrom(billingUnits);
-        LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
-
-        RuleState state = restoreState(context.getRuleState());
-        if (state == null) {
-            state = initializeState(calcBegin);
-        }
-        cycleStateManager.updateStateAfterUnitBased(billingUnits, state);
-        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
-
-        return BillingSegmentResult.builder()
-                .segmentId(context.getSegment().getId())
-                .segmentStartTime(context.getSegment().getBeginTime())
-                .segmentEndTime(context.getSegment().getEndTime())
-                .calculationStartTime(calcBegin)
-                .calculationEndTime(calcEnd)
-                .chargedAmount(totalAmount)
-                .billingUnits(billingUnits)
-                .promotionAggregate(promotionAggregate)
-                .feeEffectiveStart(feeEffectiveStart)
-                .feeEffectiveEnd(feeEffectiveEnd)
-                .ruleOutputState(ruleOutputState)
-                .build();
-    }
 
     BillingSegmentResult calculateContinuousInternal(BillingContext context,
                                                      NaturalTimeConfig config,
@@ -363,27 +217,8 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
         }
     }
 
-    private boolean isFullyCoveredByFreeRange(LocalDateTime begin, LocalDateTime end, List<FreeTimeRange> freeTimeRanges) {
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (!range.getBeginTime().isAfter(begin) && !range.getEndTime().isBefore(end)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String findCoveringPromotionId(LocalDateTime begin, LocalDateTime end, List<FreeTimeRange> freeTimeRanges) {
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (!range.getBeginTime().isAfter(begin) && !range.getEndTime().isBefore(end)) {
-                return range.getId();
-            }
-        }
-        return null;
-    }
-
     /**
      * 查找在 {@code at} 时刻覆盖当前点的免费时段。
-     * 与 isFullyCoveredByFreeRange 不同：此方法只要求该点处于免费时段内（区间可能延伸到更远）。
      */
     private FreeTimeRange findCoveringRange(LocalDateTime at, List<FreeTimeRange> freeTimeRanges) {
         for (FreeTimeRange range : freeTimeRanges) {

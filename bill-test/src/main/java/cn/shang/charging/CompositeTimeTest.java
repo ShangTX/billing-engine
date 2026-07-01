@@ -173,7 +173,7 @@ public class CompositeTimeTest {
         return BillingContext.builder()
                 .beginTime(LocalDateTime.of(2026, 1, 1, 8, 0))
                 .endTime(LocalDateTime.of(2026, 1, 1, 10, 0))
-                .billingMode(BConstants.BillingMode.UNIT_BASED)
+                .billingMode(BConstants.BillingMode.CONTINUOUS)
                 .segment(segment)
                 .window(window)
                 .build();
@@ -191,7 +191,7 @@ public class CompositeTimeTest {
         return BillingContext.builder()
                 .beginTime(begin)
                 .endTime(end)
-                .billingMode(BConstants.BillingMode.UNIT_BASED)
+                .billingMode(BConstants.BillingMode.CONTINUOUS)
                 .segment(segment)
                 .window(window)
                 .build();
