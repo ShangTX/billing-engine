@@ -22,4 +22,3 @@
 | 2026-06-26 | TODO-20260623-002 | feature | Compact 计费结果模式 | 9f75d8d | [compact-billing-result-mode.md](tracking/items/compact-billing-result-mode.md) |
 | 2026-07-01 | TODO-20260630-001 | refactor | UNIT_BASED 模式降级为独立计费规则 | 1a67c7b | [unit-based-mode-as-independent-rule.md](tracking/items/unit-based-mode-as-independent-rule.md) |
 | 2026-07-01 | TODO-20260626-001 | bug | 实现不足单元计费方式配置的实际计费逻辑 | b02e2f0 | [incomplete-unit-charge-logic-implementation.md](tracking/items/incomplete-unit-charge-logic-implementation.md) |
-| 2026-07-01 | TODO-20260630-003 | feature | 时长计费模式（Duration-Based Billing Mode） | f8e340d | [duration-based-billing-mode.md](tracking/items/duration-based-billing-mode.md) |

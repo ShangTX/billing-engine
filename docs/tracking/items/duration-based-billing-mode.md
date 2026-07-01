@@ -4,11 +4,11 @@
 id: TODO-20260630-003
 type: feature
 priority: P1
-status: done
+status: todo
 source_git: 64d8dfa
 created_at: 2026-06-30
-completed_at: 2026-07-01
-completed_git: f8e340d
+completed_at:
+completed_git:
 ---
 
 ## 背景
@@ -64,6 +64,12 @@ completed_git: f8e340d
 - CONTINUE 续算（时长模式不支持）
 - compact 合并（时长模式不需要）
 - 迁移现有规则到时长模式（仅提供能力，规则按需接入）
+- FREE_RANGE 免费段产出 PromotionUsage（独立 TODO-20260701-001）
+- conditional 免费段的分钟标记翻转（本次不处理，时长模式下 conditional 仍走 findCoveringRange 语义）
+
+### 规则接入范围
+
+本次仅 `DayNightRule` 接入时长模式（`supportedDurationModes` 返回 PERIOD/GLOBAL，`calculate` 检查 durationMode）。其他 3 个规则（RelativeTime/NaturalTime/CompositeTime）不接入。`BillingCalculator` 校验：若 `durationMode != NONE` 但规则 `supportedDurationModes()` 不含该模式，**抛异常**（不静默降级）。
 
 ## 设计
 
@@ -106,27 +112,46 @@ public interface BillingConfigResolver {
 public record DurationSegment(
     LocalDateTime beginTime,
     LocalDateTime endTime,
-    int chargedMinutes,       // 实际收费分钟数（免费段=0）
-    BigDecimal unitPrice,     // 完整单元单价
-    BigDecimal chargedAmount, // = unitPrice × chargedMinutes / unitMinutes
-    String freePromotionId,
-    Object ruleData
+    String periodLabel,        // period 性质（"day"/"night"/"period-1"，规则自定义）
+    int chargedMinutes,        // 收费分钟数（免费段=0）
+    BigDecimal unitPrice,      // 单价
+    BigDecimal chargedAmount,  // 应收（时段封顶后，周期封顶前）
+    BigDecimal periodCap       // 该时段封顶金额（null=无封顶）
 ) {}
 ```
+
+**设计要点**：
+
+- **不背免费标识**：免费段用 `chargedMinutes=0` / `chargedAmount=0` 表达，免费原因走 `PromotionUsage` 汇总（见 TODO-20260701-001）
+- **时段封顶落盘**：`chargedAmount` 是时段封顶后的应收，`periodCap` 显示该时段封顶金额
+- **周期封顶不落盘**：周期封顶只影响 `BillingSegmentResult.chargedAmount`，不改 `DurationSegment`（方式 C）
+
+### BillingSegmentResult 层
+
+```java
+private BConstants.DurationMode durationMode;   // 时长模式标记（NONE 表示非时长模式）
+private List<DurationSegment> durationSegments; // 各段明细（时段封顶后）
+private BigDecimal chargedAmount;               // 周期封顶后的实收
+private BigDecimal cycleCapApplied;             // 周期封顶金额（null=无封顶或未配置）
+```
+
+**finalAmount 计算**：时长模式下（`durationMode != NONE`），`BillingResult.finalAmount = 各分段 chargedAmount 之和`，不再走 `extractAccumulatedAmountFromUnits` 路径。
 
 ### 边界驱动适配
 
 **PERIOD 模式**：
 - providers：周期边界 + 时段边界 + 免费段边界 + calcEnd
 - segment 按周期+时段切分
-- 每个周期独立累计 chargedAmount，达 maxCharge 封顶
+- 时段封顶：周期内同 period 累计达 period.maxCharge，该 period 后续段 chargedAmount 削减
+- 周期封顶：每周期内所有段 chargedAmount 之和达 maxChargeOneCycle，该周期 chargedAmount = min(cap, 之和)
 
 **GLOBAL 模式**：
 - providers：时段边界 + 免费段边界 + calcEnd（不含周期边界）
 - segment 按全局时段切分（跨周期合并）
 - 周期数 = ceil(总分钟数 / 周期分钟数)
-- 封顶金额 = 周期数 × maxCharge
-- 最终金额 = min(封顶金额, 总金额)
+- 时段封顶：同 period 类型全局累计达 period.maxCharge × 周期数，该 period 后续段削减
+- 周期封顶：所有段 chargedAmount 之和达 maxChargeOneCycle × 周期数，chargedAmount = min(cap × 周期数, 之和)
+- cycleCapApplied = maxChargeOneCycle × 周期数（若有）
 
 ### 封顶计算示例
 
@@ -177,11 +202,14 @@ Period 3 (480-1440min): 单价 1 元/h, 无时段封顶
 
 - `BillingRule.supportedDurationModes()` 可声明支持 PERIOD / GLOBAL
 - `BillingConfigResolver.resolveDurationMode()` 可返回 NONE / PERIOD / GLOBAL
-- PERIOD 模式：边界驱动产出 DurationSegment，周期内累计达 cap 封顶
-- GLOBAL 模式：边界驱动产出 DurationSegment，全局累计，周期数 × cap 封顶
-- `BillingSegmentResult.durationSegments` 包含正确的 DurationSegment 列表
-- 测试覆盖 PERIOD / GLOBAL 两种模式
-- 精度验证：时长模式无累积舍入误差
+- `BillingCalculator` 校验：durationMode != NONE 但规则不支持时抛异常
+- PERIOD 模式：边界驱动产出 DurationSegment，时段封顶落盘到 chargedAmount，周期封顶落盘到 BillingSegmentResult.chargedAmount
+- GLOBAL 模式：边界驱动产出 DurationSegment，时段封顶 × 周期数落盘，周期封顶 × 周期数落盘到 chargedAmount
+- `DurationSegment` 含 periodLabel / periodCap 字段
+- `BillingSegmentResult` 含 durationMode / cycleCapApplied 字段
+- `BillingResult.finalAmount` 在时长模式下 = 各分段 chargedAmount 之和
+- 免费段 chargedMinutes=0，免费原因走 PromotionUsage（独立 TODO）
+- 测试覆盖：PERIOD/GLOBAL 基础计费、封顶触发、时段封顶、精度对比、免费段扣除
 
 ## 关键文件
 
