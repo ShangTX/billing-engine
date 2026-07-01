@@ -75,6 +75,12 @@ public class BillingSegmentResult {
      */
     private List<BillingUnit> billingUnits;
 
+    /**
+     * 时长计费段明细（仅在时长计费模式下填充）
+     * 时长模式将时间轴视为连续的分钟流，按时段类型分组
+     */
+    private List<DurationSegment> durationSegments;
+
 
     /* ========== 六、继续计算支持（状态输出） ========== */
 

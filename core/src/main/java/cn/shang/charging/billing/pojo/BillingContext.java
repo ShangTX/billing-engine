@@ -36,6 +36,11 @@ public class BillingContext {
     private BConstants.BillingMode billingMode;
 
     /**
+     * 时长计费模式：是否按分钟流计费
+     */
+    private BConstants.DurationMode durationMode;
+
+    /**
      * 分段
      */
     private BillingSegment segment;

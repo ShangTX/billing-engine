@@ -118,6 +118,10 @@ public class BillingService {
             BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(
                     segment.getSchemeId(), contextParam);
 
+            // 解析时长计费模式
+            BConstants.DurationMode durationMode = billingConfigResolver.resolveDurationMode(
+                    segment.getSchemeId(), contextParam);
+
             // 2.3 恢复规则状态（CONTINUE 模式）
             Map<String, Object> ruleState = null;
             PromotionCarryOver promotionCarryOver = null;
@@ -140,6 +144,7 @@ public class BillingService {
                     .promotionRules(promotionRules)
                     .externalPromotions(request.getExternalPromotions())
                     .billingMode(billingMode)
+                    .durationMode(durationMode)
                     .continueMode(isContinueMode ? BConstants.ContinueMode.CONTINUE : BConstants.ContinueMode.FROM_SCRATCH)
                     .ruleState(ruleState)
                     .promotionCarryOver(promotionCarryOver)

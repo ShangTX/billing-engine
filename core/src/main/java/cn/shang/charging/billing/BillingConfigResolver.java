@@ -90,4 +90,14 @@ public interface BillingConfigResolver {
     default int getSimplifiedCycleThreshold() {
         return 0; // 默认禁用
     }
+
+    /**
+     * 获取时长计费模式
+     * @param schemeId 方案id
+     * @param context 上下文参数
+     * @return 时长计费模式，默认 NONE（不使用时长模式）
+     */
+    default BConstants.DurationMode resolveDurationMode(String schemeId, Map<String, Object> context) {
+        return BConstants.DurationMode.NONE;
+    }
 }

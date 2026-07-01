@@ -5,6 +5,7 @@ import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.pojo.DurationSegment;
 import cn.shang.charging.billing.pojo.SegmentCarryOver;
 import cn.shang.charging.charge.rules.CompactMerger;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
@@ -35,6 +36,13 @@ public class ResultAssembler {
                         .toList()
         );
 
+        // 汇总时长计费段（时长计费模式）
+        List<DurationSegment> allDurationSegments = segmentResultList.stream()
+                .map(BillingSegmentResult::getDurationSegments)
+                .filter(segments -> segments != null && !segments.isEmpty())
+                .flatMap(Collection::stream)
+                .toList();
+
         // 汇总优惠使用
         List<PromotionUsage> allUsages = segmentResultList.stream()
                 .map(BillingSegmentResult::getPromotionUsages)
@@ -64,6 +72,7 @@ public class ResultAssembler {
 
         BillingResult result = BillingResult.builder()
                 .units(allUnits)
+                .durationSegments(allDurationSegments.isEmpty() ? null : allDurationSegments)
                 .promotionUsages(allUsages)
                 .finalAmount(accumulatedAmount != null ? accumulatedAmount : totalAmount)
                 .effectiveFrom(effectiveFrom)
@@ -276,7 +285,7 @@ public class ResultAssembler {
      */
     private BigDecimal extractAccumulatedAmountFromUnits(List<BillingUnit> allUnits) {
         if (allUnits == null || allUnits.isEmpty()) {
-            return BigDecimal.ZERO;
+            return null;  // 时长模式下 units 为空，返回 null 以使用 totalAmount
         }
         BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
         return lastUnit.getAccumulatedAmount();

@@ -27,6 +27,14 @@ public interface BillingRule<C extends RuleConfig> {
     Set<BConstants.BillingMode> supportedModes();
 
     /**
+     * 返回规则支持的时长计费模式
+     * 默认只支持 NONE，子类可覆盖以支持 PERIOD 或 GLOBAL
+     */
+    default Set<BConstants.DurationMode> supportedDurationModes() {
+        return Collections.singleton(BConstants.DurationMode.NONE);
+    }
+
+    /**
      * 从计费结果提取状态，用于下次 CONTINUE 计算
      * @param result 本分段的计费结果
      * @return 需要结转的状态数据（存入 SegmentCarryOver.ruleState）

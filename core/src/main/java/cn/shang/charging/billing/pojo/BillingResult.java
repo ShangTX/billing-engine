@@ -22,6 +22,7 @@ import java.util.List;
 @Builder(toBuilder = true)
 public class BillingResult {
     private List<BillingUnit> units; // 计费细节
+    private List<DurationSegment> durationSegments; // 时长计费模式下的计费段
     private List<PromotionUsage> promotionUsages; // 优惠使用情况
     private List<SettlementAdjustment> settlementAdjustments; // 结算情况
     private BigDecimal finalAmount;

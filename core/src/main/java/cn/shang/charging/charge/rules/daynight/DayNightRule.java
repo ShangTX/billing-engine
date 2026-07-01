@@ -78,6 +78,11 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         return EnumSet.of(BConstants.BillingMode.CONTINUOUS);
     }
 
+    @Override
+    public Set<BConstants.DurationMode> supportedDurationModes() {
+        return EnumSet.of(BConstants.DurationMode.PERIOD, BConstants.DurationMode.GLOBAL);
+    }
+
     /**
      * 验证配置有效性
      */
@@ -118,7 +123,103 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
     @Override
     public BillingSegmentResult calculate(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
+        // 检查是否启用时长计费模式
+        BConstants.DurationMode durationMode = context.getDurationMode();
+        if (durationMode != null && durationMode != BConstants.DurationMode.NONE) {
+            return calculateDurationMode(context, config, promotionAggregate, durationMode);
+        }
         return continuousCalculator.calculate(this, context, config, promotionAggregate);
+    }
+
+    /**
+     * 时长计费模式计算
+     * <p>
+     * 复用边界驱动循环，将 HomogeneousSegment 转换为 DurationSegment
+     */
+    private BillingSegmentResult calculateDurationMode(BillingContext context, DayNightConfig config,
+                                                        PromotionAggregate promotionAggregate,
+                                                        BConstants.DurationMode durationMode) {
+        validateConfig(config);
+
+        LocalDateTime calcBegin = context.getWindow().getCalculationBegin();
+        LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
+        int unitMinutes = config.getUnitMinutes();
+        BigDecimal maxCharge = config.getMaxChargeOneDay();
+
+        List<FreeTimeRange> freeTimeRanges = promotionAggregate != null && promotionAggregate.getFreeTimeRanges() != null
+                ? promotionAggregate.getFreeTimeRanges() : List.of();
+
+        // 边界来源：日夜时段边界 + 免费时段边界 + 周期边界 + calcEnd
+        List<BoundaryProvider> providers = new ArrayList<>();
+        providers.add(BoundaryProviders.cycleEnd(calcBegin, getCycleMinutes()));
+        // 日夜时段边界
+        providers.add((current, end) -> {
+            LocalDateTime day = current.toLocalDate().atStartOfDay();
+            LocalDateTime dayBegin = day.plusMinutes(config.getDayBeginMinute());
+            LocalDateTime dayEnd = day.plusMinutes(config.getDayEndMinute());
+            List<LocalDateTime> result = new ArrayList<>();
+            if (dayBegin.isAfter(current) && !dayBegin.isAfter(end)) result.add(dayBegin);
+            if (dayEnd.isAfter(current) && !dayEnd.isAfter(end)) result.add(dayEnd);
+            // 检查下一天
+            dayBegin = dayBegin.plusDays(1);
+            dayEnd = dayEnd.plusDays(1);
+            if (dayBegin.isAfter(current) && !dayBegin.isAfter(end)) result.add(dayBegin);
+            if (dayEnd.isAfter(current) && !dayEnd.isAfter(end)) result.add(dayEnd);
+            return result;
+        });
+        providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
+        providers.add(BoundaryProviders.calcEnd(calcEnd));
+
+        // 边界驱动循环
+        List<HomogeneousSegment> segments = runBoundaryDrivenLoop(calcBegin, calcEnd, providers, (current, next) -> {
+            // 检查免费时段
+            for (FreeTimeRange range : freeTimeRanges) {
+                if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
+                    return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
+                            true, range.getId(), null, null);
+                }
+            }
+            // 计算日夜单价
+            BigDecimal unitPrice = priceResolver.determineUnitPriceForContinuous(current, next, config);
+            return new HomogeneousSegment(current, next, unitPrice, unitPrice, false, null, null, null);
+        });
+
+        // 转换为 DurationSegment
+        long totalMinutes = Duration.between(calcBegin, calcEnd).toMinutes();
+        List<cn.shang.charging.billing.pojo.DurationSegment> durationSegments;
+
+        if (durationMode == BConstants.DurationMode.PERIOD) {
+            // PERIOD 模式：按时段类型分组，时段封顶按每个周期独立计算
+            // DayNightRule 没有时段封顶，periodCapResolver 传 null
+            durationSegments = buildDurationSegmentsPeriodMode(segments, calcBegin, unitMinutes, maxCharge, null);
+        } else {
+            // GLOBAL 模式：全局按时长计费，时段封顶 = period.maxCharge × 周期数
+            // DayNightRule 没有时段封顶，periodCapResolver 传 null
+            durationSegments = buildDurationSegmentsGlobalMode(segments, calcBegin, unitMinutes, totalMinutes, maxCharge, null);
+        }
+
+        // 构建 BillingSegmentResult
+        BigDecimal totalAmount = durationSegments.stream()
+                .map(cn.shang.charging.billing.pojo.DurationSegment::chargedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        Map<String, Object> ruleOutputState = buildRuleOutputState(initializeState(calcBegin));
+
+        return BillingSegmentResult.builder()
+                .segmentId(context.getSegment().getId())
+                .segmentStartTime(context.getSegment().getBeginTime())
+                .segmentEndTime(context.getSegment().getEndTime())
+                .calculationStartTime(calcBegin)
+                .calculationEndTime(calcEnd)
+                .chargedAmount(totalAmount)
+                .billingUnits(List.of())  // 时长模式不产出 BillingUnit
+                .durationSegments(durationSegments)
+                .promotionUsages(new ArrayList<>())
+                .promotionAggregate(promotionAggregate)
+                .feeEffectiveStart(calcBegin)
+                .feeEffectiveEnd(calcEnd)
+                .ruleOutputState(ruleOutputState)
+                .build();
     }
 
     private List<BillingUnit> generateUnitsForSingleCycle(

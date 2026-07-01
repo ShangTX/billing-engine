@@ -22,6 +22,34 @@ public class BConstants {
     }
 
     /**
+     * 时长计费模式（Duration-Based Billing Mode）
+     * <p>
+     * 将时间轴视为连续的分钟流，按分钟数计费，而非按单元计费。
+     * 仅在结果输出阶段区分，边界驱动循环完全复用。
+     */
+    public enum DurationMode {
+        /**
+         * 不使用时长模式
+         */
+        NONE,
+
+        /**
+         * 周期内时长模式
+         * 每个周期内按时长计费，周期封顶
+         * 时段封顶按每个周期独立计算
+         */
+        PERIOD,
+
+        /**
+         * 全局时长模式
+         * 不关心周期边界，全局按时长计费
+         * 时段封顶 = period.maxCharge × 周期数
+         * 周期封顶 = maxChargeOneCycle × 周期数
+         */
+        GLOBAL
+    }
+
+    /**
      * 优惠模式
      */
     public enum PromotionType {
