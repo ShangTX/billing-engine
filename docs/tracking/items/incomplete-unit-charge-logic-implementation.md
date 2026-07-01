@@ -4,11 +4,11 @@
 id: TODO-20260626-001
 type: bug
 priority: P1
-status: todo
+status: done
 source_git: daf19d2
 created_at: 2026-06-26
-completed_at:
-completed_git:
+completed_at: 2026-06-30
+completed_git: b02e2f0
 ---
 
 ## 背景
