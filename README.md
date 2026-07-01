@@ -71,7 +71,7 @@ For a full compilable setup, rule registration, Spring Boot integration, query-t
 - Implemented billing rules include `dayNight`, `relativeTime`, `naturalTime`, `compositeTime`, and `flatFree`.
 - Implemented promotion capabilities focus on `FREE_RANGE`, `FREE_MINUTES`, `freeMinutes`, and `startFree`.
 - `CONTINUOUS` mode uses a boundary-driven loop; consecutive identical units merge into compact units, significantly reducing result volume in fine-grained billing scenarios.
-- `UNIT_BASED` mode is planned to be downgraded to an independent billing rule type, leaving `CONTINUOUS` as the only mode for general rules (see TODO).
+- `UNIT_BASED` mode has been downgraded to an independent billing rule type (`DayNightUnitBasedRule`), leaving `CONTINUOUS` as the only mode for general rules.
 - `AMOUNT` and `DISCOUNT` are reserved promotion types; `times` is a reserved billing type (for non-time-based scenarios).
 - Query-time amount is calculated from the hit unit's `valueSpec`; compact units project by sub-unit.
 
