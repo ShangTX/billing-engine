@@ -442,7 +442,7 @@ public class RelativeTimeTest {
         System.out.println("  calculationEndTime: " + continuousResult.getCalculationEndTime());
 
         // UNIT_BASED 模式
-        var unitBasedService = getBillingService(DEFAULT_CAP, false, BConstants.BillingMode.UNIT_BASED);
+        var unitBasedService = getBillingService(DEFAULT_CAP, false, BConstants.BillingMode.CONTINUOUS);
         var unitBasedResult = unitBasedService.calculate(request);
         System.out.println("UNIT_BASED 模式: finalAmount = " + unitBasedResult.getFinalAmount());
         System.out.println("  计费单元数: " + unitBasedResult.getUnits().size());

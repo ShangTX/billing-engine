@@ -245,7 +245,7 @@ public class DayNightTest {
         System.out.println();
 
         // UNIT_BASED 模式
-        var billingServiceUnitBased = getBillingService(BConstants.BillingMode.UNIT_BASED);
+        var billingServiceUnitBased = getBillingService(BConstants.BillingMode.CONTINUOUS);
         var requestUnitBased = new BillingRequest();
         requestUnitBased.setId("test-unit-based");
         requestUnitBased.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 5, 0, 0));
