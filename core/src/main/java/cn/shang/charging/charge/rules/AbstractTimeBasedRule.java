@@ -7,6 +7,9 @@ import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.billing.pojo.SimplifiedUnitMeta;
+import cn.shang.charging.billing.value.FixedValueSpec;
+import cn.shang.charging.billing.value.ProportionalValueSpec;
+import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
@@ -17,6 +20,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -611,5 +615,142 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
     @FunctionalInterface
     protected interface SegmentBuilder {
         HomogeneousSegment build(LocalDateTime begin, LocalDateTime end);
+    }
+
+    // ==================== 不足单元计费（公共工具） ====================
+
+    /**
+     * 按不足单元计费模式计算截断单元的实际收费金额。
+     * <p>
+     * 仅用于 isTruncated=true 的单元（segMinutes &lt; unitMinutes）。
+     * <ul>
+     *   <li>FULL_CHARGE：unitPrice（不足也收全额）</li>
+     *   <li>PROPORTIONAL：unitPrice × segMinutes / unitMinutes</li>
+     *   <li>FREE：0</li>
+     *   <li>THRESHOLD_MINUTES：segMinutes ≥ thresholdMinutes ? unitPrice : 0</li>
+     *   <li>THRESHOLD_RATIO：ratio = segMinutes/unitMinutes ≥ thresholdRatio ? unitPrice × ratio : 0</li>
+     * </ul>
+     *
+     * @param unitPrice        完整单元单价
+     * @param segMinutes       截断单元实际时长
+     * @param unitMinutes      完整单元时长
+     * @param mode             不足单元计费模式（null 视为 FULL_CHARGE）
+     * @param thresholdMinutes THRESHOLD_MINUTES 阈值（null 视为 0）
+     * @param thresholdRatio   THRESHOLD_RATIO 阈值（null 视为 0，即总是按比例）
+     * @return 截断单元实际收费金额（scale=2, HALF_UP）
+     */
+    public static BigDecimal computeIncompleteCharge(BigDecimal unitPrice,
+                                                         int segMinutes,
+                                                         int unitMinutes,
+                                                         BConstants.IncompleteUnitChargeMode mode,
+                                                         Integer thresholdMinutes,
+                                                         BigDecimal thresholdRatio) {
+        if (unitPrice == null) unitPrice = BigDecimal.ZERO;
+        if (mode == null) mode = BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
+        if (segMinutes >= unitMinutes || unitMinutes <= 0) {
+            return unitPrice.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        switch (mode) {
+            case FULL_CHARGE:
+                return unitPrice.setScale(2, RoundingMode.HALF_UP);
+            case PROPORTIONAL:
+                return unitPrice.multiply(BigDecimal.valueOf(segMinutes))
+                        .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP);
+            case FREE:
+                return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            case THRESHOLD_MINUTES: {
+                int threshold = thresholdMinutes != null ? thresholdMinutes : 0;
+                return segMinutes >= threshold
+                        ? unitPrice.setScale(2, RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            }
+            case THRESHOLD_RATIO: {
+                BigDecimal ratio = BigDecimal.valueOf(segMinutes)
+                        .divide(BigDecimal.valueOf(unitMinutes), 6, RoundingMode.HALF_UP);
+                BigDecimal threshold = thresholdRatio != null ? thresholdRatio : BigDecimal.ZERO;
+                if (ratio.compareTo(threshold) >= 0) {
+                    // 达到阈值：按比例收（非全额）
+                    return unitPrice.multiply(ratio).setScale(2, RoundingMode.HALF_UP);
+                }
+                return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            }
+            default:
+                return unitPrice.setScale(2, RoundingMode.HALF_UP);
+        }
+    }
+
+    /**
+     * 按不足单元计费模式构造截断单元的 valueSpec。
+     * <p>
+     * 与 {@link #computeIncompleteCharge} 配套，保证查询时点投影与最终金额语义一致：
+     * <ul>
+     *   <li>FULL_CHARGE / THRESHOLD_MINUTES 达阈值：FixedValueSpec(unitPrice)（单元内固定全额）</li>
+     *   <li>PROPORTIONAL / THRESHOLD_RATIO 达阈值：ProportionalValueSpec（按分钟线性）</li>
+     *   <li>FREE / THRESHOLD 未达阈值：FixedValueSpec(ZERO)</li>
+     * </ul>
+     */
+    public static UnitValueSpec computeIncompleteValueSpec(BigDecimal unitPrice,
+                                                               int segMinutes,
+                                                               int unitMinutes,
+                                                               BConstants.IncompleteUnitChargeMode mode,
+                                                               Integer thresholdMinutes,
+                                                               BigDecimal thresholdRatio) {
+        if (unitPrice == null) unitPrice = BigDecimal.ZERO;
+        if (mode == null) mode = BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
+        if (segMinutes >= unitMinutes || unitMinutes <= 0) {
+            return new FixedValueSpec(unitPrice);
+        }
+
+        switch (mode) {
+            case FULL_CHARGE:
+                return new FixedValueSpec(unitPrice);
+            case PROPORTIONAL:
+                return new ProportionalValueSpec(unitPrice, unitMinutes);
+            case FREE:
+                return new FixedValueSpec(BigDecimal.ZERO);
+            case THRESHOLD_MINUTES: {
+                int threshold = thresholdMinutes != null ? thresholdMinutes : 0;
+                return segMinutes >= threshold
+                        ? new FixedValueSpec(unitPrice)
+                        : new FixedValueSpec(BigDecimal.ZERO);
+            }
+            case THRESHOLD_RATIO: {
+                BigDecimal ratio = BigDecimal.valueOf(segMinutes)
+                        .divide(BigDecimal.valueOf(unitMinutes), 6, RoundingMode.HALF_UP);
+                BigDecimal threshold = thresholdRatio != null ? thresholdRatio : BigDecimal.ZERO;
+                return ratio.compareTo(threshold) >= 0
+                        ? new ProportionalValueSpec(unitPrice, unitMinutes)
+                        : new FixedValueSpec(BigDecimal.ZERO);
+            }
+            default:
+                return new FixedValueSpec(unitPrice);
+        }
+    }
+
+    /**
+     * 判定不足单元在该模式下是否免费（用于设置 free/freePromotionId）。
+     */
+    public static boolean isIncompleteFree(int segMinutes,
+                                              int unitMinutes,
+                                              BConstants.IncompleteUnitChargeMode mode,
+                                              Integer thresholdMinutes,
+                                              BigDecimal thresholdRatio) {
+        if (mode == null) return false;
+        if (segMinutes >= unitMinutes || unitMinutes <= 0) return false;
+        switch (mode) {
+            case FREE:
+                return true;
+            case THRESHOLD_MINUTES:
+                return segMinutes < (thresholdMinutes != null ? thresholdMinutes : 0);
+            case THRESHOLD_RATIO: {
+                BigDecimal ratio = BigDecimal.valueOf(segMinutes)
+                        .divide(BigDecimal.valueOf(unitMinutes), 6, RoundingMode.HALF_UP);
+                BigDecimal threshold = thresholdRatio != null ? thresholdRatio : BigDecimal.ZERO;
+                return ratio.compareTo(threshold) < 0;
+            }
+            default:
+                return false;
+        }
     }
 }

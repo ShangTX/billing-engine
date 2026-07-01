@@ -5,7 +5,9 @@ import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.value.UnitValueSpec;
+import cn.shang.charging.billing.value.FixedValueSpec;
 import cn.shang.charging.charge.rules.BillingRule;
+import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
@@ -93,6 +95,22 @@ public class DayNightUnitBasedRule implements BillingRule<DayNightConfig> {
 
             BigDecimal chargedAmount = isFree ? BigDecimal.ZERO : originalAmount;
 
+            // 不足单元按模式计费
+            boolean isTruncated = duration < unitMinutes && unitEnd.equals(calcEnd);
+            if (isTruncated && !isFree) {
+                boolean incompleteFree = AbstractTimeBasedRule.isIncompleteFree(duration, unitMinutes, config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
+                if (incompleteFree) {
+                    chargedAmount = BigDecimal.ZERO;
+                    isFree = true;
+                    freePromotionId = "INCOMPLETE_FREE";
+                } else {
+                    chargedAmount = AbstractTimeBasedRule.computeIncompleteCharge(unitPrice, duration, unitMinutes,
+                            config.getIncompleteUnitChargeMode(),
+                            config.getThresholdMinutes(), config.getThresholdRatio());
+                }
+            }
+
             // 每日封顶
             boolean dailyCapped = false;
             if (maxCharge != null && !isFree) {
@@ -113,10 +131,14 @@ public class DayNightUnitBasedRule implements BillingRule<DayNightConfig> {
                 cycleAccumulated = cycleAccumulated.add(chargedAmount);
             }
 
-            // valueSpec：封顶时用封顶值，否则按时段类型生成
+            // valueSpec：封顶时用封顶值，不足单元按模式，否则按时段类型生成
             UnitValueSpec valueSpec;
             if (dailyCapped) {
                 valueSpec = valueSpecFactory.createCappedSpec(null, current, unitEnd, chargedAmount);
+            } else if (isTruncated && !isFree) {
+                valueSpec = AbstractTimeBasedRule.computeIncompleteValueSpec(unitPrice, duration, unitMinutes,
+                        config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
             } else if (isFree) {
                 valueSpec = valueSpecFactory.createFreeSpec();
             } else {

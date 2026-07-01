@@ -386,7 +386,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                     (current, next) -> buildSegmentForDayNight(current, next, config, freeTimeRanges, calcEnd));
 
             // 应用封顶 + 累计 + 截断标记
-            allUnits = applyCapAndAccumulate(segments, maxCharge, context, unitMinutes);
+            allUnits = applyCapAndAccumulate(segments, maxCharge, context, unitMinutes, config);
 
             // 边界驱动状态更新
             int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
@@ -455,7 +455,8 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     private List<BillingUnit> applyCapAndAccumulate(List<HomogeneousSegment> segments,
                                                      BigDecimal maxCharge,
                                                      BillingContext context,
-                                                     int unitMinutes) {
+                                                     int unitMinutes,
+                                                     DayNightConfig config) {
         List<BillingUnit> units = new ArrayList<>();
         if (segments.isEmpty()) return units;
 
@@ -473,6 +474,12 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
             if (subCount < 1) subCount = 1;
 
+            // 截断判定提前：不足单元按 IncompleteUnitChargeMode 计费
+            boolean isTruncated = isLast
+                    && unitMinutes > 0
+                    && segMinutes < unitMinutes
+                    && seg.getEndTime().equals(calcEnd);
+
             boolean cycleCapped = false;
             if (maxCharge != null && !seg.isFree() && dayAccumulated.compareTo(maxCharge) >= 0) {
                 cycleCapped = true;
@@ -482,9 +489,19 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                     ? seg.getOriginalAmount() : BigDecimal.ZERO;
             BigDecimal unitPrice = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
 
+            // 不足单元是否按模式免费
+            boolean incompleteFree = isTruncated && !seg.isFree() && !cycleCapped
+                    && isIncompleteFree(segMinutes, unitMinutes, config.getIncompleteUnitChargeMode(),
+                            config.getThresholdMinutes(), config.getThresholdRatio());
+
             BigDecimal charged;
-            if (seg.isFree() || cycleCapped) {
+            if (seg.isFree() || cycleCapped || incompleteFree) {
                 charged = BigDecimal.ZERO;
+            } else if (isTruncated) {
+                // 不足单元按模式计费（非免费的档位）
+                charged = computeIncompleteCharge(unitPrice, segMinutes, unitMinutes,
+                        config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
             } else {
                 BigDecimal budget = maxCharge != null
                         ? maxCharge.subtract(dayAccumulated)
@@ -505,21 +522,22 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             }
 
             accumulated = accumulated.add(charged);
-            if (!seg.isFree() && !cycleCapped) {
+            if (!seg.isFree() && !cycleCapped && !incompleteFree) {
                 dayAccumulated = dayAccumulated.add(charged);
             }
 
-            boolean isTruncated = isLast
-                    && unitMinutes > 0
-                    && segMinutes < unitMinutes
-                    && seg.getEndTime().equals(calcEnd);
             boolean isCompact = !isTruncated && subCount > 1;
 
             // 解析 valueSpec
             UnitValueSpec spec;
-            if (seg.getValueSpec() instanceof UnitValueSpec us) {
+            if (isTruncated && !seg.isFree() && !cycleCapped && !incompleteFree) {
+                // 不足单元按模式生成 valueSpec（PROPORTIONAL 等反映单元内线性投影）
+                spec = computeIncompleteValueSpec(unitPrice, segMinutes, unitMinutes,
+                        config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
+            } else if (seg.getValueSpec() instanceof UnitValueSpec us) {
                 spec = us;
-            } else if (seg.isFree()) {
+            } else if (seg.isFree() || incompleteFree) {
                 spec = new FixedValueSpec(BigDecimal.ZERO);
             } else {
                 spec = new FixedValueSpec(unitPrice);
@@ -527,7 +545,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
             // 封顶削减时覆盖 valueSpec：query 投影应返回封顶后金额，而非原价
             boolean cappedOrReduced = cycleCapped
                     || (charged.compareTo(originalPerSub.multiply(BigDecimal.valueOf(subCount))) < 0
-                        && !seg.isFree());
+                        && !seg.isFree() && !isTruncated);
             if (cappedOrReduced) {
                 spec = new FixedValueSpec(charged);
             }
@@ -538,8 +556,9 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
                     .durationMinutes(segMinutes)
                     .unitPrice(unitPrice)
                     .originalAmount(originalPerSub.multiply(BigDecimal.valueOf(subCount)))
-                    .free(seg.isFree() || cycleCapped)
-                    .freePromotionId(cycleCapped ? "DAILY_CAP" : seg.getFreePromotionId())
+                    .free(seg.isFree() || cycleCapped || incompleteFree)
+                    .freePromotionId(cycleCapped ? "DAILY_CAP"
+                            : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
                     .chargedAmount(charged)
                     .accumulatedAmount(accumulated)
                     .valueSpec(spec)

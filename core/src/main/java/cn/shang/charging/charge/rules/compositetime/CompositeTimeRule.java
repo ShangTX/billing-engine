@@ -11,6 +11,8 @@ import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
+import cn.shang.charging.billing.value.FixedValueSpec;
+import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -481,6 +483,16 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                     + MINUTES_PER_DAY) % MINUTES_PER_DAY);
             CompositePeriod period = periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
 
+            // 截断判定提前
+            int unitMinutes = period.getUnitMinutes();
+            int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
+            if (subCount < 1) subCount = 1;
+
+            boolean isTruncated = isLast
+                    && unitMinutes > 0
+                    && segMinutes < unitMinutes
+                    && seg.getEndTime().equals(calcEnd);
+
             // 时段切换：对前一 period 应用独立封顶
             if (currentPeriod == null) {
                 currentPeriod = period;
@@ -491,23 +503,28 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 periodStartIndex = units.size();
             }
 
-            int unitMinutes = period.getUnitMinutes();
-            int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
-            if (subCount < 1) subCount = 1;
-
             boolean cycleCapped = false;
             if (maxCharge != null && maxCharge.compareTo(BigDecimal.ZERO) > 0
                     && !seg.isFree() && cycleAccumulated.compareTo(maxCharge) >= 0) {
                 cycleCapped = true;
             }
 
+            // 不足单元是否按模式免费
+            boolean incompleteFree = isTruncated && !seg.isFree() && !cycleCapped
+                    && isIncompleteFree(segMinutes, unitMinutes, config.getIncompleteUnitChargeMode(),
+                            config.getThresholdMinutes(), config.getThresholdRatio());
+
             BigDecimal originalPerSub = seg.getOriginalAmount() != null
                     ? seg.getOriginalAmount() : BigDecimal.ZERO;
             BigDecimal unitPrice = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
 
             BigDecimal charged;
-            if (seg.isFree() || cycleCapped) {
+            if (seg.isFree() || cycleCapped || incompleteFree) {
                 charged = BigDecimal.ZERO;
+            } else if (isTruncated) {
+                charged = computeIncompleteCharge(unitPrice, segMinutes, unitMinutes,
+                        config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
             } else {
                 BigDecimal budget = maxCharge != null
                         ? maxCharge.subtract(cycleAccumulated)
@@ -528,16 +545,29 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             }
 
             accumulated = accumulated.add(charged);
-            if (!seg.isFree() && !cycleCapped) {
+            if (!seg.isFree() && !cycleCapped && !incompleteFree) {
                 cycleAccumulated = cycleAccumulated.add(charged);
             }
             lastCycleAccumulated = cycleAccumulated;
 
-            boolean isTruncated = isLast
-                    && unitMinutes > 0
-                    && segMinutes < unitMinutes
-                    && seg.getEndTime().equals(calcEnd);
             boolean isCompact = !isTruncated && subCount > 1;
+
+            // valueSpec
+            UnitValueSpec spec;
+            if (isTruncated && !seg.isFree() && !cycleCapped && !incompleteFree) {
+                spec = computeIncompleteValueSpec(unitPrice, segMinutes, unitMinutes,
+                        config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
+            } else {
+                spec = seg.getValueSpec() instanceof UnitValueSpec us ? us
+                        : new FixedValueSpec(seg.isFree() || incompleteFree ? BigDecimal.ZERO : unitPrice);
+            }
+            boolean cappedOrReduced = cycleCapped
+                    || (charged.compareTo(originalPerSub.multiply(BigDecimal.valueOf(subCount))) < 0
+                        && !seg.isFree() && !isTruncated);
+            if (cappedOrReduced) {
+                spec = new FixedValueSpec(charged);
+            }
 
             BillingUnit unit = BillingUnit.builder()
                     .beginTime(seg.getBeginTime())
@@ -545,11 +575,12 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                     .durationMinutes(segMinutes)
                     .unitPrice(unitPrice)
                     .originalAmount(originalPerSub.multiply(BigDecimal.valueOf(subCount)))
-                    .free(seg.isFree() || cycleCapped)
-                    .freePromotionId(cycleCapped ? "CYCLE_CAP" : seg.getFreePromotionId())
+                    .free(seg.isFree() || cycleCapped || incompleteFree)
+                    .freePromotionId(cycleCapped ? "CYCLE_CAP"
+                            : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
                     .chargedAmount(charged)
                     .accumulatedAmount(accumulated)
-                    .valueSpec(null)
+                    .valueSpec(spec)
                     .ruleData(seg.getRuleData())
                     .compact(isCompact)
                     .count(isCompact ? subCount : 1)

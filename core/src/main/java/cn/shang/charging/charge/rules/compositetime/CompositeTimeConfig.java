@@ -34,7 +34,13 @@ public class CompositeTimeConfig implements RuleConfig {
 
     /** 不足单元计费模式（默认全额） */
     @Builder.Default
-    private InsufficientUnitMode insufficientUnitMode = InsufficientUnitMode.FULL;
+    private BConstants.IncompleteUnitChargeMode incompleteUnitChargeMode = BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
+
+    /** 分钟阈值（仅 THRESHOLD_MINUTES 模式使用） */
+    private Integer thresholdMinutes;
+
+    /** 比例阈值（仅 THRESHOLD_RATIO 模式使用） */
+    private BigDecimal thresholdRatio;
 
     /** 相对时间段列表 */
     private List<CompositePeriod> periods;

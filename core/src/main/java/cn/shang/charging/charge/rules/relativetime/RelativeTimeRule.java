@@ -12,6 +12,8 @@ import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.HomogeneousSegmentCalculator;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
+import cn.shang.charging.billing.value.FixedValueSpec;
+import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -296,7 +298,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
 
         // 应用封顶 + 累计 + 截断标记（自然日 24h 周期内统计）
         ContinuousResult capResult = applyCapAndAccumulate(segments, maxCharge, state.getCycleAccumulated(),
-                context, periods, periodResolver, cycleOriginBegin, calcBegin);
+                context, periods, periodResolver, cycleOriginBegin, calcBegin, config);
         List<BillingUnit> allUnits = capResult.units;
         BigDecimal lastCycleAccumulated = capResult.lastCycleAccumulated;
 
@@ -394,19 +396,17 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                                                     List<RelativeTimePeriod> periods,
                                                     RelativeTimePeriodResolver resolver,
                                                     LocalDateTime cycleOriginBegin,
-                                                    LocalDateTime calcBegin) {
+                                                    LocalDateTime calcBegin,
+                                                    RelativeTimeConfig config) {
         List<BillingUnit> units = new ArrayList<>();
         if (segments.isEmpty()) {
             return new ContinuousResult(units, carryOverAccumulated != null ? carryOverAccumulated : BigDecimal.ZERO);
         }
 
         LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
-        // 当前周期累计：初始为结转累计（CONTINUE 模式下上次计算遗留的本周期累计）
         BigDecimal cycleAccumulated = carryOverAccumulated != null ? carryOverAccumulated : BigDecimal.ZERO;
-        // 下一个周期边界（相对于 cycleOriginBegin 的分钟数）：初始化为包含 calcBegin 的周期的下一个边界
         long calcBeginOffset = Duration.between(cycleOriginBegin, calcBegin).toMinutes();
         long nextCycleBoundaryOffset = ((calcBeginOffset / MINUTES_PER_CYCLE) + 1) * MINUTES_PER_CYCLE;
-        // 最后一个周期的累计（用于状态输出）
         BigDecimal lastCycleAccumulated = cycleAccumulated;
 
         BigDecimal accumulated = context.getPreviousAccumulatedAmount();
@@ -416,6 +416,8 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         for (int i = 0; i < segments.size(); i++) {
             HomogeneousSegment seg = segments.get(i);
             boolean isLast = (i == segments.size() - 1);
+
+            // 截断判定提前
             int segMinutes = seg.durationMinutes();
             int positionInCycle = (int) (((Duration.between(cycleOriginBegin, seg.getBeginTime()).toMinutes() % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE);
             RelativeTimePeriod period = resolver.findPeriodForMinute(positionInCycle, periods);
@@ -423,19 +425,33 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
             if (subCount < 1) subCount = 1;
 
+            boolean isTruncated = isLast
+                    && unitMinutes > 0
+                    && segMinutes < unitMinutes
+                    && seg.getEndTime().equals(calcEnd);
+
             boolean cycleCapped = false;
             if (maxCharge != null && maxCharge.compareTo(BigDecimal.ZERO) > 0
                     && !seg.isFree() && cycleAccumulated.compareTo(maxCharge) >= 0) {
                 cycleCapped = true;
             }
 
+            // 不足单元是否按模式免费
+            boolean incompleteFree = isTruncated && !seg.isFree() && !cycleCapped
+                    && isIncompleteFree(segMinutes, unitMinutes, config.getIncompleteUnitChargeMode(),
+                            config.getThresholdMinutes(), config.getThresholdRatio());
+
             BigDecimal originalPerSub = seg.getOriginalAmount() != null
                     ? seg.getOriginalAmount() : BigDecimal.ZERO;
             BigDecimal unitPrice = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
 
             BigDecimal charged;
-            if (seg.isFree() || cycleCapped) {
+            if (seg.isFree() || cycleCapped || incompleteFree) {
                 charged = BigDecimal.ZERO;
+            } else if (isTruncated) {
+                charged = computeIncompleteCharge(unitPrice, segMinutes, unitMinutes,
+                        config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
             } else {
                 BigDecimal budget = maxCharge != null
                         ? maxCharge.subtract(cycleAccumulated)
@@ -456,17 +472,29 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             }
 
             accumulated = accumulated.add(charged);
-            if (!seg.isFree() && !cycleCapped) {
+            if (!seg.isFree() && !cycleCapped && !incompleteFree) {
                 cycleAccumulated = cycleAccumulated.add(charged);
             }
-            // 跟踪当前周期累计（用于状态输出）
             lastCycleAccumulated = cycleAccumulated;
 
-            boolean isTruncated = isLast
-                    && unitMinutes > 0
-                    && segMinutes < unitMinutes
-                    && seg.getEndTime().equals(calcEnd);
             boolean isCompact = !isTruncated && subCount > 1;
+
+            // valueSpec
+            UnitValueSpec spec;
+            if (isTruncated && !seg.isFree() && !cycleCapped && !incompleteFree) {
+                spec = computeIncompleteValueSpec(unitPrice, segMinutes, unitMinutes,
+                        config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
+            } else {
+                spec = seg.getValueSpec() instanceof UnitValueSpec us ? us
+                        : new FixedValueSpec(seg.isFree() || incompleteFree ? BigDecimal.ZERO : unitPrice);
+            }
+            boolean cappedOrReduced = cycleCapped
+                    || (charged.compareTo(originalPerSub.multiply(BigDecimal.valueOf(subCount))) < 0
+                        && !seg.isFree() && !isTruncated);
+            if (cappedOrReduced) {
+                spec = new FixedValueSpec(charged);
+            }
 
             BillingUnit unit = BillingUnit.builder()
                     .beginTime(seg.getBeginTime())
@@ -474,11 +502,12 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                     .durationMinutes(segMinutes)
                     .unitPrice(unitPrice)
                     .originalAmount(originalPerSub.multiply(BigDecimal.valueOf(subCount)))
-                    .free(seg.isFree() || cycleCapped)
-                    .freePromotionId(cycleCapped ? "CYCLE_CAP" : seg.getFreePromotionId())
+                    .free(seg.isFree() || cycleCapped || incompleteFree)
+                    .freePromotionId(cycleCapped ? "CYCLE_CAP"
+                            : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
                     .chargedAmount(charged)
                     .accumulatedAmount(accumulated)
-                    .valueSpec(null)
+                    .valueSpec(spec)
                     .ruleData(seg.getRuleData())
                     .compact(isCompact)
                     .count(isCompact ? subCount : 1)

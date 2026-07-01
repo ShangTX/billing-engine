@@ -11,6 +11,8 @@ import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
+import cn.shang.charging.billing.value.FixedValueSpec;
+import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 
 import java.math.BigDecimal;
@@ -137,7 +139,7 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
         });
 
         // 转换为 BillingUnit（compact 合并 + 累计金额 + 封顶处理）
-        List<BillingUnit> billingUnits = applyCapAndAccumulate(segments, maxCharge, context, unitMinutes);
+        List<BillingUnit> billingUnits = applyCapAndAccumulate(segments, maxCharge, context, unitMinutes, config);
 
         BigDecimal totalAmount = billingUnits.stream()
                 .map(BillingUnit::getChargedAmount)
@@ -239,7 +241,8 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
     private List<BillingUnit> applyCapAndAccumulate(List<HomogeneousSegment> segments,
                                                      BigDecimal maxCharge,
                                                      BillingContext context,
-                                                     int unitMinutes) {
+                                                     int unitMinutes,
+                                                     NaturalTimeConfig config) {
         List<BillingUnit> units = new ArrayList<>();
         if (segments.isEmpty()) return units;
 
@@ -256,26 +259,40 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
             HomogeneousSegment seg = segments.get(i);
             boolean isLast = (i == segments.size() - 1);
 
+            // 截断判定提前：不足单元按 IncompleteUnitChargeMode 计费
+            boolean isTruncated = isLast
+                    && unitMinutes > 0
+                    && seg.durationMinutes() < unitMinutes
+                    && seg.getEndTime().equals(calcEnd);
+
             // 周期（24h）封顶判断
             boolean cycleCapped = false;
             if (maxCharge != null && !seg.isFree() && dayAccumulated.compareTo(maxCharge) >= 0) {
                 cycleCapped = true;
             }
 
-            // 子单元数量：每个子单元 unitMinutes 长度
             int segMinutes = seg.durationMinutes();
             int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
             if (subCount < 1) subCount = 1;
 
-            BigDecimal charged;
+            // 不足单元是否按模式免费
+            boolean incompleteFree = isTruncated && !seg.isFree() && !cycleCapped
+                    && isIncompleteFree(segMinutes, unitMinutes, config.getIncompleteUnitChargeMode(),
+                            config.getThresholdMinutes(), config.getThresholdRatio());
+
             BigDecimal originalPerSub = seg.getOriginalAmount() != null
                     ? seg.getOriginalAmount() : BigDecimal.ZERO;
             BigDecimal unitPrice = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
 
-            if (seg.isFree() || cycleCapped) {
+            BigDecimal charged;
+            if (seg.isFree() || cycleCapped || incompleteFree) {
                 charged = BigDecimal.ZERO;
+            } else if (isTruncated) {
+                // 不足单元按模式计费（非免费的档位）
+                charged = computeIncompleteCharge(unitPrice, segMinutes, unitMinutes,
+                        config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
             } else {
-                // 封顶截断：本段部分收费、剩余免费
                 BigDecimal budget = maxCharge != null
                         ? maxCharge.subtract(dayAccumulated)
                         : null;
@@ -296,16 +313,30 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
             }
 
             accumulated = accumulated.add(charged);
-            if (!seg.isFree() && !cycleCapped) {
+            if (!seg.isFree() && !cycleCapped && !incompleteFree) {
                 dayAccumulated = dayAccumulated.add(charged);
             }
 
-            boolean isTruncated = isLast
-                    && unitMinutes > 0
-                    && segMinutes < unitMinutes
-                    && seg.getEndTime().equals(calcEnd);
             // 截断单元永不 compact
             boolean isCompact = !isTruncated && subCount > 1;
+
+            // valueSpec
+            UnitValueSpec spec;
+            if (isTruncated && !seg.isFree() && !cycleCapped && !incompleteFree) {
+                spec = computeIncompleteValueSpec(unitPrice, segMinutes, unitMinutes,
+                        config.getIncompleteUnitChargeMode(),
+                        config.getThresholdMinutes(), config.getThresholdRatio());
+            } else {
+                spec = seg.getValueSpec() instanceof UnitValueSpec us ? us
+                        : new FixedValueSpec(seg.isFree() || incompleteFree ? BigDecimal.ZERO : unitPrice);
+            }
+            // 封顶削减时覆盖 valueSpec
+            boolean cappedOrReduced = cycleCapped
+                    || (charged.compareTo(originalPerSub.multiply(BigDecimal.valueOf(subCount))) < 0
+                        && !seg.isFree() && !isTruncated);
+            if (cappedOrReduced) {
+                spec = new FixedValueSpec(charged);
+            }
 
             BillingUnit unit = BillingUnit.builder()
                     .beginTime(seg.getBeginTime())
@@ -313,11 +344,12 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
                     .durationMinutes(segMinutes)
                     .unitPrice(unitPrice)
                     .originalAmount(originalPerSub.multiply(BigDecimal.valueOf(subCount)))
-                    .free(seg.isFree() || cycleCapped)
-                    .freePromotionId(cycleCapped ? "CYCLE_CAP" : seg.getFreePromotionId())
+                    .free(seg.isFree() || cycleCapped || incompleteFree)
+                    .freePromotionId(cycleCapped ? "CYCLE_CAP"
+                            : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
                     .chargedAmount(charged)
                     .accumulatedAmount(accumulated)
-                    .valueSpec(null)
+                    .valueSpec(spec)
                     .ruleData(seg.getRuleData())
                     .compact(isCompact)
                     .count(isCompact ? subCount : 1)
