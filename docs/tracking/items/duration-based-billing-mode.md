@@ -49,7 +49,10 @@ completed_git:
 
 5. **封顶逻辑**
    - PERIOD：周期内累计 chargedAmount 达 maxCharge 封顶
-   - GLOBAL：周期数 = ceil(总分钟数 / 周期分钟数)，封顶金额 = 周期数 × maxCharge，最终金额 = min(封顶金额, 总金额)
+   - GLOBAL：周期数 = ceil(总分钟数 / 周期分钟数)
+     - 时段封顶：每个时段类型的总金额封顶 = period.maxCharge × 周期数
+     - 周期封顶：总金额封顶 = maxChargeOneCycle × 周期数
+     - 检查顺序：时段封顶 → 求和 → 周期封顶
 
 6. **测试**
    - PERIOD 模式测试（日夜规则，周期内按时长计费）
@@ -144,6 +147,30 @@ public record DurationSegment(
 周期数：ceil(2820min / 1440min) = 2
 封顶金额：2 × 50 = 100 元
 最终金额：min(100, 95) = 95 元
+```
+
+**GLOBAL 模式 + 时段封顶**（48h 停车，3 个 period，周期封顶 50 元/天）：
+```
+Period 1 (0-120min): 单价 5 元/h, 时段封顶 10 元/天
+Period 2 (120-480min): 单价 3 元/h, 时段封顶 30 元/天
+Period 3 (480-1440min): 单价 1 元/h, 无时段封顶
+
+48h = 2 周期，每个 period 出现 2 次
+
+1. 按时段类型累计金额：
+   - Period 1 总金额：240min × 5/60 = 20 元
+   - Period 2 总金额：720min × 3/60 = 36 元
+   - Period 3 总金额：1800min × 1/60 = 30 元
+
+2. 应用时段封顶（period.maxCharge × 周期数）：
+   - Period 1：min(20, 10×2) = min(20, 20) = 20 元
+   - Period 2：min(36, 30×2) = min(36, 60) = 36 元
+   - Period 3：无封顶 = 30 元
+
+3. 求和：20 + 36 + 30 = 86 元
+
+4. 应用周期封顶（maxChargeOneCycle × 周期数）：
+   - 最终金额：min(86, 50×2) = min(86, 100) = 86 元
 ```
 
 ## 验收标准
