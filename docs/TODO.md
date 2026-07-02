@@ -14,6 +14,7 @@
 
 | ID | 类型 | 优先级 | 标题 | source_git | 详情 |
 |----|------|--------|------|------------|------|
+| TODO-20260701-002 | refactor | P2 | 单元模式分段计费的历史耦合清理 | 75f65c3 | [unit-segment-historical-coupling.md](tracking/items/unit-segment-historical-coupling.md) |
 | TODO-20260701-001 | bug | P2 | FREE_RANGE 免费时段产出 PromotionUsage | 37caeb5 | [free-range-promotion-usage.md](tracking/items/free-range-promotion-usage.md) |
 | TODO-20260630-002 | feature | P2 | 物化索引预估收入能力 | ec62357 | [materialized-index-revenue-estimation.md](tracking/items/materialized-index-revenue-estimation.md) |
 | TODO-20260623-001 | feature | P2 | 优化自定义规则扩展体验 | 4e081b3 | [custom-rule-extension-experience.md](tracking/items/custom-rule-extension-experience.md) |
