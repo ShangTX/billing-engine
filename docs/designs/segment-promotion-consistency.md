@@ -6,6 +6,18 @@
 
 ---
 
+## 阅读前提
+
+本文档讨论计费引擎的分段计费与优惠一致性架构问题。阅读前需了解：
+
+- **边界驱动循环**：4 个时间计费规则（DayNight/RelativeTime/NaturalTime/CompositeTime）的 CONTINUOUS 模式共用 `AbstractTimeBasedRule.runBoundaryDrivenLoop`，按"找最近边界跳过去"产出同质段（HomogeneousSegment），再转为计费单元。详见 `docs/billing-engine-capabilities-zh.md` §4。
+- **分段计费（schemeChanges）**：一次请求内方案随时间变化（如景区淡旺季切换），`SegmentBuilder` 按 `schemeChanges` 切多个 `BillingSegment`，`BillingService` 逐段计算后由 `ResultAssembler` 汇总。分段模式有 `SEGMENT_LOCAL`（独立起算）和 `GLOBAL_ORIGIN`（窗口截取）两种，由 `SegmentCalculationMode` 指定。
+- **时长计费模式（DurationMode）**：与单元计费并列的新模式，按分钟流计费（PERIOD/GLOBAL），产出 `DurationSegment`。详见 TODO-20260630-003。
+- **优惠类型**：FREE_RANGE（固定免费时段）、FREE_MINUTES（可分配免费分钟数）、AMOUNT（金额减免）、DISCOUNT（折扣）。优惠来源分两类：方案内优惠规则（`BillingConfigResolver.resolvePromotionRules` 按方案解析）和外部优惠（请求的 `externalPromotions`，如优惠券）。
+- **CONTINUE 续算**：同一请求分多次算（预测+增量更新），通过 `BillingCarryOver` 传递状态（截断单元、累计金额、周期状态、优惠结转）。
+
+---
+
 ## 背景
 
 在讨论时长计费模式（TODO-20260630-003）是否需要支持 schemeChanges 分段时，逐步深入到现有分段计费架构的根本问题。本文档记录讨论中发现的问题点和待决策的发展方向，作为后续架构演进的输入。
@@ -50,9 +62,9 @@
 
 ### 现状
 
-`BillingService` 分段循环中，纯 schemeChanges 分段（无 previousCarryOver）时：
-- `ruleState` / `promotionCarryOver`：**不传**（仅 isContinueMode 时取），每段 `initializeState` 从零
-- `previousAccumulatedAmount`：**传**，但只为 `BillingUnit.accumulatedAmount` 展示字段连续
+`BillingService` 分段循环（`core/.../billing/BillingService.java:84-166`）中，纯 schemeChanges 分段（无 previousCarryOver，即 `isContinueMode=false`）时：
+- `ruleState` / `promotionCarryOver`：**不传**（line 128 `if (isContinueMode && ...)` 条件不满足，保持 null），每段 `initializeState` 从零
+- `previousAccumulatedAmount`：**传**（line 166 `calculateSegmentAccumulatedAmount` 算出传下一段），但只为 `BillingUnit.accumulatedAmount` 展示字段连续
 
 ### 问题
 
@@ -74,7 +86,7 @@
 
 ### 现状
 
-`PromotionEngine.evaluate` 按 `context.getWindow()` 的窗口分配优惠。分段时每段独立 evaluate，窗口不同。
+`PromotionEngine.evaluate`（`core/.../promotion/PromotionEngine.java:37`）按 `context.getWindow()` 的窗口分配优惠。`BillingService` 分段循环（`core/.../billing/BillingService.java:157-161`）每段独立调用 `promotionEngine.evaluate(context)`，每段的 `context.getWindow()` 不同。
 
 ### 问题
 
@@ -135,6 +147,43 @@
 | 计算量 | 每段1次 | 每段2次（全窗口+前段窗口） |
 | 适用场景 | 无外部优惠，或接受重复 | 有外部优惠，要求全局一致 |
 
+### 推导：减法为什么能保证外部优惠全局一致
+
+关键在于 `FreeMinuteAllocator.allocate` 的分配算法（`FreeMinuteAllocator.java:43`）：从 `window.getCalculationBegin()` 起扫描，跳过已存在的 FREE_RANGE 免费段，把非免费空隙作为可分配空间，按优先级顺序填入 FREE_MINUTES。**分配位置只依赖窗口起点、FREE_RANGE 段、窗口长度，与计费规则无关**。
+
+以分段1（1:00-4:00，方案A）+ 分段2（4:00-10:00，方案B）、外部优惠"1h 免费"为例：
+
+**分段1（首段）**：
+- 窗口 1:00-4:00，起点 1:00
+- 1h 免费分配在 1:00-2:00（窗口起点起首个非免费空隙）
+- 分段1 费用 = 方案A 算 1:00-4:00，其中 1:00-2:00 免费
+
+**分段2（窗口截取）**：
+- `GLOBAL2(1:00-10:00)`：用方案B 算全窗口，起点 1:00，1h 免费分配在 1:00-2:00（**同一窗口起点，同一分配位置**）
+- `GLOBAL2(1:00-4:00)`：用方案B 算前段窗口，起点 1:00，1h 免费分配在 1:00-2:00（**同一窗口起点，同一分配位置**）
+- 分段2 费用 = 全窗口费用 - 前段费用，1:00-2:00 免费段在两者中都被扣减，减法后抵消 → 分段2 不含 1:00-2:00 免费段
+
+**全局视角**：1h 免费只在 1:00-2:00 用了一次。分段1 用了它（1:00-2:00 免费），分段2 没有免费。**外部优惠全局一致**。
+
+这个一致性的技术基础是：分段1 是首段，其窗口起点 = 全局起点（1:00）；分段2 的全窗口算也用全局起点（1:00）。两次分配同一起点 → 同一分配位置。减法天然抵消前段的优惠使用，**不需要跨段传优惠状态**。
+
+**注意**：分段1 用方案A、分段2 用方案B，方案不同。但优惠分配位置只依赖窗口起点（规则无关），所以即使方案不同，只要窗口起点相同，分配位置就一致。这是减法能跨方案工作的原因。
+
+### 推导：周期封顶全局基准的合理性
+
+窗口截取下，周期封顶用全局基准（方案B 从窗口起点 1:00 算周期），前段 1:00-4:00 的假想费用占用方案B 的封顶额度。讨论中曾质疑这是"惩罚分段2"，但实际并非如此：
+
+**窗口截取的语义是"全程用分段2 的方案B 假想算"**，不是"继承分段1 方案A 的已发生费用"。即：
+- `GLOBAL2(1:00-10:00)` = 如果 1:00-10:00 全程都用方案B，9h 的总费用（含优惠、封顶）
+- `GLOBAL2(1:00-4:00)` = 如果前 3h 也用方案B，前 3h 的费用
+- 分段2 = 后 6h 在"全程方案B"假设下的费用
+
+前段 1:00-4:00 用方案B 假想算（非方案A 实际），其费用占用的是方案B 的封顶额度。由于方案B 假想费用可能低于方案A 实际费用（方案B 单价可能更低），**占用少，分段2 剩余额度多**——这其实对分段2 更有利，不是惩罚。
+
+业务语义：方案B 的封顶是"从方案B 视角的全局封顶"，分段2 作为"全程方案B"假设的后半段，继承前段假想费用占用后的剩余额度。这类似"继续计算"——方案B 从全局起点生效，分段2 续算剩余封顶空间。
+
+**与独立起算的对比**：独立起算下分段2 封顶从 4:00 独立算，拥有完整额度。窗口截取下分段2 继承剩余额度。两者结果不同，但各自语义自洽。窗口截取选择全局基准，是为了与优惠的全局基准一致（都从 1:00 算），保证整笔停车在"全程方案B"假设下费用自洽。
+
 ### 待决策
 
 - 窗口截取的"全程用本段方案假想算"语义是否最终确认？
@@ -147,9 +196,11 @@
 
 ### 现状
 
-`PromotionEngine.evaluate` 中两类优惠来源混在一起处理，无区分：
-- **方案内优惠规则**（`context.getPromotionRules()` → `grant()`）：跟方案走，由 BillingConfigResolver.resolvePromotionRules 按方案+时间段解析
-- **外部优惠**（`context.getExternalPromotions()`）：跟请求走，整个请求的外部优惠（优惠券等）
+`PromotionEngine.evaluate`（`core/.../promotion/PromotionEngine.java:44-79`）中两类优惠来源混在一起处理，无区分：
+- **方案内优惠规则**（`context.getPromotionRules()` → `grant()`，line 45-61）：跟方案走，由 BillingConfigResolver.resolvePromotionRules 按方案+时间段解析
+- **外部优惠**（`context.getExternalPromotions()`，line 64-79）：跟请求走，整个请求的外部优惠（优惠券等）
+
+两类都进入相同的 `timeRangePromotions` / `freeMinutesPromotions` 等列表，后续合并/分配逻辑不区分来源。
 
 ### 讨论结论
 
@@ -229,3 +280,30 @@
 2. 窗口截取的周期封顶全局基准，业务上是否接受"前段假想费用占用额度"？
 3. 独立起算模式的外部优惠重复，是标注为已知限制，还是禁止在该模式使用外部优惠？
 4. 优惠分类是否需要新的配置字段（标记优惠为"方案内"或"外部"），还是按来源自动区分？
+
+---
+
+## 讨论来龙去脉
+
+本节记录讨论的推进过程，便于新会话理解结论是如何得出的，而非仅看结论。
+
+1. **起点**：时长模式（TODO-20260630-003）实现后，讨论是否需要支持 schemeChanges 分段。初步判断"时长模式无截断单元，分段零成本"。
+
+2. **深入 CONTINUE**：质疑 CONTINUE 续算的实际意义——是否只为物化预估服务，网络 IO 代价是否比从头重算高。分析得出：CONTINUE 核心是避免重复收费（截断单元），不省 IO/计算；其价值取决于调用方是否有"预测+增量"业务流。schemeChanges 分段是独立刚需（淡旺季切换），与 CONTINUE 无关。
+
+3. **分段状态传递**：审查 BillingService 分段循环，发现纯分段时 ruleState/promotionCarryOver 不传（仅续算传），只有 previousAccumulatedAmount 传（展示用）。确认跨段状态无意义（跨段规则/方案不同），立 TODO-20260701-002 清理耦合。
+
+4. **外部优惠重复**：发现 PromotionEngine 每段独立 evaluate，外部优惠（FREE_MINUTES/FREE_RANGE）重复使用。这是真实 bug。确认"优惠是全局概念"。
+
+5. **窗口截取的真正用途**：提出窗口截取的减法（`GLOBAL2(全窗口) - GLOBAL2(前段窗口)`）能保证外部优惠一致。关键洞察：FreeMinuteAllocator 分配只依赖窗口起点（规则无关），同起点同分配位置，减法抵消前段优惠使用。
+
+6. **周期封顶基准矛盾**：发现窗口截取下周期封顶用全局基准（与优惠一致），与"分段封顶独立"结论冲突。经讨论厘清：独立起算用分段基准（跨段规则不同无意义），窗口截取用全局基准（全程用本段方案假想算，规则统一）；两者各自自洽，不冲突。窗口截取的"前段假想费用占用额度"不是惩罚（假想用方案B，可能比方案A实际费用低，对分段2更有利）。
+
+7. **优惠分类**：识别出方案内优惠（跟方案走，每段独立合理）与外部优惠（全局，需一致）的语义差异，当前代码混处理是外部优惠重复的根因。
+
+8. **FREE_MINUTES 规则无关性**：确认 FreeMinuteAllocator 不依赖计费规则算空隙，这是窗口截取减法能跨方案工作的技术基础。
+
+### 讨论中已废弃的方案
+
+- **优惠全局预分配（方向A）**：曾考虑在分段前全局分配优惠，再分段截取。废弃原因：FREE_MINUTES 的全局分配需算"可用空隙"，空隙依赖规则，而分段规则不同，无法用单一规则全局算。窗口截取的减法更优雅（每段用本段方案算全窗口，分配位置因起点相同而一致）。
+- **窗口截取周期封顶分段独立（出路C）**：曾考虑全窗口算优惠+时段封顶，截取后对分段独立算周期封顶。废弃原因：破坏窗口截取的全局基准自洽性，且周期封顶与优惠基准不一致。最终确认窗口截取下周期封顶也用全局基准。
