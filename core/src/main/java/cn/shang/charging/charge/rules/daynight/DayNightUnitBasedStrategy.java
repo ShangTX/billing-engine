@@ -1,62 +1,44 @@
 package cn.shang.charging.charge.rules.daynight;
 
-import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.value.UnitValueSpec;
-import cn.shang.charging.billing.value.FixedValueSpec;
-import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
-import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
- * 日夜分时段计费规则（UNIT_BASED 独立实现）。
+ * `dayNight` 规则在 UNIT_BASED 模式下的策略实现。
  * <p>
- * 与 {@link DayNightRule}（CONTINUOUS）并列的独立计费规则，承载 UNIT_BASED 语义：
+ * 承载 UNIT_BASED 语义：
  * <ul>
  *   <li>固定单元对齐：单元边界由计费起点 + unitMinutes 决定，不被免费时段打断</li>
  *   <li>完整覆盖才免费：免费时段必须完整覆盖一个单元才使其免费，部分覆盖不算</li>
  *   <li>支持每日封顶 maxChargeOneDay、CONTINUE 续算</li>
  *   <li>不使用边界驱动公共循环（UNIT_BASED 语义与边界驱动切断模型冲突）</li>
  * </ul>
- * 适用场景：免费时段部分覆盖单元时单元不切断、不足单元 FULL_CHARGE 收全额等 UNIT_BASED 语义。
- * 普通场景优先使用 {@link DayNightRule}（CONTINUOUS，边界驱动 + compact）。
+ * 由 {@link DayNightRule} 门面按 BillingMode=UNIT_BASED 分派调用，不独立注册。
+ * 从 {@code DayNightUnitBasedRule} 重构而来（TODO-20260702-002）。
  */
-public class DayNightUnitBasedRule implements BillingRule<DayNightConfig> {
+final class DayNightUnitBasedStrategy {
 
     private static final int MINUTES_PER_DAY = 1440;
 
     private final DayNightPriceResolver priceResolver = new DayNightPriceResolver();
     private final DayNightValueSpecFactory valueSpecFactory = new DayNightValueSpecFactory();
-    private final DayNightCycleStateManager cycleStateManager = new DayNightCycleStateManager();
 
-    @Override
-    public Class<DayNightConfig> configClass() {
-        return DayNightConfig.class;
-    }
-
-    @Override
-    public Set<BConstants.BillingMode> supportedModes() {
-        return EnumSet.of(BConstants.BillingMode.UNIT_BASED);
-    }
-
-    @Override
-    public BillingSegmentResult calculate(BillingContext context,
-                                          DayNightConfig config,
-                                          PromotionAggregate promotionAggregate) {
+    BillingSegmentResult calculate(BillingContext context,
+                                   DayNightConfig config,
+                                   PromotionAggregate promotionAggregate) {
         validateConfig(config);
 
         LocalDateTime calcBegin = context.getWindow().getCalculationBegin();

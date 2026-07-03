@@ -12,7 +12,7 @@ import cn.shang.charging.billing.pojo.PromotionRuleConfig;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
-import cn.shang.charging.charge.rules.daynight.DayNightUnitBasedRule;
+import cn.shang.charging.charge.rules.daynight.DayNightRule;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
@@ -31,7 +31,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * DayNightUnitBasedRule 冒烟测试：验证 UNIT_BASED 语义（固定边界 + 完全覆盖才免费）。
+ * DayNight UNIT_BASED 策略冒烟测试：验证 UNIT_BASED 语义（固定边界 + 完全覆盖才免费）。
+ * <p>
+ * UNIT_BASED 现为 DayNightRule 门面下策略（TODO-20260702-002），注册 DayNightRule 门面，
+ * 请求 BillingMode=UNIT_BASED，门面分派到 DayNightUnitBasedStrategy。
  */
 class DayNightUnitBasedRuleTest {
 
@@ -122,7 +125,7 @@ class DayNightUnitBasedRuleTest {
             }
         };
         BillingRuleRegistry rr = new BillingRuleRegistry();
-        rr.register(BConstants.ChargeRuleType.DAY_NIGHT, new DayNightUnitBasedRule());
+        rr.register(BConstants.ChargeRuleType.DAY_NIGHT, new DayNightRule());
         PromotionEngine pe = new PromotionEngine(resolver, new FreeTimeRangeMerger(), new FreeMinuteAllocator(), new PromotionRuleRegistry());
         BillingService svc = new BillingService(new SegmentBuilder(), resolver, pe, new BillingCalculator(rr), new ResultAssembler());
 

@@ -46,6 +46,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
     private final DayNightValueSpecFactory valueSpecFactory = new DayNightValueSpecFactory();
     private final DayNightCycleStateManager cycleStateManager = new DayNightCycleStateManager();
     private final DayNightDurationStrategy durationStrategy = new DayNightDurationStrategy();
+    private final DayNightUnitBasedStrategy unitBasedStrategy = new DayNightUnitBasedStrategy();
 
     @Override
     protected String getRuleType() {
@@ -76,7 +77,7 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
 
     @Override
     public Set<BConstants.BillingMode> supportedModes() {
-        return EnumSet.of(BConstants.BillingMode.CONTINUOUS);
+        return EnumSet.of(BConstants.BillingMode.CONTINUOUS, BConstants.BillingMode.UNIT_BASED);
     }
 
     @Override
@@ -128,6 +129,10 @@ public class DayNightRule extends AbstractTimeBasedRule<DayNightConfig> {
         BConstants.DurationMode durationMode = context.getDurationMode();
         if (durationMode != null && durationMode != BConstants.DurationMode.NONE) {
             return durationStrategy.calculate(context, config, promotionAggregate, durationMode);
+        }
+        // 单元计费类 UNIT_BASED：委托 UnitBasedStrategy
+        if (context.getBillingMode() == BConstants.BillingMode.UNIT_BASED) {
+            return unitBasedStrategy.calculate(context, config, promotionAggregate);
         }
         // 单元计费类 CONTINUOUS：委托 ContinuousCalculator
         return continuousCalculator.calculate(this, context, config, promotionAggregate);
