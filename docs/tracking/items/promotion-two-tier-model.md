@@ -4,11 +4,11 @@
 id: TODO-20260702-003
 type: feature
 priority: P1
-status: todo
+status: done
 source_git: 81ca938
 created_at: 2026-07-02
-completed_at:
-completed_git:
+completed_at: 2026-07-03
+completed_git: 1c032c5
 ---
 
 ## 背景
@@ -63,3 +63,11 @@ completed_git:
 - 与 TODO-20260701-001（FREE_RANGE PromotionUsage）关联：回写扣减依赖 PromotionUsage 的来源标识和实际使用量
 - 取代 `docs/designs/segment-promotion-consistency.md` 的减法方案
 - 优先级 P1：外部优惠重复是真实 bug
+
+## 验证
+
+```bash
+mvn -pl bill-test -am test
+# Tests run: 89, Failures: 0, Errors: 0, Skipped: 0
+# 含 ExternalPromotionPoolTest：FREE_MINUTES 跨段不重复 + FREE_RANGE 跨段边界分裂
+```
