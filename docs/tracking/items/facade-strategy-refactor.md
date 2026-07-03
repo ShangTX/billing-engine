@@ -4,11 +4,11 @@
 id: TODO-20260702-002
 type: refactor
 priority: P1
-status: todo
+status: done
 source_git: 81ca938
 created_at: 2026-07-02
-completed_at:
-completed_git:
+completed_at: 2026-07-03
+completed_git: f6ed969
 ---
 
 ## 背景
@@ -96,3 +96,18 @@ completed_git:
 - 是 TODO-20260702-003（优惠两级模型）和 TODO-20260702-004（时段化下放）的基础——策略结构先立，优惠处理才能落到策略侧
 - 优先级 P1：新设计实现的核心，其他演进依赖此结构
 - 循环原语工具形态（静态工具 vs 独立类注入）是实现细节，见 spec §5 开放问题
+
+## 验证
+
+```bash
+mvn -pl bill-test -am test
+# Tests run: 80, Failures: 0, Errors: 0, Skipped: 0
+```
+
+## 实施提交
+
+- 阶段1：04614cb — 提取边界驱动循环为独立工具 BoundaryDrivenLoop
+- 阶段2：38af00a — 时长基础设施移到 DayNightDurationStrategy
+- 阶段3：a6c79b4 — UnitBasedStrategy 回归门面
+- 阶段4：f6ed969 — CONTINUOUS 逻辑移到 ContinuousStrategy，DayNightRule 精简为门面
+- 阶段5：文档同步（能力文档 §4/§5/valueSpec 表 + 流程文档 §8 确认）+ TODO 迁移 DONE

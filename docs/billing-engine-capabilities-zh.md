@@ -68,16 +68,17 @@ BillingRequest
 | 模式 | 当前语义 |
 |------|----------|
 | `CONTINUOUS` | 边界驱动循环为唯一计算路径：找到最近边界（免费时段起止、时段结束、周期结束、单元对齐、calcEnd）跳过去，一次迭代产出一个同质段，compact 单元为自然产物 |
-| `UNIT_BASED` | 独立计费规则类型，固定单元对齐 + 完整覆盖才免费。不再作为普通规则内置模式 |
+| `UNIT_BASED` | 固定单元对齐 + 完整覆盖才免费，不走边界驱动公共循环 |
+| `PERIOD` | 周期内时长计费，周期封顶 + 时段封顶，产出 `DurationSegment` |
+| `GLOBAL` | 全局时长计费，封顶按周期数倍乘，产出 `DurationSegment` |
 
-计费规则必须通过 `BillingRule.supportedModes()` 声明自己支持的模式。
+计费规则通过 `BillingRule.supportedModes()` 声明支持的 `BillingMode`（CONTINUOUS/UNIT_BASED），通过 `supportedDurationModes()` 声明支持的 `DurationMode`（PERIOD/GLOBAL），两维度对称。DurationMode≠NONE 走时长策略，否则按 BillingMode 走单元策略，天然互斥。
 
-**UNIT_BASED 降级**（TODO-20260630-001 已完成）：
+**门面 + 策略结构**（TODO-20260702-002）：
 
-- 普通规则（`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`）只支持 `CONTINUOUS`，边界驱动为唯一计算路径
-- `UNIT_BASED` 语义由独立规则类承载，当前已实现 `DayNightUnitBasedRule`（日夜 UNIT_BASED），其余按需添加
-- `BillingMode.UNIT_BASED` 枚举值保留，供独立 UNIT_BASED 规则声明支持
-- 时长计费模式（按时长累加、免费时段扣除分钟）待引入，作为与单元计费并列的新模式
+- 每个规则族一个 `ChargeRuleType`、一个门面规则（如 `DayNightRule`）、一个共享 config，门面按模式分派到独立策略实现，自身只分派不扛逻辑
+- `dayNight` 门面声明 `supportedModes()={CONTINUOUS, UNIT_BASED}` + `supportedDurationModes()={PERIOD, GLOBAL}`，分派到 `ContinuousStrategy`/`DayNightUnitBasedStrategy`/`DayNightDurationStrategy`
+- 其他规则族（`relativeTime`/`naturalTime`/`compositeTime`）当前仍只支持 `CONTINUOUS`，按需门面化
 
 边界驱动框架关键抽象：
 
@@ -95,7 +96,7 @@ BillingRequest
 
 ### `dayNight`
 
-由 `DayNightRule` 实现。
+由 `DayNightRule` 门面实现，按模式分派到 `ContinuousStrategy`（CONTINUOUS）/`DayNightUnitBasedStrategy`（UNIT_BASED）/`DayNightDurationStrategy`（PERIOD/GLOBAL）。
 
 能力：
 
@@ -105,7 +106,7 @@ BillingRequest
 - `blockWeight` 决定跨日夜混合单元的最终价格。
 - `maxChargeOneDay` 支持每日封顶。
 - `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
-- UNIT_BASED 语义由独立规则 `DayNightUnitBasedRule` 承载（固定单元对齐 + 完整覆盖才免费）。
+- UNIT_BASED 语义由 `DayNightUnitBasedStrategy` 承载（门面下策略，固定单元对齐 + 完整覆盖才免费）。
 - 已为稳定单元、条件免费单元、跨日夜混合单元和封顶单元生成 `valueSpec`。
 
 查询行为：
@@ -251,8 +252,8 @@ compact 单元由边界驱动循环自然产出：连续 N 个相同单价、相
 | `FixedValueSpec` | 固定值单元 |
 | `StepValueSpec` | 阶跃值单元，用于条件起始免费 |
 | `PiecewiseTimeValueSpec` | 通用时间分段表达模型 |
-| `DayNightRule.MixedUnitValueSpec` | 日夜规则私有的混合单元投影 |
-| `DayNightRule.CappedValueSpec` | 日夜规则私有的封顶投影包装 |
+| `DayNightValueSpecFactory.MixedUnitValueSpec` | 日夜规则私有的混合单元投影 |
+| `DayNightValueSpecFactory.CappedValueSpec` | 日夜规则私有的封顶投影包装 |
 
 命中单元的查询金额公式：
 

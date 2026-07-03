@@ -69,10 +69,18 @@ Segment calculation modes:
 
 | Mode | Current meaning |
 |------|-----------------|
-| `UNIT_BASED` | Fixed unit length from the calculation origin. A free range must fully cover a unit to make it free. |
 | `CONTINUOUS` | The time axis can be split by free ranges and rule boundaries. Generated units may have variable lengths. |
+| `UNIT_BASED` | Fixed unit length from the calculation origin. A free range must fully cover a unit to make it free. Does not use the boundary-driven loop. |
+| `PERIOD` | Duration billing within a cycle, with cycle cap and period cap. Emits `DurationSegment`. |
+| `GLOBAL` | Global duration billing, caps multiplied by cycle count. Emits `DurationSegment`. |
 
-Rules must declare supported modes through `BillingRule.supportedModes()`.
+Rules declare supported `BillingMode` (CONTINUOUS/UNIT_BASED) via `BillingRule.supportedModes()` and supported `DurationMode` (PERIOD/GLOBAL) via `supportedDurationModes()`; the two dimensions are symmetric. DurationMode≠NONE routes to a duration strategy, otherwise the BillingMode routes to a unit strategy — naturally mutually exclusive.
+
+**Facade + strategy structure** (TODO-20260702-002):
+
+- Each rule family has one `ChargeRuleType`, one facade rule (e.g. `DayNightRule`), and one shared config. The facade dispatches to independent strategy implementations by mode and holds no billing logic itself.
+- The `dayNight` facade declares `supportedModes()={CONTINUOUS, UNIT_BASED}` + `supportedDurationModes()={PERIOD, GLOBAL}`, dispatching to `ContinuousStrategy`/`DayNightUnitBasedStrategy`/`DayNightDurationStrategy`.
+- Other rule families (`relativeTime`/`naturalTime`/`compositeTime`) currently support only `CONTINUOUS` and are facade-ized on demand.
 
 ---
 
@@ -80,7 +88,7 @@ Rules must declare supported modes through `BillingRule.supportedModes()`.
 
 ### `dayNight`
 
-Implemented by `DayNightRule`.
+Implemented by the `DayNightRule` facade, dispatching to `ContinuousStrategy` (CONTINUOUS) / `DayNightUnitBasedStrategy` (UNIT_BASED) / `DayNightDurationStrategy` (PERIOD/GLOBAL).
 
 Capabilities:
 
@@ -89,7 +97,7 @@ Capabilities:
 - `dayUnitPrice` and `nightUnitPrice` define the two prices.
 - `blockWeight` determines the final price of a mixed day/night unit.
 - `maxChargeOneDay` applies a daily cap.
-- Supports both `UNIT_BASED` and `CONTINUOUS`.
+- UNIT_BASED semantics are carried by `DayNightUnitBasedStrategy` (a strategy under the facade: fixed unit alignment + full-coverage-free).
 - Emits `valueSpec` for stable units, conditional free units, mixed day/night units, and capped units.
 
 Important query behavior:
@@ -213,8 +221,8 @@ The current core valuation protocol is:
 | `FixedValueSpec` | Stable unit value |
 | `StepValueSpec` | Step value, used by conditional start-free behavior |
 | `PiecewiseTimeValueSpec` | Generic time-segment expression model |
-| `DayNightRule.MixedUnitValueSpec` | Day/night rule-specific mixed unit projection |
-| `DayNightRule.CappedValueSpec` | Day/night rule-specific cap wrapper |
+| `DayNightValueSpecFactory.MixedUnitValueSpec` | Day/night rule-specific mixed unit projection |
+| `DayNightValueSpecFactory.CappedValueSpec` | Day/night rule-specific cap wrapper |
 
 Query amount formula for the hit unit:
 
