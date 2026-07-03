@@ -526,7 +526,7 @@ request.setSchemeChanges(changes);
 request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.GLOBAL_ORIGIN);
 ```
 
-`SEGMENT_LOCAL` 表示每段独立起算，`GLOBAL_ORIGIN` 表示所有分段共享全局起算点再裁剪。
+`SEGMENT_LOCAL` 表示每段独立起算，`GLOBAL_ORIGIN` 表示所有分段共享全局起算点再裁剪。**注意**：GLOBAL_ORIGIN 减法当前为半成品（TODO-20260702-001），多分段下会双重计费，已被守卫拦截抛异常；仅单分段可用（等价 SEGMENT_LOCAL），且 UNIT_BASED 与 GLOBAL_ORIGIN 不兼容。
 
 ---
 

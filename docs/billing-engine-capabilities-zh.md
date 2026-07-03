@@ -59,7 +59,7 @@ BillingRequest
 |------|------|
 | `SINGLE` | 整个请求只生成一个分段 |
 | `SEGMENT_LOCAL` | 每个分段以自身开始时间作为起算点 |
-| `GLOBAL_ORIGIN` | 所有分段共享全局时间轴，再裁剪到当前分段 |
+| `GLOBAL_ORIGIN` | 所有分段共享全局时间轴，再裁剪到当前分段。**半成品**：减法未实现，多分段双重计费，当前仅单分段可用（等价 SEGMENT_LOCAL）；UNIT_BASED 不兼容（TODO-20260702-001） |
 
 ---
 

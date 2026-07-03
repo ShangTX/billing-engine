@@ -61,7 +61,7 @@ Segment calculation modes:
 |------|----------|
 | `SINGLE` | One segment for the whole request |
 | `SEGMENT_LOCAL` | Each segment uses its own begin time as the calculation origin |
-| `GLOBAL_ORIGIN` | Segments are clipped from a shared global time axis |
+| `GLOBAL_ORIGIN` | Segments are clipped from a shared global time axis. **Half-finished**: subtraction unimplemented, multi-segment double-counts; only single-segment allowed (equivalent to SEGMENT_LOCAL); UNIT_BASED incompatible (TODO-20260702-001) |
 
 ---
 

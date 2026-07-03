@@ -179,15 +179,17 @@ schemeChanges -> multiple BillingSegment
 |------|------|
 | `SINGLE` | 单段计算 |
 | `SEGMENT_LOCAL` | 每个分段从自身开始时间起算 |
-| `GLOBAL_ORIGIN` | 所有分段共享请求开始时间作为全局原点，按减法实现截取 |
+| `GLOBAL_ORIGIN` | 所有分段共享请求开始时间作为全局原点，按减法实现截取（减法未实现，当前止血，见下） |
 
 在 CONTINUE 模式下，窗口起点不能早于恢复后的实际起点。
 
-**期望语义**：
+**期望语义**（减法未实现，当前为半成品）：
 
 - `SEGMENT_LOCAL`：每段独立起算，`clipBegin/clipEnd` 不参与。
-- `GLOBAL_ORIGIN`：通过减法实现，`分段i = calc(全局起点→段末) − calc(全局起点→段首)`。`clipBegin/clipEnd` 接线为截取边界，两次计算共享同一全局起点。
-- `UNIT_BASED` 与 `GLOBAL_ORIGIN` 结构性不兼容（单元对齐语义与全局截取冲突），期望在 `BillingCalculator` 显式校验抛异常，UNIT_BASED 仅支持 `SEGMENT_LOCAL`。
+- `GLOBAL_ORIGIN`：期望通过减法实现，`分段i = calc(全局起点→段末) − calc(全局起点→段首)`，`clipBegin/clipEnd` 接线为截取边界，两次计算共享同一全局起点。**减法未实现**（`clipBegin/clipEnd` 从未被读取），多分段下会双重计费。
+- `UNIT_BASED` 与 `GLOBAL_ORIGIN` 结构性不兼容（单元对齐语义与全局截取冲突），UNIT_BASED 仅支持 `SEGMENT_LOCAL`。
+
+**当前止血**（TODO-20260702-001）：GLOBAL_ORIGIN 减法未实现，`BillingService` 加守卫——GLOBAL_ORIGIN + 多分段抛异常（仅单分段可用，等价 SEGMENT_LOCAL）；UNIT_BASED + GLOBAL_ORIGIN 抛异常。减法完整实现待后续 TODO。
 
 ---
 

@@ -77,6 +77,9 @@ public class BillingService {
         // 1. 构建方案分段（只负责方案切换）
         List<BillingSegment> segments = segmentBuilder.buildSegments(request);
 
+        // GLOBAL_ORIGIN 半成品守卫（TODO-20260702-001）
+        validateGlobalOrigin(request, segments);
+
         // 各分段计费结果
         List<BillingSegmentResult> segmentResults = new ArrayList<>();
 
@@ -173,6 +176,34 @@ public class BillingService {
     }
 
     /**
+     * GLOBAL_ORIGIN 半成品守卫（TODO-20260702-001）。
+     * <p>
+     * GLOBAL_ORIGIN 窗口截取的减法语义未实现（clipBegin/clipEnd 从未被读取），
+     * 多分段下会双重计费。当前仅支持单分段（等价 SEGMENT_LOCAL）；
+     * UNIT_BASED 与 GLOBAL_ORIGIN 结构性不兼容（单元对齐 vs 全局起点截取）。
+     */
+    private void validateGlobalOrigin(BillingRequest request, List<BillingSegment> segments) {
+        if (request.getSegmentCalculationMode() != BConstants.SegmentCalculationMode.GLOBAL_ORIGIN) {
+            return;
+        }
+        if (segments.size() > 1) {
+            throw new IllegalStateException(
+                    "GLOBAL_ORIGIN 窗口截取模式当前为半成品（减法未实现），多分段（当前 "
+                            + segments.size() + " 段）下会双重计费；仅支持单分段（等价 SEGMENT_LOCAL）。"
+                            + "详见 TODO-20260702-001。");
+        }
+        Map<String, Object> contextParam = request.getContext();
+        for (BillingSegment segment : segments) {
+            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(segment.getSchemeId(), contextParam);
+            if (billingMode == BConstants.BillingMode.UNIT_BASED) {
+                throw new IllegalStateException(
+                        "UNIT_BASED 与 GLOBAL_ORIGIN 结构性不兼容：单元对齐语义与全局起点截取冲突；"
+                                + "UNIT_BASED 仅支持 SEGMENT_LOCAL。详见 TODO-20260702-001。");
+            }
+        }
+    }
+
+    /**
      * 计算分段的累计金额
      */
     private java.math.BigDecimal calculateSegmentAccumulatedAmount(
@@ -201,6 +232,10 @@ public class BillingService {
         List<SegmentContext> contexts = new ArrayList<>();
 
         List<BillingSegment> segments = segmentBuilder.buildSegments(request);
+
+        // GLOBAL_ORIGIN 半成品守卫（TODO-20260702-001）
+        validateGlobalOrigin(request, segments);
+
         Map<String, Object> contextParam = request.getContext();
 
         for (BillingSegment segment : segments) {

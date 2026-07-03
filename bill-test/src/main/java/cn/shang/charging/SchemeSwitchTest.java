@@ -153,27 +153,21 @@ public class SchemeSwitchTest {
                 createSchemeChange(OFF_PEAK_SCHEME, PEAK_SCHEME, switchTime)
         ));
 
-        var result = billingService.calculate(request);
-
         System.out.println("输入参数:");
         System.out.println("  计费时间: 04月15日 08:00 - 04月25日 08:00");
         System.out.println("  切换点: 04月20日 00:00 (淡季→旺季)");
         System.out.println("  计算模式: GLOBAL_ORIGIN (全局起算截取)");
         System.out.println();
 
-        System.out.println("分段信息:");
-        printSegments(result);
-
-        System.out.println("\n计费单元统计:");
-        printUnitStats(result);
-
-        System.out.println("\n验证结果:");
-        System.out.println("  总金额: " + result.getFinalAmount() + "元");
-
-        // 验证 GLOBAL_ORIGIN 模式：周期边界从全局起点计算
-        System.out.println("  关键验证: GLOBAL_ORIGIN 模式周期边界从全局起点计算");
-        System.out.println("  全局起点: 04月15日 08:00");
-
+        // GLOBAL_ORIGIN 多分段守卫（TODO-20260702-001）：
+        // 减法未实现，多分段下双重计费，守卫抛异常。单分段等价 SEGMENT_LOCAL。
+        try {
+            billingService.calculate(request);
+            System.out.println("  ⚠ 未抛异常——守卫失效");
+        } catch (IllegalStateException ex) {
+            System.out.println("  守卫生效（预期）: " + ex.getMessage());
+        }
+        System.out.println("  说明: GLOBAL_ORIGIN 减法未实现，多分段已禁用；单分段等价 SEGMENT_LOCAL。");
         System.out.println();
     }
 
