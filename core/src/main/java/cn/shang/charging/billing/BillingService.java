@@ -1,6 +1,7 @@
 package cn.shang.charging.billing;
 
 import cn.shang.charging.billing.pojo.*;
+import cn.shang.charging.promotion.ExternalPromotionPool;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.settlement.ResultAssembler;
@@ -80,6 +81,10 @@ public class BillingService {
         // GLOBAL_ORIGIN 半成品守卫（TODO-20260702-001）
         validateGlobalOrigin(request, segments);
 
+        // 外部优惠跨段共享可用量池（TODO-20260702-003）：整笔停车享一次，多分段不重复
+        ExternalPromotionPool externalPool = new ExternalPromotionPool();
+        externalPool.init(request.getExternalPromotions());
+
         // 各分段计费结果
         List<BillingSegmentResult> segmentResults = new ArrayList<>();
 
@@ -145,7 +150,7 @@ public class BillingService {
                     .window(window)
                     .chargingRule(chargingRule)
                     .promotionRules(promotionRules)
-                    .externalPromotions(request.getExternalPromotions())
+                    .externalPromotions(externalPool.remaining())
                     .billingMode(billingMode)
                     .durationMode(durationMode)
                     .continueMode(isContinueMode ? BConstants.ContinueMode.CONTINUE : BConstants.ContinueMode.FROM_SCRATCH)
@@ -164,6 +169,9 @@ public class BillingService {
             BillingSegmentResult segmentResult = billingCalculator.calculate(context, promotionAggregate);
 
             segmentResults.add(segmentResult);
+
+            // 回写扣减外部优惠剩余量（FREE_MINUTES/FREE_RANGE 跨段共享，TODO-20260702-003）
+            externalPool.writeBack(segmentResult.getPromotionUsages());
 
             // 更新累计金额，仅 CONTINUE 模式跨段传递（纯分段每段独立，不传 previousAccumulatedAmount）
             if (isContinueMode) {

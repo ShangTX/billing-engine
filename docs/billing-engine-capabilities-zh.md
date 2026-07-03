@@ -46,7 +46,7 @@ BillingRequest
 
 - 通过 `schemeId` 进行单方案计费。
 - 通过 `schemeChanges` 进行多方案切换计费。
-- 通过 `externalPromotions` 传入外部优惠。
+- 通过 `externalPromotions` 传入外部优惠（跨段共享可用量池，整笔停车享一次，多分段不重复）。
 - 通过 `previousCarryOver` 继续上次计算。
 - 通过 `calcEndTime` 控制局部计算终点。
 - 通过 `timeRoundingMode` 控制时间取整。
@@ -209,7 +209,7 @@ BillingRequest
 
 ## 7. 优惠聚合
 
-`PromotionEngine` 收集规则优惠和外部优惠，并输出 `PromotionAggregate`。
+`PromotionEngine` 收集规则优惠和外部优惠，并输出 `PromotionAggregate`。外部优惠（`externalPromotions`）跨段共享可用量池（`ExternalPromotionPool`），整笔停车享一次：每段从池取剩余量，段后从 `PromotionUsage` 回写扣减，多分段不重复。方案内优惠每段独立。AMOUNT/DISCOUNT 整笔一次性，不参与免费段切分，由 `AmountDiscountApplier` 事后结算。
 
 当前流程：
 

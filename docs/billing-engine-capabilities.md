@@ -48,7 +48,7 @@ The `core` module performs pure calculation. The `billing-api` module adds conve
 
 - Single-scheme calculation through `schemeId`.
 - Multi-scheme calculation through `schemeChanges`.
-- External promotions through `externalPromotions`.
+- External promotions through `externalPromotions` (cross-segment shared pool, used once per parking, not duplicated across segments).
 - Continuation through `previousCarryOver`.
 - Partial calculation through `calcEndTime`.
 - Time rounding through `timeRoundingMode`.
@@ -182,7 +182,7 @@ Free range type:
 
 ## 7. Promotion Aggregation
 
-`PromotionEngine` collects rule-based and external grants, then produces a `PromotionAggregate`.
+`PromotionEngine` collects rule-based and external grants, then produces a `PromotionAggregate`. External promotions (`externalPromotions`) share a cross-segment pool (`ExternalPromotionPool`), used once per parking: each segment takes the remaining amount from the pool, and writes back deductions from `PromotionUsage` after the segment, not duplicated across segments. In-scheme promotions are segment-local. AMOUNT/DISCOUNT are one-shot per parking, do not participate in free-range splitting, and are settled by `AmountDiscountApplier` afterwards.
 
 Current aggregation stages:
 

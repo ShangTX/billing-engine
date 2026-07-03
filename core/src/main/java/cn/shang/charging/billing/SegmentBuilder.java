@@ -51,7 +51,7 @@ public class SegmentBuilder {
             } else {
                 segmentBegin = schemeChange.getChangeTime();
             }
-            currentBegin = segmentBegin;
+            currentBegin = schemeChange.getChangeTime();
 
             var segment = BillingSegment.builder()
                     .id(generateSegmentId(schemeChange.getLastSchemeId()))
