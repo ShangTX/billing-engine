@@ -13,7 +13,9 @@ completed_git:
 
 ## 背景
 
-讨论时长模式分段计费时，重新审视了现有单元模式（CONTINUOUS/UNIT_BASED）的 schemeChanges 分段状态传递，发现 `previousAccumulatedAmount` 的跨段传递是历史耦合，非计费正确性需求。
+讨论时长模式分段计费时，重新审视了现有单元计费类（CONTINUOUS/UNIT_BASED）的 schemeChanges 分段状态传递，发现 `previousAccumulatedAmount` 的跨段传递是历史耦合，非计费正确性需求。
+
+按新设计（`docs/superpowers/specs/2026-07-02-duration-rule-and-promotion-two-tier-design.md` 3.1/3.4），`previousAccumulatedAmount` 是单元计费类策略的展示字段，时长计费类（PERIOD/GLOBAL）无此字段。
 
 ## 问题分析
 
@@ -31,7 +33,7 @@ completed_git:
 
 1. **周期封顶跨段无意义**：跨段规则类型/方案配置很可能不同（如第1段 DayNight、第2段 RelativeTime），周期、时段、封顶额都不一样。第1段的 cycleAccumulated 对第2段（不同规则/方案）毫无意义。即使同规则，单价/封顶额变化也让累计数字对不上。
 2. **优惠跨段无意义**：当前代码也不传，每段独立优惠。外部优惠统计不应依赖分段状态传递（那是续算 carryOver 的职责）。
-3. **previousAccumulatedAmount 只为展示**：让第2段 BillingUnit.accumulatedAmount 接着第1段，是展示层便利，非计费正确性。时长模式无此字段，更不需要。
+3. **previousAccumulatedAmount 只为展示**：让第2段 BillingUnit.accumulatedAmount 接着第1段，是展示层便利，非计费正确性。时长计费类（PERIOD/GLOBAL）无此字段，更不需要。
 
 ### 当前潜在问题
 
@@ -54,7 +56,7 @@ completed_git:
 - 文档：明确分段与续算的边界
 
 不包含：
-- 时长模式分段（已确认每段独立，无需状态传递，另见 TODO-20260630-003）
+- 时长计费类分段（PERIOD/GLOBAL 无 previousAccumulatedAmount 字段，天然每段独立，见 spec 3.4 模式特性矩阵）
 - 周期封顶跨段共享（已确认无意义，不做）
 
 ## 验收标准
@@ -70,5 +72,5 @@ completed_git:
 
 ## 备注
 
-- 与时长模式分段讨论（TODO-20260630-003）关联：时长模式确认每段独立，无需状态传递，本 TODO 将单元模式对齐到同样语义
+- 与门面策略结构重构（TODO-20260702-002）关联：重构后 previousAccumulatedAmount 归属单元计费类策略（CONTINUOUS/UNIT_BASED），本 TODO 的清理在策略结构落地后执行更自然
 - 优先级 P2：不影响计费正确性（切换点对齐周期边界时行为不变），仅清理耦合
