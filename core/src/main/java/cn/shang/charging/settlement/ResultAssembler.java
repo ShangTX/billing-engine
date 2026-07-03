@@ -61,13 +61,15 @@ public class ResultAssembler {
                         && s.getDurationMode() != BConstants.DurationMode.NONE);
 
         // 时长模式：finalAmount = 各分段 chargedAmount 之和（已应用周期封顶）
-        // 单元模式：finalAmount = accumulatedAmount（从 BillingUnit 取，CONTINUE 累计）
+        // 单元模式 CONTINUE：finalAmount = accumulatedAmount（含 carryOver 累计，跨段传递）
+        // 单元模式纯分段：finalAmount = totalAmount（每段独立，accumulatedAmount 仅段内累计，不跨段）
         BigDecimal finalAmount;
         if (isDurationMode) {
             finalAmount = totalAmount;
         } else {
+            boolean isContinueMode = request.getPreviousCarryOver() != null;
             BigDecimal accumulatedAmount = extractAccumulatedAmountFromUnits(allUnits);
-            finalAmount = accumulatedAmount != null ? accumulatedAmount : totalAmount;
+            finalAmount = (isContinueMode && accumulatedAmount != null) ? accumulatedAmount : totalAmount;
         }
 
         // 汇总费用稳定时间窗口

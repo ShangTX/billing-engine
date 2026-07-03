@@ -151,7 +151,7 @@ public class BillingService {
                     .continueMode(isContinueMode ? BConstants.ContinueMode.CONTINUE : BConstants.ContinueMode.FROM_SCRATCH)
                     .ruleState(ruleState)
                     .promotionCarryOver(promotionCarryOver)
-                    .previousAccumulatedAmount(previousAccumulatedAmount)
+                    .previousAccumulatedAmount(isContinueMode ? previousAccumulatedAmount : java.math.BigDecimal.ZERO)
                     .truncatedUnitChargedAmount(truncatedUnitChargedAmount)
                     .disableSimplification(request.getDisableSimplification())
                     .billingConfigResolver(billingConfigResolver)
@@ -165,8 +165,10 @@ public class BillingService {
 
             segmentResults.add(segmentResult);
 
-            // 更新累计金额，传递给下一个分段
-            previousAccumulatedAmount = calculateSegmentAccumulatedAmount(segmentResult, previousAccumulatedAmount);
+            // 更新累计金额，仅 CONTINUE 模式跨段传递（纯分段每段独立，不传 previousAccumulatedAmount）
+            if (isContinueMode) {
+                previousAccumulatedAmount = calculateSegmentAccumulatedAmount(segmentResult, previousAccumulatedAmount);
+            }
         }
         // 3. 汇总结果（金额、满减、封顶等）
         return resultAssembler.assemble(

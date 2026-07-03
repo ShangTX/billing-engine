@@ -389,7 +389,7 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 - 通过 `CompactMerger.merge` 合并 `BillingUnit`，跨分段的连续相同单元合并为 compact 单元（跨分段边界不合并）。
 - 合并 `DurationSegment`（时长模式）。
 - 合并 `PromotionUsage`。
-- 计算最终金额：时长模式（任一分段 `durationMode != NONE`）= 各分段 `chargedAmount` 之和；单元模式 = 最后一个 `BillingUnit.accumulatedAmount`。
+- 计算最终金额：时长模式（任一分段 `durationMode != NONE`）= 各分段 `chargedAmount` 之和；单元模式 CONTINUE = 最后一个 `BillingUnit.accumulatedAmount`（含 carryOver 累计），单元模式纯分段 = 各分段 `chargedAmount` 之和（`accumulatedAmount` 仅段内累计，不跨段）。
 - 计算 `effectiveFrom`、`effectiveTo` 和 `calculationEndTime`。
 - 生成新的 `BillingCarryOver`（CONTINUE 用，分段不依赖）。
 
