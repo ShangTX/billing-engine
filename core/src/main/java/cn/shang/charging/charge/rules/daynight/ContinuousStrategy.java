@@ -12,6 +12,7 @@ import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
+import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
@@ -106,11 +107,10 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
             }
         }
 
-        List<FreeTimeRange> rawFreeRanges = promotionAggregate.getFreeTimeRanges();
-        if (rawFreeRanges == null) {
-            rawFreeRanges = List.of();
-        }
-        final List<FreeTimeRange> freeTimeRanges = rawFreeRanges;
+        // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
+        FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, context.getWindow());
+        final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
+                ? materialized.getFinalFreeRanges() : List.of();
         BigDecimal maxCharge = config.getMaxChargeOneDay();
 
         // 简化计算检查：周期数超过阈值且存在无优惠周期时，走简化路径
@@ -295,9 +295,12 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
                                 .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP))
                         .reduce(BigDecimal.ZERO, BigDecimal::add));
         List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
-        if (promotionAggregate.getUsages() != null) {
-            allUsages.addAll(promotionAggregate.getUsages());
+        if (materialized.getPromotionUsages() != null) {
+            allUsages.addAll(materialized.getPromotionUsages());
         }
+        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
+        promotionAggregate.setPromotionCarryOver(
+                PromotionAggregateUtil.buildCarryOver(materialized.getPromotionUsages(), freeTimeRanges, calcEnd));
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())

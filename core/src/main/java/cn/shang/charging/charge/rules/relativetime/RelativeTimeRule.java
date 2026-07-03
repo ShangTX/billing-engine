@@ -11,6 +11,8 @@ import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.HomogeneousSegmentCalculator;
+import cn.shang.charging.promotion.PromotionAggregateUtil;
+import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.billing.value.FixedValueSpec;
 import cn.shang.charging.billing.value.UnitValueSpec;
@@ -228,9 +230,10 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             }
         }
 
-        List<FreeTimeRange> freeTimeRanges = promotionAggregate != null && promotionAggregate.getFreeTimeRanges() != null
-                ? promotionAggregate.getFreeTimeRanges()
-                : List.of();
+        // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
+        FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, window);
+        final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
+                ? materialized.getFinalFreeRanges() : List.of();
         BigDecimal maxCharge = config.getMaxChargeOneCycle();
         List<RelativeTimePeriod> periods = config.getPeriods();
 
@@ -365,6 +368,14 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         }
 
         Map<String, Object> ruleOutputState = buildRuleOutputState(state);
+
+        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
+        // RelativeTime 沿用既有行为：result.promotionUsages 为空（FREE_MINUTES usage 不并入结果），
+        // 但 carryOver 须从时段化 usage 构建，否则 CONTINUE + FREE_MINUTES 续算 break。
+        if (promotionAggregate != null) {
+            promotionAggregate.setPromotionCarryOver(
+                    PromotionAggregateUtil.buildCarryOver(materialized.getPromotionUsages(), freeTimeRanges, calcEnd));
+        }
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())

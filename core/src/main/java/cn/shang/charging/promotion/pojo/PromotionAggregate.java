@@ -24,10 +24,12 @@ import java.util.Set;
 public class PromotionAggregate {
 
     // 最终唯一生效的优惠表达
-    List<FreeTimeRange> freeTimeRanges;
-    long freeMinutes;                     // 同化后的总免费分钟
+    List<FreeTimeRange> freeTimeRanges;     // 仅 FREE_RANGE（已合并）；FREE_MINUTES 不在此处时段化
+    long freeMinutes;                       // 同化后的总免费分钟（= freeMinutesList 求和，简化计算判定用）
+    List<FreeMinutes> freeMinutesList;      // 未时段化的 FREE_MINUTES 列表（TODO-20260702-004：时段化下放到策略侧）
 
     // 使用统计（来自规则 & 外部）
+    // 注：FREE_MINUTES 的 usage 由策略侧时段化/扣减时产出，不再由 PromotionEngine 填充
     List<PromotionUsage> usages;
 
     // —— 可选：等效金额（仅统计，不参与计费） ——
@@ -63,7 +65,9 @@ public class PromotionAggregate {
      * 是否为空（无优惠）
      */
     public boolean isEmpty() {
-        return (freeTimeRanges == null || freeTimeRanges.isEmpty()) && freeMinutes <= 0
+        return (freeTimeRanges == null || freeTimeRanges.isEmpty())
+                && freeMinutes <= 0
+                && (freeMinutesList == null || freeMinutesList.isEmpty())
                 && (amountDiscounts == null || amountDiscounts.isEmpty());
     }
 

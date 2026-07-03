@@ -8,7 +8,6 @@ import cn.shang.charging.billing.pojo.*;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
 import cn.shang.charging.charge.rules.daynight.DayNightRule;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
@@ -417,7 +416,6 @@ public class SimplifiedCalculationTest {
         var promotionEngine = new PromotionEngine(
                 billingConfigResolver,
                 new FreeTimeRangeMerger(),
-                new FreeMinuteAllocator(),
                 promotionRegistry
         );
 
@@ -475,7 +473,6 @@ public class SimplifiedCalculationTest {
         var promotionEngine = new PromotionEngine(
                 billingConfigResolver,
                 new FreeTimeRangeMerger(),
-                new FreeMinuteAllocator(),
                 promotionRegistry
         );
 

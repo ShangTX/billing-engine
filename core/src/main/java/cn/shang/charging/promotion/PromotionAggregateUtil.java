@@ -2,6 +2,7 @@ package cn.shang.charging.promotion;
 
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.PromotionCarryOver;
+import cn.shang.charging.promotion.pojo.FreeMinutes;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
@@ -91,36 +92,96 @@ public class PromotionAggregateUtil {
             return original;
         }
 
-        // 1. 过滤免费时间段
+        // 1. 过滤免费时间段（FREE_RANGE）
         List<FreeTimeRange> filteredRanges = original.getFreeTimeRanges() == null
             ? List.of()
             : original.getFreeTimeRanges().stream()
                 .filter(r -> r.getId() != null && !excludedIds.contains(r.getId()))
                 .toList();
 
-        // 2. 过滤使用记录
+        // 2. 过滤未时段化的 FREE_MINUTES 列表（TODO-20260702-004）
+        List<FreeMinutes> filteredFreeMinutesList = original.getFreeMinutesList() == null
+            ? List.of()
+            : original.getFreeMinutesList().stream()
+                .filter(fm -> fm.getId() != null && !excludedIds.contains(fm.getId()))
+                .toList();
+
+        // 3. 过滤使用记录
         List<PromotionUsage> filteredUsages = original.getUsages() == null
             ? List.of()
             : original.getUsages().stream()
                 .filter(u -> u.getPromotionId() != null && !excludedIds.contains(u.getPromotionId()))
                 .toList();
 
-        // 3. 重算总免费分钟数
-        // 从过滤后的 usages 中累加 grantedMinutes
-        // 注意：等效金额计算在完整计费后进行，此时 usages 已生成
-        long filteredFreeMinutes = filteredUsages.stream()
-            .mapToLong(PromotionUsage::getGrantedMinutes)
+        // 4. 重算总免费分钟数（以 freeMinutesList 为准）
+        long filteredFreeMinutes = filteredFreeMinutesList.stream()
+            .filter(fm -> fm.getMinutes() != null)
+            .mapToLong(FreeMinutes::getMinutes)
             .sum();
 
-        // 4. 处理 promotionCarryOver（排除已排除优惠的结转状态）
+        // 5. 处理 promotionCarryOver（排除已排除优惠的结转状态）
         PromotionCarryOver filteredCarryOver = filterCarryOver(original.getPromotionCarryOver(), excludedIds);
 
         return PromotionAggregate.builder()
             .freeTimeRanges(filteredRanges)
             .freeMinutes(filteredFreeMinutes)
+            .freeMinutesList(filteredFreeMinutesList)
             .usages(filteredUsages)
             .promotionCarryOver(filteredCarryOver)
             .build();
+    }
+
+    /**
+     * 构建优惠结转输出状态（TODO-20260702-004：从 PromotionEngine 迁移到策略侧统一调用）。
+     * <p>
+     * remainingMinutes 来自 FREE_MINUTES usages（granted - used）；
+     * usedFreeRanges 来自 finalFreeRanges 中 promotionType=FREE_RANGE 且在窗口内的时段。
+     *
+     * @param freeMinutesUsages  策略侧产出的 FREE_MINUTES usage（含 granted/used minutes）
+     * @param finalFreeRanges    最终免费段（FREE_RANGE + 时段化 FREE_MINUTES）
+     * @param calculationEndTime 本段计算终点
+     */
+    public static PromotionCarryOver buildCarryOver(List<PromotionUsage> freeMinutesUsages,
+                                                     List<FreeTimeRange> finalFreeRanges,
+                                                     LocalDateTime calculationEndTime) {
+        // 剩余免费分钟数（FREE_MINUTES）
+        Map<String, Object> remainingMinutes = new HashMap<>();
+        if (freeMinutesUsages != null) {
+            for (PromotionUsage usage : freeMinutesUsages) {
+                int remaining = (int) (usage.getGrantedMinutes() - usage.getUsedMinutes());
+                // 记录所有使用过的优惠，包括已用完的（remaining=0）
+                // 这样在 CONTINUE 模式下可以正确识别哪些优惠已经用完
+                // 跳过 promotionId 为 null 的情况，避免 Map 出现 null key 导致序列化失败
+                if (remaining >= 0 && usage.getPromotionId() != null) {
+                    remainingMinutes.put(usage.getPromotionId(), remaining);
+                }
+            }
+        }
+
+        // 已使用的 FREE_RANGE 时段（在当前窗口内实际生效的部分）
+        List<FreeTimeRange> usedFreeRanges = new ArrayList<>();
+        if (finalFreeRanges != null) {
+            for (FreeTimeRange range : finalFreeRanges) {
+                if (range.getPromotionType() == BConstants.PromotionType.FREE_RANGE) {
+                    // 只要免费时段在计算窗口内（endTime <= calculationEndTime），就记录
+                    if (!range.getEndTime().isAfter(calculationEndTime)) {
+                        usedFreeRanges.add(FreeTimeRange.builder()
+                                .id(range.getId())
+                                .beginTime(range.getBeginTime())
+                                .endTime(range.getEndTime())
+                                .promotionType(range.getPromotionType())
+                                .rangeType(range.getRangeType())
+                                .source(range.getSource())
+                                .build());
+                    }
+                }
+            }
+        }
+
+        return PromotionCarryOver.builder()
+                .remainingMinutes(remainingMinutes.isEmpty() ? null : remainingMinutes)
+                .usedFreeRanges(usedFreeRanges.isEmpty() ? null : usedFreeRanges)
+                .build();
     }
 
     /**

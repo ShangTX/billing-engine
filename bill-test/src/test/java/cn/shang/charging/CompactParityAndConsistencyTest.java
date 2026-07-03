@@ -23,7 +23,6 @@ import cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
@@ -215,7 +214,7 @@ class CompactParityAndConsistencyTest {
         BillingRuleRegistry rr = new BillingRuleRegistry();
         rr.register(ruleType, rule);
         return new BillingService(new SegmentBuilder(), resolver,
-                new PromotionEngine(resolver, new FreeTimeRangeMerger(), new FreeMinuteAllocator(), new PromotionRuleRegistry()),
+                new PromotionEngine(resolver, new FreeTimeRangeMerger(), new PromotionRuleRegistry()),
                 new BillingCalculator(rr), new ResultAssembler());
     }
 }

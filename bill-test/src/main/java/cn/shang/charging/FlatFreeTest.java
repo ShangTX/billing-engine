@@ -9,7 +9,6 @@ import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.flatfree.FlatFreeConfig;
 import cn.shang.charging.charge.rules.flatfree.FlatFreeRule;
 import cn.shang.charging.util.JacksonUtils;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
@@ -238,7 +237,6 @@ public class FlatFreeTest {
         var promotionEngine = new PromotionEngine(
                 billingConfigResolver,
                 new FreeTimeRangeMerger(),
-                new FreeMinuteAllocator(),
                 promotionRegistry
         );
 

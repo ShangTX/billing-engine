@@ -10,6 +10,8 @@ import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
+import cn.shang.charging.promotion.PromotionAggregateUtil;
+import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.billing.value.FixedValueSpec;
 import cn.shang.charging.billing.value.UnitValueSpec;
@@ -196,10 +198,10 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             }
         }
 
-        // 获取免费时段
-        List<FreeTimeRange> freeTimeRanges = promotionAggregate != null && promotionAggregate.getFreeTimeRanges() != null
-                ? promotionAggregate.getFreeTimeRanges()
-                : List.of();
+        // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
+        FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, window);
+        List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
+                ? materialized.getFinalFreeRanges() : List.of();
 
         // 按免费时段边界切分时间轴
         List<TimeFragment> fragments = splitTimeAxis(calcBegin, calcEnd, freeTimeRanges);
@@ -338,6 +340,13 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
 
         // 构建输出状态
         Map<String, Object> ruleOutputState = buildRuleOutputState(state);
+
+        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
+        // CompositeTime 沿用既有行为：result.promotionUsages 为空，但 carryOver 须构建。
+        if (promotionAggregate != null) {
+            promotionAggregate.setPromotionCarryOver(
+                    PromotionAggregateUtil.buildCarryOver(materialized.getPromotionUsages(), freeTimeRanges, calcEnd));
+        }
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())

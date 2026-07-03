@@ -13,7 +13,6 @@ import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
@@ -89,7 +88,6 @@ class RelativeTimeParkingParityTest {
         PromotionEngine promotionEngine = new PromotionEngine(
                 resolver,
                 new FreeTimeRangeMerger(),
-                new FreeMinuteAllocator(),
                 new PromotionRuleRegistry()
         );
 

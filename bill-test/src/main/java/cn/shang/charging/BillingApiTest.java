@@ -4,7 +4,6 @@ import cn.shang.charging.billing.*;
 import cn.shang.charging.billing.pojo.*;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.compositetime.*;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
@@ -289,7 +288,6 @@ public class BillingApiTest {
         var promotionEngine = new PromotionEngine(
                 resolver,
                 new FreeTimeRangeMerger(),
-                new FreeMinuteAllocator(),
                 promotionRegistry
         );
 
@@ -333,7 +331,6 @@ public class BillingApiTest {
         var promotionEngine = new PromotionEngine(
                 resolver,
                 new FreeTimeRangeMerger(),
-                new FreeMinuteAllocator(),
                 promotionRegistry
         );
 

@@ -217,9 +217,9 @@ BillingRequest
 2. 加入请求中的外部 `PromotionGrant`。
 3. 在 `CONTINUE` 模式下恢复优惠结转。
 4. 通过 `FreeTimeRangeMerger` 合并显式 `FREE_RANGE`。
-5. 通过 `FreeMinuteAllocator` 分配 `FREE_MINUTES`。
-6. 合并显式免费时段和生成的免费时段。
-7. 生成新的优惠结转状态。
+5. 产出规范中间形式：合并后的 `FREE_RANGE` 时段 + 未时段化的 `FREE_MINUTES` 列表（`freeMinutesList`）+ `AMOUNT`/`DISCOUNT` 标量。
+
+`FREE_MINUTES` 时段化下放到策略侧（TODO-20260702-004）：`PromotionEngine` 不再集中时段化，避免聚合层按"规则+模式"决定产出形式。CONTINUOUS/UNIT_BASED/PERIOD 策略经 `FreeMinuteAllocator.allocateAndMerge` 自行时段化（与 `FREE_RANGE` 合并）；GLOBAL 策略不时段化，按分钟扣减 `chargedMinutes`，与时段化路径最终金额等价。`PromotionUsage`（FREE_MINUTES/FREE_RANGE）与 `PromotionCarryOver` 由策略侧产出，`PromotionCarryOver` 经 `PromotionAggregateUtil.buildCarryOver` 构建后写回 aggregate。
 
 `FreeTimeRangeMerger` 会保留优先级、来源、range type 和 conditional 元数据。查询时点的条件行为由规则生成的 `valueSpec` 解释，不再由查询层直接修改字段。
 

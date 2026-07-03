@@ -5,12 +5,16 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.billing.pojo.DurationSegment;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.billing.pojo.SimplifiedUnitMeta;
 import cn.shang.charging.billing.value.FixedValueSpec;
 import cn.shang.charging.billing.value.ProportionalValueSpec;
 import cn.shang.charging.billing.value.UnitValueSpec;
+import cn.shang.charging.promotion.FreeMinuteAllocator;
+import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
+import cn.shang.charging.promotion.pojo.FreeMinutes;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
@@ -586,6 +590,42 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
             List<BoundaryProvider> providers,
             BoundaryDrivenLoop.SegmentBuilder segmentBuilder) {
         return BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, segmentBuilder);
+    }
+
+    // ==================== FREE_MINUTES 时段化（策略侧，TODO-20260702-004） ====================
+
+    /**
+     * 策略侧 FREE_MINUTES 时段化工具实例（无状态，共享）。
+     */
+    private static final FreeMinuteAllocator FREE_MINUTE_ALLOCATOR = new FreeMinuteAllocator();
+
+    /**
+     * 把 PromotionAggregate 中的未时段化 FREE_MINUTES 时段化为时间段，与 FREE_RANGE 合并，
+     * 返回最终免费段 + FREE_MINUTES usage。
+     * <p>
+     * CONTINUOUS 策略（DayNight/RelativeTime/NaturalTime/CompositeTime）在 {@code calculate} 入口
+     * 调用本方法获得 finalFreeRanges，替换旧路径直接读 {@code aggregate.getFreeTimeRanges()} 的行为
+     * （后者现在只含 FREE_RANGE）。FREE_MINUTES 时段化已从 PromotionEngine 下放到此（TODO-20260702-004）。
+     * <p>
+     * 无 FREE_MINUTES 时返回 {@code aggregate.freeTimeRanges}（FREE_RANGE）+ 空 usages，不产生副作用。
+     *
+     * @param promotionAggregate 优惠聚合（中间形式）
+     * @param window              计算窗口
+     * @return finalFreeRanges（FREE_RANGE + 时段化 FREE_MINUTES，已合并）+ FREE_MINUTES usages
+     */
+    protected FreeMinuteAllocationResult materializeFreeMinutes(
+            PromotionAggregate promotionAggregate, CalculationWindow window) {
+        List<FreeMinutes> freeMinutesList = promotionAggregate != null
+                ? promotionAggregate.getFreeMinutesList() : null;
+        List<FreeTimeRange> freeRangeOnly = promotionAggregate != null
+                && promotionAggregate.getFreeTimeRanges() != null
+                ? promotionAggregate.getFreeTimeRanges() : List.of();
+        if (freeMinutesList == null || freeMinutesList.isEmpty()) {
+            return new FreeMinuteAllocationResult()
+                    .setFinalFreeRanges(freeRangeOnly)
+                    .setPromotionUsages(List.of());
+        }
+        return FREE_MINUTE_ALLOCATOR.allocateAndMerge(freeMinutesList, freeRangeOnly, window);
     }
 
     // ==================== 不足单元计费（公共工具） ====================

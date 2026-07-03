@@ -5,7 +5,6 @@ import cn.shang.charging.billing.pojo.*;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
 import cn.shang.charging.charge.rules.daynight.DayNightRule;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
@@ -96,7 +95,6 @@ public class DebugTest {
         var promotionEngine = new PromotionEngine(
                 billingConfigResolver,
                 new FreeTimeRangeMerger(),
-                new FreeMinuteAllocator(),
                 promotionRegistry
         );
 

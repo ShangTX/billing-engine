@@ -2,7 +2,7 @@
 
 本文描述计费引擎**期望达到**的计算链路与语义，作为功能开发规划的指导。代码当前现状与期望的差距见 `docs/TODO.md` 及各 TODO 详情；分段与优惠一致性的完整论证见 `docs/designs/segment-promotion-consistency.md`。旧版（描述历史现状，已过时）保留在 `docs/billing-engine-calculation-flow-zh-legacy.md` 供参考。
 
-最后更新日期：2026-07-02
+最后更新日期：2026-07-03
 
 ---
 
@@ -233,6 +233,8 @@ schemeChanges -> multiple BillingSegment
 - 期望在 `PromotionEngine` 或 `BillingService` 层区分两类优惠的处理：方案内优惠每段独立 evaluate；外部优惠全局一致（依赖 GLOBAL_ORIGIN 减法，或独立的全局预分配机制）。
 - `FREE_RANGE` 在所有计费模式下产出 `PromotionUsage`，记录覆盖范围、扣除分钟数、等效优惠金额。
 - `FreeMinuteAllocator` 分配位置只依赖窗口起点 + FREE_RANGE + 窗口长度，与计费规则无关。这是 GLOBAL_ORIGIN 减法能跨方案工作的技术基础：同窗口起点 → 同一分配位置 → 减法抵消前段优惠使用，不需跨段传优惠状态。
+
+**004 落地**：FREE_MINUTES 时段化已从 `PromotionEngine` 下放到策略侧。`PromotionEngine` 产出中间形式（`freeMinutesList` 未时段化），CONTINUOUS/UNIT_BASED/PERIOD 策略经 `FreeMinuteAllocator.allocateAndMerge` 时段化，GLOBAL 按分钟扣减 `chargedMinutes`（与时段化路径等价）。`PromotionCarryOver` 由策略侧 `PromotionAggregateUtil.buildCarryOver` 构建并写回 aggregate，`ResultAssembler` 读取路径不变。
 
 ---
 

@@ -190,9 +190,9 @@ Current aggregation stages:
 2. Add external `PromotionGrant` entries from the request.
 3. Restore promotion carry-over in `CONTINUE` mode.
 4. Merge explicit `FREE_RANGE` promotions through `FreeTimeRangeMerger`.
-5. Allocate `FREE_MINUTES` through `FreeMinuteAllocator`.
-6. Merge explicit and generated free ranges.
-7. Build promotion carry-over state.
+5. Produce a canonical intermediate form: merged `FREE_RANGE` ranges + unmaterialized `FREE_MINUTES` list (`freeMinutesList`) + `AMOUNT`/`DISCOUNT` scalars.
+
+`FREE_MINUTES` materialization is delegated to strategies (TODO-20260702-004): `PromotionEngine` no longer materializes centrally, avoiding the aggregation layer coupling to "rule + mode" to decide output form. CONTINUOUS/UNIT_BASED/PERIOD strategies materialize via `FreeMinuteAllocator.allocateAndMerge` (merged with `FREE_RANGE`); the GLOBAL strategy does not materialize, deducting `chargedMinutes` by minute, equivalent in final amount to the materialized path. `PromotionUsage` (FREE_MINUTES/FREE_RANGE) and `PromotionCarryOver` are produced strategy-side; `PromotionCarryOver` is built via `PromotionAggregateUtil.buildCarryOver` and written back to the aggregate.
 
 `FreeTimeRangeMerger` preserves range metadata such as priority, source, range type, and conditional metadata. Query-time conditional behavior is interpreted later by rule-generated `valueSpec`, not by viewer-side field patching.
 

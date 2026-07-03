@@ -3,9 +3,12 @@ package cn.shang.charging.charge.rules.daynight;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
+import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
+import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
+import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
@@ -35,6 +38,8 @@ final class DayNightUnitBasedStrategy {
 
     private static final int MINUTES_PER_DAY = 1440;
 
+    private static final FreeMinuteAllocator FREE_MINUTE_ALLOCATOR = new FreeMinuteAllocator();
+
     private final DayNightPriceResolver priceResolver = new DayNightPriceResolver();
     private final DayNightValueSpecFactory valueSpecFactory = new DayNightValueSpecFactory();
 
@@ -48,8 +53,10 @@ final class DayNightUnitBasedStrategy {
         int unitMinutes = config.getUnitMinutes();
         BigDecimal maxCharge = config.getMaxChargeOneDay();
 
-        List<FreeTimeRange> freeTimeRanges = promotionAggregate != null && promotionAggregate.getFreeTimeRanges() != null
-                ? promotionAggregate.getFreeTimeRanges() : List.of();
+        // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
+        FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, context.getWindow());
+        final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
+                ? materialized.getFinalFreeRanges() : List.of();
 
         // 恢复周期状态（CONTINUE 模式）
         int cycleIndex = 0;
@@ -198,8 +205,13 @@ final class DayNightUnitBasedStrategy {
                         .map(BillingUnit::getOriginalAmount)
                         .reduce(BigDecimal.ZERO, BigDecimal::add));
         List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
-        if (promotionAggregate != null && promotionAggregate.getUsages() != null) {
-            allUsages.addAll(promotionAggregate.getUsages());
+        if (materialized.getPromotionUsages() != null) {
+            allUsages.addAll(materialized.getPromotionUsages());
+        }
+        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
+        if (promotionAggregate != null) {
+            promotionAggregate.setPromotionCarryOver(
+                    PromotionAggregateUtil.buildCarryOver(materialized.getPromotionUsages(), freeTimeRanges, calcEnd));
         }
 
         return BillingSegmentResult.builder()
@@ -231,6 +243,24 @@ final class DayNightUnitBasedStrategy {
         if (config.getNightUnitPrice() == null || config.getNightUnitPrice().compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("nightUnitPrice must be non-negative");
         }
+    }
+
+    /**
+     * 时段化 FREE_MINUTES（TODO-20260702-004：策略侧时段化）。
+     * 本策略不继承 AbstractTimeBasedRule，故本地调用 FreeMinuteAllocator。
+     */
+    private FreeMinuteAllocationResult materializeFreeMinutes(PromotionAggregate promotionAggregate,
+                                                              CalculationWindow window) {
+        var freeMinutesList = promotionAggregate != null ? promotionAggregate.getFreeMinutesList() : null;
+        List<FreeTimeRange> freeRangeOnly = promotionAggregate != null
+                && promotionAggregate.getFreeTimeRanges() != null
+                ? promotionAggregate.getFreeTimeRanges() : List.of();
+        if (freeMinutesList == null || freeMinutesList.isEmpty()) {
+            return new FreeMinuteAllocationResult()
+                    .setFinalFreeRanges(freeRangeOnly)
+                    .setPromotionUsages(List.of());
+        }
+        return FREE_MINUTE_ALLOCATOR.allocateAndMerge(freeMinutesList, freeRangeOnly, window);
     }
 
     /**

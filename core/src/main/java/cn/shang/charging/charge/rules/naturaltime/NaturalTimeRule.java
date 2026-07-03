@@ -10,6 +10,8 @@ import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
+import cn.shang.charging.promotion.PromotionAggregateUtil;
+import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.billing.value.FixedValueSpec;
 import cn.shang.charging.billing.value.UnitValueSpec;
@@ -95,9 +97,10 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
         CrossPeriodMode crossPeriodMode = config.getCrossPeriodMode();
         BigDecimal maxCharge = config.getMaxChargeOneDay();
 
-        List<FreeTimeRange> freeTimeRanges = promotionAggregate != null
-                && promotionAggregate.getFreeTimeRanges() != null
-                ? promotionAggregate.getFreeTimeRanges() : List.of();
+        // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
+        FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, context.getWindow());
+        List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
+                ? materialized.getFinalFreeRanges() : List.of();
 
         // 边界来源：自然时段边界 + 免费时段起止 + 计费单元对齐 + calcEnd
         // 周期对齐在跨周期封顶处由 cycleAccumulated 单独处理
@@ -164,6 +167,13 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
         }
         cycleStateManager.updateStateAfterContinuous(Math.max(1, cycleCount), state, cycleAccumulated);
         Map<String, Object> ruleOutputState = buildRuleOutputState(state);
+
+        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
+        // NaturalTime 沿用既有行为：result.promotionUsages 为 null（不并入 usage），但 carryOver 须构建。
+        if (promotionAggregate != null) {
+            promotionAggregate.setPromotionCarryOver(
+                    PromotionAggregateUtil.buildCarryOver(materialized.getPromotionUsages(), freeTimeRanges, calcEnd));
+        }
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())

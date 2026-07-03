@@ -25,7 +25,6 @@ import cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
@@ -527,7 +526,7 @@ public class BillingTestCaseGenerator {
         return new BillingService(
                 new SegmentBuilder(),
                 resolver,
-                new PromotionEngine(resolver, new FreeTimeRangeMerger(), new FreeMinuteAllocator(), promotionRegistry),
+                new PromotionEngine(resolver, new FreeTimeRangeMerger(), promotionRegistry),
                 new BillingCalculator(ruleRegistry),
                 new ResultAssembler()
         );
