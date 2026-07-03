@@ -92,7 +92,7 @@ flowchart TD
 - **CONTINUE 仅单元计费类有意义**：`previousCarryOver` 续算路径只服务 CONTINUOUS/UNIT_BASED；时长计费类不参与 CONTINUE，摆脱 carryOver 机制影响。
 - **外部优惠全局一致**：分段前建立外部优惠可用量池，跨段共享剩余量；每段 evaluate 时剩余外部优惠与本段方案内优惠按优先级聚合，外部优惠可能被方案内优惠覆盖而未使用。按优惠来源（方案内跟方案走、外部跟请求走）从本段结果分辨实际使用量，回写扣减池，下段拿到正确的剩余外部优惠。
 - **AMOUNT/DISCOUNT 不进核心计算**：只 FREE_MINUTES/FREE_RANGE 参与免费段切分与跨段扣减；AMOUNT/DISCOUNT 整笔一次性，由 `AmountDiscountApplier` 在最终结果上事后结算。
-- **FREE_MINUTES 的表示形式按模式区分**：聚合产出规范中间形式（FREE_RANGE 为时段、FREE_MINUTES 为分钟数），不集中物化。CONTINUOUS/UNIT_BASED/PERIOD 需物化为时间段（覆盖判定或周期内定位需要时间位置）；GLOBAL 全局累加，按分钟直接扣减 chargedMinutes，不物化。物化是消费者侧职责，不是聚合的固有职责。
+- **FREE_MINUTES 的表示形式按模式区分**：聚合产出规范中间形式（FREE_RANGE 为时段、FREE_MINUTES 为分钟数），不集中物化（"物化"指把 FREE_MINUTES 分钟数转为具体时间段，见 spec 术语定义）。CONTINUOUS/UNIT_BASED/PERIOD 需物化为时间段（覆盖判定或周期内定位需要时间位置）；GLOBAL 全局累加，按分钟直接扣减 chargedMinutes，不物化。物化是消费者侧职责，不是聚合的固有职责。
 
 分段每段独立计算，不传规则/优惠/累计状态；CONTINUE 通过 `previousCarryOver` 进入续算路径，与分段机制正交。
 
