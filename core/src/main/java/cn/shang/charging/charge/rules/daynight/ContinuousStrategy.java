@@ -11,8 +11,10 @@ import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
+import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
+import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -280,6 +282,23 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
 
         Map<String, Object> ruleOutputState = buildRuleOutputState(state);
 
+        // 产出 FREE_RANGE 的 PromotionUsage
+        // CONTINUOUS 免费单元 originalAmount=0（HomogeneousSegment 免费段不存原价），
+        // equivalentAmount 用 priceResolver 按免费单元时长算规则原价
+        final List<BillingUnit> finalAllUnits = allUnits;
+        List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
+                freeTimeRanges, calcBegin, calcEnd,
+                rangeId -> finalAllUnits.stream()
+                        .filter(u -> u.isFree() && rangeId.equals(u.getFreePromotionId()))
+                        .map(u -> priceResolver.determineUnitPriceForContinuous(u.getBeginTime(), u.getEndTime(), config)
+                                .multiply(BigDecimal.valueOf(u.getDurationMinutes()))
+                                .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
+        if (promotionAggregate.getUsages() != null) {
+            allUsages.addAll(promotionAggregate.getUsages());
+        }
+
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
                 .segmentStartTime(context.getSegment().getBeginTime())
@@ -288,7 +307,7 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
                 .calculationEndTime(calcEnd)
                 .chargedAmount(totalAmount)
                 .billingUnits(allUnits)
-                .promotionUsages(new ArrayList<>())
+                .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)

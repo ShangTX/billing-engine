@@ -292,8 +292,10 @@ schemeChanges -> multiple BillingSegment
 | `unitPrice` | 单价 |
 | `chargedAmount` | 应收（时段封顶后，周期封顶前） |
 | `periodCap` | 该时段封顶金额（null=无封顶） |
+| `freePromotionId` | 免费段对应的 FreeTimeRange.id（非免费段 null），用于聚合 PromotionUsage |
+| `originalAmount` | 按规则原价（封顶前；免费段非 0，用于等效优惠金额） |
 
-封顶落盘策略：时段封顶落盘到 `chargedAmount`；周期封顶不落盘，只影响 `BillingSegmentResult.chargedAmount`。免费段用 `chargedMinutes=0` 表达，免费原因走 `PromotionUsage` 汇总。
+封顶落盘策略：时段封顶落盘到 `chargedAmount`；周期封顶不落盘，只影响 `BillingSegmentResult.chargedAmount`。免费段用 `chargedMinutes=0` 表达，免费原因走 `PromotionUsage` 汇总（`freePromotionId` 关联 FREE_RANGE，`originalAmount` 聚合等效优惠金额）。
 
 ---
 

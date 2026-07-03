@@ -8,8 +8,10 @@ import cn.shang.charging.charge.rules.BoundaryDrivenLoop;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
+import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
+import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -120,9 +122,9 @@ final class DayNightDurationStrategy {
         long totalMinutes = Duration.between(calcBegin, calcEnd).toMinutes();
         DurationResult durationResult;
         if (durationMode == BConstants.DurationMode.PERIOD) {
-            durationResult = buildDurationSegmentsPeriodMode(segments, unitMinutes, maxCharge, periodResolver);
+            durationResult = buildDurationSegmentsPeriodMode(segments, unitMinutes, maxCharge, periodResolver, config);
         } else {
-            durationResult = buildDurationSegmentsGlobalMode(segments, unitMinutes, totalMinutes, maxCharge, periodResolver);
+            durationResult = buildDurationSegmentsGlobalMode(segments, unitMinutes, totalMinutes, maxCharge, periodResolver, config);
         }
 
         // 周期状态输出（时长模式不参与 CONTINUE，状态仅为格式一致）
@@ -132,6 +134,19 @@ final class DayNightDurationStrategy {
         dayNightState.put("cycleBoundary", calcBegin.plusMinutes(MINUTES_PER_CYCLE));
         Map<String, Object> ruleOutputState = new HashMap<>();
         ruleOutputState.put(RULE_TYPE, dayNightState);
+
+        // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 从 DurationSegment.originalAmount 聚合）
+        final List<DurationSegment> finalSegments = durationResult.segments;
+        List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
+                freeTimeRanges, calcBegin, calcEnd,
+                rangeId -> finalSegments.stream()
+                        .filter(ds -> rangeId.equals(ds.freePromotionId()))
+                        .map(DurationSegment::originalAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
+        if (promotionAggregate != null && promotionAggregate.getUsages() != null) {
+            allUsages.addAll(promotionAggregate.getUsages());
+        }
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
@@ -144,7 +159,7 @@ final class DayNightDurationStrategy {
                 .durationSegments(durationResult.segments)
                 .durationMode(durationMode)
                 .cycleCapApplied(durationResult.cycleCapApplied)
-                .promotionUsages(new ArrayList<>())
+                .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(calcBegin)
                 .feeEffectiveEnd(calcEnd)
@@ -222,6 +237,17 @@ final class DayNightDurationStrategy {
     }
 
     /**
+     * 计算单个同质段的按规则原价（封顶前，免费段也用规则单价算）。
+     * 用于 {@link DurationSegment#originalAmount()}（等效优惠金额聚合）。
+     */
+    private BigDecimal segmentOriginalCharge(HomogeneousSegment seg, int unitMinutes, DayNightConfig config) {
+        if (unitMinutes <= 0) return BigDecimal.ZERO;
+        BigDecimal price = priceResolver.determineUnitPriceForContinuous(seg.getBeginTime(), seg.getEndTime(), config);
+        return price.multiply(BigDecimal.valueOf(seg.durationMinutes()))
+                .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP);
+    }
+
+    /**
      * PERIOD 模式：周期内按时长计费。
      * <p>
      * - 时段封顶：周期内同 period 累计达 period.maxCharge，该 period 后续段 chargedAmount 削减（落盘）<br>
@@ -232,7 +258,8 @@ final class DayNightDurationStrategy {
             List<HomogeneousSegment> segments,
             int unitMinutes,
             BigDecimal cycleCap,
-            PeriodResolver periodResolver) {
+            PeriodResolver periodResolver,
+            DayNightConfig config) {
 
         List<DurationSegment> result = new ArrayList<>();
         if (segments.isEmpty()) {
@@ -300,7 +327,9 @@ final class DayNightDurationStrategy {
                     seg.isFree() ? 0 : segMinutes,
                     seg.getUnitPrice(),
                     charged,
-                    periodCap
+                    periodCap,
+                    seg.isFree() ? seg.getFreePromotionId() : null,
+                    segmentOriginalCharge(seg, unitMinutes, config)
             ));
         }
 
@@ -332,7 +361,8 @@ final class DayNightDurationStrategy {
             int unitMinutes,
             long totalMinutes,
             BigDecimal cycleCap,
-            PeriodResolver periodResolver) {
+            PeriodResolver periodResolver,
+            DayNightConfig config) {
 
         List<DurationSegment> result = new ArrayList<>();
         if (segments.isEmpty()) {
@@ -410,7 +440,9 @@ final class DayNightDurationStrategy {
                     seg.isFree() ? 0 : segMinutes,
                     seg.getUnitPrice(),
                     charged,
-                    pCap
+                    pCap,
+                    seg.isFree() ? seg.getFreePromotionId() : null,
+                    segmentOriginalCharge(seg, unitMinutes, config)
             ));
         }
 

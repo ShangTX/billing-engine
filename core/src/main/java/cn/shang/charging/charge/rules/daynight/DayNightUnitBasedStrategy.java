@@ -5,8 +5,10 @@ import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
+import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
+import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -188,6 +190,18 @@ final class DayNightUnitBasedStrategy {
                 )
         );
 
+        // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 从 BillingUnit.originalAmount 聚合）
+        List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
+                freeTimeRanges, calcBegin, calcEnd,
+                rangeId -> billingUnits.stream()
+                        .filter(u -> u.isFree() && rangeId.equals(u.getFreePromotionId()))
+                        .map(BillingUnit::getOriginalAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
+        if (promotionAggregate != null && promotionAggregate.getUsages() != null) {
+            allUsages.addAll(promotionAggregate.getUsages());
+        }
+
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
                 .segmentStartTime(context.getSegment().getBeginTime())
@@ -196,7 +210,7 @@ final class DayNightUnitBasedStrategy {
                 .calculationEndTime(calcEnd)
                 .chargedAmount(totalAmount)
                 .billingUnits(billingUnits)
-                .promotionUsages(new ArrayList<>())
+                .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)

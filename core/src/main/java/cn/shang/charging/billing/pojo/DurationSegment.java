@@ -15,14 +15,18 @@ import java.time.LocalDateTime;
  *   <li>周期封顶不落盘（只影响 BillingSegmentResult.chargedAmount）</li>
  * </ul>
  * 免费段用 {@code chargedMinutes=0} / {@code chargedAmount=0} 表达，免费原因走 PromotionUsage 汇总。
+ * {@link #freePromotionId} 标识免费段对应的 FreeTimeRange.id（非免费段为 null），
+ * {@link #originalAmount} 记录按规则原价（封顶前；免费段非 0，用于等效优惠金额）。
  *
- * @param beginTime      段起点
- * @param endTime        段终点
- * @param periodLabel    period 性质（"day"/"night"/"period-1"，规则自定义）
- * @param chargedMinutes 收费分钟数（免费段=0）
- * @param unitPrice      单价
- * @param chargedAmount  应收（时段封顶后，周期封顶前）
- * @param periodCap      该时段封顶金额（null=无封顶）
+ * @param beginTime        段起点
+ * @param endTime          段终点
+ * @param periodLabel      period 性质（"day"/"night"/"period-1"，规则自定义）
+ * @param chargedMinutes   收费分钟数（免费段=0）
+ * @param unitPrice        单价
+ * @param chargedAmount    应收（时段封顶后，周期封顶前）
+ * @param periodCap        该时段封顶金额（null=无封顶）
+ * @param freePromotionId  免费段对应的 FreeTimeRange.id（非免费段 null）
+ * @param originalAmount   按规则原价（封顶前；免费段非 0，用于等效优惠金额）
  */
 public record DurationSegment(
         LocalDateTime beginTime,
@@ -31,5 +35,7 @@ public record DurationSegment(
         int chargedMinutes,
         BigDecimal unitPrice,
         BigDecimal chargedAmount,
-        BigDecimal periodCap
+        BigDecimal periodCap,
+        String freePromotionId,
+        BigDecimal originalAmount
 ) {}
