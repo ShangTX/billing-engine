@@ -26,3 +26,4 @@
 | 2026-07-03 | TODO-20260702-002 | refactor | 计费规则门面策略结构重构 | f6ed969 | [facade-strategy-refactor.md](tracking/items/facade-strategy-refactor.md) |
 | 2026-07-03 | TODO-20260702-001 | bug | GLOBAL_ORIGIN 窗口截取模式半成品止血 | 3e3830f | [global-origin-half-finished.md](tracking/items/global-origin-half-finished.md) |
 | 2026-07-03 | TODO-20260701-002 | refactor | 单元计费类分段计费历史耦合清理 | bbe1a06 | [unit-segment-historical-coupling.md](tracking/items/unit-segment-historical-coupling.md) |
+| 2026-07-03 | TODO-20260701-001 | bug | FREE_RANGE 免费时段产出 PromotionUsage | a1043ab | [free-range-promotion-usage.md](tracking/items/free-range-promotion-usage.md) |

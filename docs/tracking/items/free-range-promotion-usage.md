@@ -4,11 +4,11 @@
 id: TODO-20260701-001
 type: bug
 priority: P2
-status: todo
+status: done
 source_git: 37caeb5
 created_at: 2026-07-01
-completed_at:
-completed_git:
+completed_at: 2026-07-03
+completed_git: a1043ab
 ---
 
 ## 背景
@@ -71,3 +71,18 @@ GLOBAL 策略不时段化 FREE_MINUTES（按分钟扣减，见 spec 3.3/3.4）�
 
 - 与门面策略结构重构（TODO-20260702-002）和 FREE_MINUTES 时段化下放（TODO-20260702-004）关联：产出位置随时段化下放到策略侧，需在策略结构落地后实现
 - 优先级 P2：跨模式问题，不影响计费金额正确性，影响结果可追溯性
+
+## GLOBAL usage 形式（待定项结论）
+
+FREE_RANGE 本就是时间区间，所有消费方（含 GLOBAL）按时段消费，usage 形式一致：
+`usedFrom`/`usedTo`/`usedMinutes` 反映 FREE_RANGE 在窗口内实际覆盖，`equivalentAmount` 从
+`DurationSegment.originalAmount` 聚合。GLOBAL 的 FREE_RANGE usage 不依赖 FREE_MINUTES 时段化
+（spec §5 待定的 GLOBAL usage 形式指 FREE_MINUTES，非 FREE_RANGE）。
+
+## 验证
+
+```bash
+mvn -pl bill-test -am test
+# Tests run: 87, Failures: 0, Errors: 0, Skipped: 0
+# 含 FreeRangePromotionUsageTest 4 模式（CONTINUOUS/UNIT_BASED/PERIOD/GLOBAL）
+```

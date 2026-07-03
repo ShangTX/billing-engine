@@ -16,6 +16,5 @@
 |----|------|--------|------|------------|------|
 | TODO-20260702-003 | feature | P1 | 优惠两级模型实现 | 81ca938 | [promotion-two-tier-model.md](tracking/items/promotion-two-tier-model.md) |
 | TODO-20260702-004 | refactor | P2 | FREE_MINUTES 时段化下放到策略侧 | 81ca938 | [free-minutes-materialization-delegation.md](tracking/items/free-minutes-materialization-delegation.md) |
-| TODO-20260701-001 | bug | P2 | FREE_RANGE 免费时段产出 PromotionUsage | 37caeb5 | [free-range-promotion-usage.md](tracking/items/free-range-promotion-usage.md) |
 | TODO-20260630-002 | feature | P2 | 物化索引预估收入能力 | ec62357 | [materialized-index-revenue-estimation.md](tracking/items/materialized-index-revenue-estimation.md) |
 | TODO-20260623-001 | feature | P2 | 优化自定义规则扩展体验 | 4e081b3 | [custom-rule-extension-experience.md](tracking/items/custom-rule-extension-experience.md) |
