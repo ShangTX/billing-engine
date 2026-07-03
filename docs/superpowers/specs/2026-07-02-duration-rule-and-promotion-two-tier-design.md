@@ -8,14 +8,14 @@
 
 ## 术语
 
-**物化（materialization）**：在优惠聚合语境下，特指把 FREE_MINUTES（分钟数标量，如"60 分钟免费"）分配到时间轴、转换为具体时间段（如"01:00-02:00 免费"）的过程。
+**时段化（materialization，又称"物化"）**：在优惠聚合语境下，特指把 FREE_MINUTES（分钟数标量，如"60 分钟免费"）分配到时间轴、转换为具体时间段（如"01:00-02:00 免费"）的过程。
 
-- 物化前：FREE_MINUTES 是"潜在免费额度"——只知数量，不知落在时间轴哪里
-- 物化后：FREE_MINUTES 落实为"具体免费时间段"——位置确定
+- 时段化前：FREE_MINUTES 是"潜在免费额度"——只知数量，不知落在时间轴哪里
+- 时段化后：FREE_MINUTES 落实为"具体免费时间段"——位置确定
 
-物化的目的：让计费规则能判断"哪些单元/时段被免费覆盖"。CONTINUOUS/UNIT_BASED 的"完整覆盖才免费"判定、PERIOD 的"周期内定位免费段"都需要时间位置，故需物化；GLOBAL 全局按分钟累加，免费分钟直接从总分钟扣减，不需物化（见 3.3/3.4）。
+时段化的目的：让计费规则能判断"哪些单元/时段被免费覆盖"。CONTINUOUS/UNIT_BASED 的"完整覆盖才免费"判定、PERIOD 的"周期内定位免费段"都需要时间位置，故需时段化；GLOBAL 全局按分钟累加，免费分钟直接从总分钟扣减，不需时段化（见 3.3/3.4）。
 
-**与"物化索引"区分**：`TODO-20260630-002`（物化索引预估收入）中的"物化"是另一概念，指把计费结果存储为可按时间索引查询的固定数据，与 FREE_MINUTES 物化无关。本 spec 后续"物化"均指 FREE_MINUTES 物化。
+**与"物化索引"区分**：`TODO-20260630-002`（物化索引预估收入）中的"物化"是另一概念，指把计费结果存储为可按时间索引查询的固定数据，与 FREE_MINUTES 时段化无关。本 spec 后续"时段化"均指 FREE_MINUTES 时段化。
 
 ---
 
@@ -27,7 +27,7 @@
 
 2. **优惠全局一致性缺失**：外部优惠（优惠券等）每段独立 `PromotionEngine.evaluate`，FREE_MINUTES/FREE_RANGE 在多分段下重复使用。`segment-promotion-consistency.md` 曾论述"GLOBAL_ORIGIN 减法"解决，但代码核实 GLOBAL_ORIGIN 是半成品（`clipBegin/clipEnd` 从未被读取，多分段双重计费，见 TODO-20260702-001）。
 
-3. **FREE_MINUTES 物化绑架所有规则**：`FreeMinuteAllocator` 集中把 FREE_MINUTES 物化为时间段，服务单元计费的"完整覆盖才免费"判定。时长计费按分钟计费，不需要物化，却被迫走物化路径。
+3. **FREE_MINUTES 时段化绑架所有规则**：`FreeMinuteAllocator` 集中把 FREE_MINUTES 时段化为时间段，服务单元计费的"完整覆盖才免费"判定。时长计费按分钟计费，不需要时段化，却被迫走时段化路径。
 
 本 spec 给出三个架构演进方向，作为后续功能开发的指导。仅描述架构层面，不涉及参数传递等实现细节。
 
@@ -37,7 +37,7 @@
 
 - 计费规则采用"门面 + 策略"结构：一个规则族一个 type、一个门面、一个共享 config，按模式分派到独立策略实现，消除规则臃肿。
 - 外部优惠在多分段下全局一致，不依赖 GLOBAL_ORIGIN 减法。
-- FREE_MINUTES 的表示形式按消费方规则类型区分，物化不再是聚合的固有职责。
+- FREE_MINUTES 的表示形式按消费方规则类型区分，时段化不再是聚合的固有职责。
 - CONTINUE 续算限定为单元计费类（CONTINUOUS/UNIT_BASED），时长计费类摆脱 carryOver 机制影响。
 
 ---
@@ -104,7 +104,7 @@
 
 ### 3.3 FREE_MINUTES 表示形式按消费方区分
 
-**决策**：聚合产出规范中间形式（FREE_RANGE 为时段、FREE_MINUTES 为分钟数、AMOUNT/DISCOUNT 为标量），不集中物化。物化是消费者侧职责，按模式区分：
+**决策**：聚合产出规范中间形式（FREE_RANGE 为时段、FREE_MINUTES 为分钟数、AMOUNT/DISCOUNT 为标量），不集中时段化。时段化是消费者侧职责，按模式区分：
 
 | 消费方 | FREE_MINUTES 处理 | 原因 |
 |---|---|---|
@@ -114,27 +114,27 @@
 
 FREE_RANGE 本就是时间区间，所有消费方都按时段消费。AMOUNT/DISCOUNT 是标量，事后结算。
 
-**现状问题**：`FreeMinuteAllocator` 集中物化 FREE_MINUTES（`generatedFreeRanges`），混进 `freeTimeRanges` 给所有规则用。GLOBAL 时长策略被迫走物化路径，付不必要代价（CONTINUOUS/UNIT_BASED/PERIOD 需要物化，GLOBAL 不需要）。
+**现状问题**：`FreeMinuteAllocator` 集中时段化 FREE_MINUTES（`generatedFreeRanges`），混进 `freeTimeRanges` 给所有规则用。GLOBAL 时长策略被迫走时段化路径，付不必要代价（CONTINUOUS/UNIT_BASED/PERIOD 需要时段化，GLOBAL 不需要）。
 
-**为什么必须下放（耦合论证）**：若物化留在聚合层，`PromotionEngine` 要按"规则 + 模式"决定产出形式（CONTINUOUS/UNIT_BASED/PERIOD 需物化、GLOBAL 不需），即规则与模式反向耦合进优惠聚合层。每新增一个规则族或模式，聚合层需加分支。物化下放到消费者侧后，聚合层只产出对所有规则一致的中间形式，不预知规则与模式，耦合消除。
+**为什么必须下放（耦合论证）**：若时段化留在聚合层，`PromotionEngine` 要按"规则 + 模式"决定产出形式（CONTINUOUS/UNIT_BASED/PERIOD 需时段化、GLOBAL 不需），即规则与模式反向耦合进优惠聚合层。每新增一个规则族或模式，聚合层需加分支。时段化下放到消费者侧后，聚合层只产出对所有规则一致的中间形式，不预知规则与模式，耦合消除。
 
-**位置与职责**：物化下放是**职责调整**，不是**位置调整**。`PromotionEngine` 仍在 `BillingService` 编排层统一调用，位置不动，理由有三：
+**位置与职责**：时段化下放是**职责调整**，不是**位置调整**。`PromotionEngine` 仍在 `BillingService` 编排层统一调用，位置不动，理由有三：
 
 1. 外部优惠可用量池是跨段共享状态，回写扣减发生在段间，状态由编排层持有最自然。
 2. 方案内优惠每段独立聚合，规则不该重复承担聚合逻辑。
-3. `prepareContexts`/`calculateWithContexts` 的分离仍然成立：前者产出中间形式 aggregate，后者由规则消费 + 物化；等效金额的 `cloneAndExclude` 在中间形式上 exclude 仍有效（物化未发生，exclude 未物化的 FREE_MINUTES 更简单）。
+3. `prepareContexts`/`calculateWithContexts` 的分离仍然成立：前者产出中间形式 aggregate，后者由规则消费 + 时段化；等效金额的 `cloneAndExclude` 在中间形式上 exclude 仍有效（时段化未发生，exclude 未时段化的 FREE_MINUTES 更简单）。
 
 职责重划：
 
 | 原归属 | 职责 | 新归属 |
 |---|---|---|
 | `PromotionEngine` | FREE_RANGE 合并（`FreeTimeRangeMerger`） | 保留（优惠自身合并，与规则无关） |
-| `PromotionEngine` | FREE_MINUTES 物化（`FreeMinuteAllocator`） | 下放给规则侧（CONTINUOUS/UNIT_BASED/PERIOD 策略承担，GLOBAL 策略不物化） |
+| `PromotionEngine` | FREE_MINUTES 时段化（`FreeMinuteAllocator`） | 下放给规则侧（CONTINUOUS/UNIT_BASED/PERIOD 策略承担，GLOBAL 策略不时段化） |
 | `PromotionEngine` | AMOUNT/DISCOUNT 汇总 | 保留（标量汇总，与规则无关） |
 
-`PromotionEngine` 产出变为：合并后的 FREE_RANGE 时段 + 未物化的 FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量。`FreeMinuteAllocator` 从 `PromotionEngine` 解耦，成为规则侧工具。
+`PromotionEngine` 产出变为：合并后的 FREE_RANGE 时段 + 未时段化的 FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量。`FreeMinuteAllocator` 从 `PromotionEngine` 解耦，成为规则侧工具。
 
-**与 3.1 的关系**：时长计费类的 GLOBAL 策略有独立的优惠消费方式（按分钟扣减，不物化），PERIOD 策略仍需物化（周期内定位）。这是时长模式按模式区分优惠消费的结构体现，也是 GLOBAL 策略不被物化路径绑架的理由。
+**与 3.1 的关系**：时长计费类的 GLOBAL 策略有独立的优惠消费方式（按分钟扣减，不时段化），PERIOD 策略仍需时段化（周期内定位）。这是时长模式按模式区分优惠消费的结构体现，也是 GLOBAL 策略不被时段化路径绑架的理由。
 
 ### 3.4 模式特性矩阵
 
@@ -145,7 +145,7 @@ FREE_RANGE 本就是时间区间，所有消费方都按时段消费。AMOUNT/DI
 | 产出结构 | BillingUnit | BillingUnit | DurationSegment | DurationSegment |
 | 切分模型 | 边界驱动切断 | 固定单元对齐 | 边界驱动分钟流 | 边界驱动分钟流 |
 | 公共调度层（BoundaryDrivenLoop） | 用 | 不用 | 用 | 用 |
-| FREE_MINUTES 物化 | 需要 | 需要 | 需要 | 不需要 |
+| FREE_MINUTES 时段化 | 需要 | 需要 | 需要 | 不需要 |
 | valueSpec（查询投影） | 有 | 有 | 无 | 无 |
 | compact 合并 | 有 | 无 | 无 | 无 |
 | 简化计算 | 有 | 无 | 无 | 无 |
@@ -156,7 +156,7 @@ FREE_RANGE 本就是时间区间，所有消费方都按时段消费。AMOUNT/DI
 **读法**：
 - 产出结构与切分模型决定策略属于单元计费类还是时长计费类（见 3.1 二级分类）。
 - 公共调度层只有 UNIT_BASED 不用，其余三模式共享边界驱动循环。
-- FREE_MINUTES 物化只有 GLOBAL 不需要（见 3.3），其余三模式需物化为时间段。
+- FREE_MINUTES 时段化只有 GLOBAL 不需要（见 3.3），其余三模式需时段化为时间段。
 - valueSpec/compact/简化是单元计费类专属（CONTINUOUS 全有，UNIT_BASED 无 compact/简化因不走公共循环）；时长计费类不背这些特性。
 - CONTINUE 续算只单元计费类支持，时长计费类不参与（见 3.1 CONTINUE 限定）。
 - 封顶基准与跨段累计按模式不同：CONTINUOUS/UNIT_BASED 逐周期/每日封顶 + 展示用累计；PERIOD 周期内封顶；GLOBAL 全局封顶 × 周期数，无跨段累计。
@@ -181,7 +181,7 @@ FREE_RANGE 本就是时间区间，所有消费方都按时段消费。AMOUNT/DI
 
 1. **外部优惠状态载体**：跨段共享的可用量池以什么形式承载，与 CONTINUE 的 carryOver 如何正交分离（carryOver 专属 CONTINUE，分段专用外部优惠状态）。
 2. **GLOBAL_ORIGIN 窗口截取**：减法/截取的实现细节与业务意义（周期封顶全局基准、前段假想费用占用额度等，见 `segment-promotion-consistency.md` 问题4）。
-3. **时长计费类的 PromotionUsage 形式**：不物化 FREE_MINUTES 后，usage 按时段归属记分钟数还是记时间区间，影响等效金额计算的取用方式。
+3. **时长计费类的 PromotionUsage 形式**：不时段化 FREE_MINUTES 后，usage 按时段归属记分钟数还是记时间区间，影响等效金额计算的取用方式。
 4. **AMOUNT/DISCOUNT 整笔语义**：是否整笔一次性不扣减的最终语义，分段级应用与整笔应用的关系。
 5. **循环原语工具形态**：`runBoundaryDrivenLoop` 等提取为静态工具还是独立类注入。
 

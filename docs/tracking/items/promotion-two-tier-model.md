@@ -38,7 +38,7 @@ completed_git:
 不包含：
 
 - 门面策略结构（TODO-20260702-002，本 TODO 的前置）
-- FREE_MINUTES 物化下放（TODO-20260702-004）
+- FREE_MINUTES 时段化下放（TODO-20260702-004）
 - GLOBAL_ORIGIN 窗口截取细节（TODO-20260702-001 止血，截取待下一阶段）
 - 外部优惠状态载体的具体形式（carryOver vs 分段专用，见 spec §5 开放问题）
 

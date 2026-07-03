@@ -17,7 +17,7 @@ completed_git:
 
 各规则的 `calculate*Internal` 方法中，`promotionUsages` 字段一律填 `new ArrayList<>()`，免费时段的覆盖信息只体现在 `BillingUnit.free` / `BillingUnit.freePromotionId`（单元计费类）或 `DurationSegment.chargedMinutes=0`（时长计费类）上，没有独立的优惠使用汇总。
 
-按新设计（`docs/superpowers/specs/2026-07-02-duration-rule-and-promotion-two-tier-design.md` 3.3），FREE_MINUTES 物化将下放到策略侧，`PromotionUsage` 的产出位置随之移到策略侧（物化时产出）。本 TODO 的 FREE_RANGE 产出也应对齐到策略侧。
+按新设计（`docs/superpowers/specs/2026-07-02-duration-rule-and-promotion-two-tier-design.md` 3.3），FREE_MINUTES 时段化将下放到策略侧，`PromotionUsage` 的产出位置随之移到策略侧（时段化时产出）。本 TODO 的 FREE_RANGE 产出也应对齐到策略侧。
 
 ## 问题影响
 
@@ -37,18 +37,18 @@ completed_git:
 ## 范围
 
 包含：
-- 各策略在处理 `FREE_RANGE` 免费段时，产出对应的 `PromotionUsage`（产出位置随物化下放到策略侧，见 spec 3.3）
+- 各策略在处理 `FREE_RANGE` 免费段时，产出对应的 `PromotionUsage`（产出位置随时段化下放到策略侧，见 spec 3.3）
 - 单元计费类策略（CONTINUOUS / UNIT_BASED）
 - 时长计费类策略（PERIOD / GLOBAL）
 - `PromotionUsage` 字段语义确认（usedFrom/usedTo/usedMinutes/equivalentAmount）
 
 不包含：
-- `FREE_MINUTES` 的产出逻辑（已实现，物化下放见 TODO-20260702-004）
+- `FREE_MINUTES` 的产出逻辑（已实现，时段化下放见 TODO-20260702-004）
 - `AMOUNT` / `DISCOUNT` 的产出逻辑（另行处理）
 
 ## 待定（GLOBAL 策略的 usage 形式）
 
-GLOBAL 策略不物化 FREE_MINUTES（按分钟扣减，见 spec 3.3/3.4），其 `PromotionUsage` 形式与物化策略不同——按时段归属记分钟数还是记时间区间，影响等效金额计算的取用方式（spec §5 开放问题）。本 TODO 实现时需先定 GLOBAL usage 形式。
+GLOBAL 策略不时段化 FREE_MINUTES（按分钟扣减，见 spec 3.3/3.4），其 `PromotionUsage` 形式与时段化策略不同——按时段归属记分钟数还是记时间区间，影响等效金额计算的取用方式（spec §5 开放问题）。本 TODO 实现时需先定 GLOBAL usage 形式。
 
 ## 验收标准
 
@@ -69,5 +69,5 @@ GLOBAL 策略不物化 FREE_MINUTES（按分钟扣减，见 spec 3.3/3.4），�
 
 ## 备注
 
-- 与门面策略结构重构（TODO-20260702-002）和 FREE_MINUTES 物化下放（TODO-20260702-004）关联：产出位置随物化下放到策略侧，需在策略结构落地后实现
+- 与门面策略结构重构（TODO-20260702-002）和 FREE_MINUTES 时段化下放（TODO-20260702-004）关联：产出位置随时段化下放到策略侧，需在策略结构落地后实现
 - 优先级 P2：跨模式问题，不影响计费金额正确性，影响结果可追溯性
