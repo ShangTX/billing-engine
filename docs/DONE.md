@@ -28,3 +28,4 @@
 | 2026-07-03 | TODO-20260701-002 | refactor | 单元计费类分段计费历史耦合清理 | bbe1a06 | [unit-segment-historical-coupling.md](tracking/items/unit-segment-historical-coupling.md) |
 | 2026-07-03 | TODO-20260701-001 | bug | FREE_RANGE 免费时段产出 PromotionUsage | a1043ab | [free-range-promotion-usage.md](tracking/items/free-range-promotion-usage.md) |
 | 2026-07-03 | TODO-20260702-003 | feature | 优惠两级模型实现 | 1c032c5 | [promotion-two-tier-model.md](tracking/items/promotion-two-tier-model.md) |
+| 2026-07-03 | TODO-20260702-004 | refactor | FREE_MINUTES 时段化下放到策略侧 | 136ab21 | [free-minutes-materialization-delegation.md](tracking/items/free-minutes-materialization-delegation.md) |
