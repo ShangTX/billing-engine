@@ -25,3 +25,4 @@
 | 2026-07-01 | TODO-20260630-003 | feature | 时长计费模式（Duration-Based Billing Mode） | 8338b2c | [duration-based-billing-mode.md](tracking/items/duration-based-billing-mode.md) |
 | 2026-07-03 | TODO-20260702-002 | refactor | 计费规则门面策略结构重构 | f6ed969 | [facade-strategy-refactor.md](tracking/items/facade-strategy-refactor.md) |
 | 2026-07-03 | TODO-20260702-001 | bug | GLOBAL_ORIGIN 窗口截取模式半成品止血 | 3e3830f | [global-origin-half-finished.md](tracking/items/global-origin-half-finished.md) |
+| 2026-07-03 | TODO-20260701-002 | refactor | 单元计费类分段计费历史耦合清理 | bbe1a06 | [unit-segment-historical-coupling.md](tracking/items/unit-segment-historical-coupling.md) |

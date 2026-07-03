@@ -4,11 +4,11 @@
 id: TODO-20260701-002
 type: refactor
 priority: P2
-status: todo
+status: done
 source_git: 75f65c3
 created_at: 2026-07-01
-completed_at:
-completed_git:
+completed_at: 2026-07-03
+completed_git: bbe1a06
 ---
 
 ## 背景
@@ -74,3 +74,11 @@ completed_git:
 
 - 与门面策略结构重构（TODO-20260702-002）关联：重构后 previousAccumulatedAmount 归属单元计费类策略（CONTINUOUS/UNIT_BASED），本 TODO 的清理在策略结构落地后执行更自然
 - 优先级 P2：不影响计费正确性（切换点对齐周期边界时行为不变），仅清理耦合
+
+## 验证
+
+```bash
+mvn -pl bill-test -am test
+# Tests run: 83, Failures: 0, Errors: 0, Skipped: 0
+# 纯分段 finalAmount 改用 totalAmount，CONTINUE 仍用 accumulatedAmount，行为不变
+```
