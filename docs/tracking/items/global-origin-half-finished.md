@@ -4,11 +4,11 @@
 id: TODO-20260702-001
 type: bug
 priority: P1
-status: todo
+status: done
 source_git: 9660959
 created_at: 2026-07-02
-completed_at:
-completed_git:
+completed_at: 2026-07-03
+completed_git: 3e3830f
 ---
 
 ## 背景
@@ -76,3 +76,11 @@ completed_git:
 - 优先级 P1：潜伏的计费正确性 bug，不仅是优惠一致性提升。
 - 后续实现方向（待立独立 TODO）：GLOBAL_ORIGIN 减法实现，先支持 CONTINUOUS + DurationMode，UNIT_BASED 显式排除。
 - 关联 TODO：TODO-20260701-001（FREE_RANGE 产出 PromotionUsage，是验证减法抵消的前置）、TODO-20260701-002（previousAccumulatedAmount 清理）。
+
+## 验证
+
+```bash
+mvn -pl bill-test -am test
+# Tests run: 83, Failures: 0, Errors: 0, Skipped: 0
+# 含 GlobalOriginGuardTest 3 测试：多分段抛异常 / 单分段正常 / UNIT_BASED 抛异常
+```

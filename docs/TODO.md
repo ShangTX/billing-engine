@@ -16,7 +16,6 @@
 |----|------|--------|------|------------|------|
 | TODO-20260702-003 | feature | P1 | 优惠两级模型实现 | 81ca938 | [promotion-two-tier-model.md](tracking/items/promotion-two-tier-model.md) |
 | TODO-20260702-004 | refactor | P2 | FREE_MINUTES 时段化下放到策略侧 | 81ca938 | [free-minutes-materialization-delegation.md](tracking/items/free-minutes-materialization-delegation.md) |
-| TODO-20260702-001 | bug | P1 | GLOBAL_ORIGIN 窗口截取模式为半成品，多分段下双重计费 | 9660959 | [global-origin-half-finished.md](tracking/items/global-origin-half-finished.md) |
 | TODO-20260701-002 | refactor | P2 | 单元计费类分段计费的历史耦合清理 | 75f65c3 | [unit-segment-historical-coupling.md](tracking/items/unit-segment-historical-coupling.md) |
 | TODO-20260701-001 | bug | P2 | FREE_RANGE 免费时段产出 PromotionUsage | 37caeb5 | [free-range-promotion-usage.md](tracking/items/free-range-promotion-usage.md) |
 | TODO-20260630-002 | feature | P2 | 物化索引预估收入能力 | ec62357 | [materialized-index-revenue-estimation.md](tracking/items/materialized-index-revenue-estimation.md) |
