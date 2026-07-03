@@ -357,7 +357,7 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 - `relativeTime` 和 `compositeTime` 尚未拥有和 `dayNight` 同等级别的复杂 `valueSpec` 覆盖。
 - 分钟级 `valueSpec` 是已预留的扩展方向，但当前尚未实现。
 - 不足单元计费方式配置（`IncompleteUnitChargeMode` 的 PROPORTIONAL/FREE/THRESHOLD 档位）尚未接入计费逻辑，截断单元一律按 FULL_CHARGE 收全额（TODO-20260626-001）。
-- 时长计费模式（按分钟累加、免费时段扣除分钟）待引入，作为单元计费的并列新模式。
+- 时长计费模式（按分钟累加、免费时段扣除分钟）已作为规则内模式实现（TODO-20260630-003），演进方向为提取为独立规则，详见 `docs/superpowers/specs/2026-07-02-duration-rule-and-promotion-two-tier-design.md`。
 - 物化索引预估收入能力：引擎只提供实现可能（产出 validMinutes/accumulatedAmount 等），存储/索引由业务层实现（TODO-20260630-002）。
 
 ---
@@ -373,5 +373,6 @@ queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryT
 | `docs/DONE.md` | 已完成事项归档 |
 | `docs/superpowers/specs/2026-04-20-unit-value-spec-design.md` | `valueSpec` 设计文档 |
 | `docs/superpowers/plans/2026-04-20-unit-value-spec-implementation.md` | `valueSpec` 实施计划 |
+| `docs/superpowers/specs/2026-07-02-duration-rule-and-promotion-two-tier-design.md` | 架构演进设计：时长独立规则与优惠两级模型（未实现，演进方向） |
 
 
