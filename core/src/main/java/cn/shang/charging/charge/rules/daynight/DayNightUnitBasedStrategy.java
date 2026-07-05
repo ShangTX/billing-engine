@@ -26,7 +26,7 @@ import java.util.List;
  * <ul>
  *   <li>固定单元对齐：单元边界由计费起点 + unitMinutes 决定，不被免费时段打断</li>
  *   <li>完整覆盖才免费：免费时段必须完整覆盖一个单元才使其免费，部分覆盖不算</li>
- *   <li>支持每日封顶 maxChargeOneDay、CONTINUE 续算</li>
+ *   <li>支持每日封顶 maxChargeOneDay</li>
  *   <li>不使用边界驱动公共循环（UNIT_BASED 语义与边界驱动切断模型冲突）</li>
  * </ul>
  * 由 {@link DayNightRule} 门面按 BillingMode=UNIT_BASED 分派调用，不独立注册。

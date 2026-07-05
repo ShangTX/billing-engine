@@ -174,7 +174,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         // 获取计费起点（从分段信息获取）
         LocalDateTime billingOrigin = context.getSegment().getBeginTime();
 
-        // 初始化单次计算周期跟踪状态（CONTINUE 续算已下线）
+        // 初始化单次计算周期跟踪状态
         RuleState state = AbstractTimeBasedRule.RuleState.builder()
                 .cycleIndex(0)
                 .cycleAccumulated(BigDecimal.ZERO)

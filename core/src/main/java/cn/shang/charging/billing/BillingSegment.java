@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
 public class BillingSegment {
 
     /**
-     * 分段唯一标识（用于 CONTINUE 模式状态匹配）
+     * 分段唯一标识
      */
     private String id;
 

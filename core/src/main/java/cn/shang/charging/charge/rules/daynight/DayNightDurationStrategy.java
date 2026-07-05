@@ -152,7 +152,6 @@ final class DayNightDurationStrategy {
             globalFreeMinutesUsages = global.freeMinutesUsages;
         }
 
-        // 周期状态输出已下线（时长模式不参与 CONTINUE 续算）
 
         // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 从 DurationSegment.originalAmount 聚合）
         final List<DurationSegment> finalSegments = durationResult.segments;

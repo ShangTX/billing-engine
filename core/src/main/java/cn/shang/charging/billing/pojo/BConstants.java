@@ -8,10 +8,6 @@ public class BConstants {
     /**
      * 继续模式（是否从上次结果继续计算）
      */
-    public enum ContinueMode {
-        FROM_SCRATCH, // 从开始时间计算
-        CONTINUE      // 从上一次的结果继续计算
-    }
 
     /**
      * 计费模式（计费单位如何划分）

@@ -214,7 +214,7 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
      * 把同质段列表转换为 BillingUnit 列表，并应用封顶逻辑、累计金额、截断标记。
      * <p>
      * 封顶：按自然日（24h）统计 dayAccumulated，达到 maxCharge 后剩余段变为免费（CYCLE_CAP）。
-     * 累计：基于 previousAccumulatedAmount + 截断单元已扣金额。
+     * 累计：从零开始逐单元累加。
      * 截断：最后一个段的 duration &lt; unitMinutes 且 endTime == calcEnd 时标记 isTruncated。
      */
     private List<BillingUnit> applyCapAndAccumulate(List<HomogeneousSegment> segments,

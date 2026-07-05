@@ -45,7 +45,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
 
     private final RelativeTimeContinuousCalculator continuousCalculator = new RelativeTimeContinuousCalculator();
     private final RelativeTimePeriodResolver periodResolver = new RelativeTimePeriodResolver();
-    private final RelativeTimeContinuousCapHandler continuousCapHandler = new RelativeTimeContinuousCapHandler();
     private final RelativeTimeSimplifiedCycleStateManager simplifiedCycleStateManager = new RelativeTimeSimplifiedCycleStateManager();
 
     @Override
@@ -206,7 +205,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         LocalDateTime calcEnd = window.getCalculationEnd();
         LocalDateTime cycleOriginBegin = context.getBeginTime();
 
-        // 初始化单次计算周期跟踪状态（CONTINUE 续算已下线）
+        // 初始化单次计算周期跟踪状态
         initializeState(calcBegin);
 
         // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
@@ -352,7 +351,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
      * 把同质段列表转换为 BillingUnit 列表，并应用封顶逻辑、累计金额、截断标记。
      * <p>
      * 封顶：按 24h 周期内累计，达到 maxCharge 后剩余段变为免费（CYCLE_CAP）。
-     * 累计：基于 previousAccumulatedAmount + 截断单元已扣金额。
+     * 累计：从零开始逐单元累加。
      * 截断：最后一个段的 duration &lt; 单元长度且 endTime == calcEnd 时标记 isTruncated。
      */
     private ContinuousResult applyCapAndAccumulate(List<HomogeneousSegment> segments,

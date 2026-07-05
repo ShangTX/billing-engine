@@ -28,7 +28,7 @@ import java.util.Map;
  */
 public final class ExternalPromotionPool {
 
-    // id -> 原始 grant（保留 priority/source/rangeType/conditional 等元数据）
+    // id -> 原始 grant（保留 priority/source/rangeType 等元数据）
     private final Map<String, PromotionGrant> originalGrants = new LinkedHashMap<>();
     // id -> 剩余 FREE_MINUTES 分钟
     private final Map<String, Long> remainingMinutes = new HashMap<>();

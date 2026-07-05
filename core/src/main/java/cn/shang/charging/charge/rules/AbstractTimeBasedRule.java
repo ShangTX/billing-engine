@@ -55,39 +55,6 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
     }
 
     /**
-     * 计算气泡型免费时段的总延长时长（分钟）
-     * @param freeTimeRanges 免费时段列表
-     * @param calcBegin 计算窗口起点
-     * @param calcEnd 计算窗口终点
-     * @return 气泡延长总分钟数
-     */
-    protected int calculateBubbleExtension(List<FreeTimeRange> freeTimeRanges,
-                                           LocalDateTime calcBegin,
-                                           LocalDateTime calcEnd) {
-        if (freeTimeRanges == null || freeTimeRanges.isEmpty()) {
-            return 0;
-        }
-
-        int totalExtension = 0;
-        for (FreeTimeRange range : freeTimeRanges) {
-            // 只处理气泡型免费时段
-            if (range.getRangeType() == FreeTimeRangeType.BUBBLE) {
-                // 计算该气泡在计算窗口内的实际使用部分
-                LocalDateTime effectiveBegin = range.getBeginTime().isBefore(calcBegin)
-                        ? calcBegin : range.getBeginTime();
-                LocalDateTime effectiveEnd = range.getEndTime().isAfter(calcEnd)
-                        ? calcEnd : range.getEndTime();
-
-                // 只有在窗口内有交集才计算
-                if (effectiveBegin.isBefore(effectiveEnd)) {
-                    totalExtension += (int) Duration.between(effectiveBegin, effectiveEnd).toMinutes();
-                }
-            }
-        }
-        return totalExtension;
-    }
-
-    /**
      * 子类实现：是否有复杂特性（时间段封顶等）
      */
     protected abstract boolean hasComplexFeatures(C config);
