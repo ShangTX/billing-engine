@@ -4,11 +4,11 @@
 id: TODO-20260703-001
 type: refactor
 priority: P1
-status: todo
+status: done
 source_git: b5da25f
 created_at: 2026-07-03
-completed_at:
-completed_git:
+completed_at: 2026-07-03
+completed_git: e4a95de
 ---
 
 ## 背景
