@@ -5,7 +5,6 @@ import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
@@ -36,7 +35,6 @@ final class DayNightUnitBasedStrategy {
 
     private static final int MINUTES_PER_DAY = 1440;
 
-    private static final FreeMinuteAllocator FREE_MINUTE_ALLOCATOR = new FreeMinuteAllocator();
 
     private final DayNightPriceResolver priceResolver = new DayNightPriceResolver();
 
@@ -51,7 +49,7 @@ final class DayNightUnitBasedStrategy {
         BigDecimal maxCharge = config.getMaxChargeOneDay();
 
         // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
-        FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, context.getWindow());
+        FreeMinuteAllocationResult materialized = AbstractTimeBasedRule.materializeFreeMinutes(promotionAggregate, context.getWindow());
         final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
 
@@ -208,19 +206,6 @@ final class DayNightUnitBasedStrategy {
      * 时段化 FREE_MINUTES（TODO-20260702-004：策略侧时段化）。
      * 本策略不继承 AbstractTimeBasedRule，故本地调用 FreeMinuteAllocator。
      */
-    private FreeMinuteAllocationResult materializeFreeMinutes(PromotionAggregate promotionAggregate,
-                                                              CalculationWindow window) {
-        var freeMinutesList = promotionAggregate != null ? promotionAggregate.getFreeMinutesList() : null;
-        List<FreeTimeRange> freeRangeOnly = promotionAggregate != null
-                && promotionAggregate.getFreeTimeRanges() != null
-                ? promotionAggregate.getFreeTimeRanges() : List.of();
-        if (freeMinutesList == null || freeMinutesList.isEmpty()) {
-            return new FreeMinuteAllocationResult()
-                    .setFinalFreeRanges(freeRangeOnly)
-                    .setPromotionUsages(List.of());
-        }
-        return FREE_MINUTE_ALLOCATOR.allocateAndMerge(freeMinutesList, freeRangeOnly, window);
-    }
 
     /**
      * 查找完整覆盖 [begin, end] 的免费时段，返回其优惠 ID。部分覆盖返回 null。

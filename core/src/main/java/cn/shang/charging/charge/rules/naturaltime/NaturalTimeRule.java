@@ -143,7 +143,6 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
 
         // 状态续算已下线（CONTINUE 移除），单次计算周期跟踪从 calcBegin 初始化
-        initializeState(calcBegin);
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())

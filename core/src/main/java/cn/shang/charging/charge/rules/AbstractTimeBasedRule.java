@@ -227,28 +227,6 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
                 .build();
     }
 
-    // ==================== CalculationContext 构建 ====================
-
-    /**
-     * 构建计算上下文（集中跳过判断）
-     */
-    protected CalculationContext buildCalculationContext(
-            BillingContext context,
-            PromotionAggregate promotionAggregate,
-            C config) {
-
-        boolean hasPromotion = promotionAggregate != null && !promotionAggregate.isEmpty();
-
-        boolean hasMultiplePromotionTypes = hasPromotion && promotionAggregate.hasMultiplePromotionTypes();
-
-        boolean hasComplexFeatures = hasComplexFeatures(config);
-
-        return CalculationContext.builder()
-                .hasPromotion(hasPromotion)
-                .hasMultiplePromotionTypes(hasMultiplePromotionTypes)
-                .hasComplexFeatures(hasComplexFeatures)
-                .build();
-    }
 
     // ==================== CONTINUOUS 模式公共时间轴切分基础设施 ====================
 
@@ -433,7 +411,7 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
     /**
      * 策略侧 FREE_MINUTES 时段化工具实例（无状态，共享）。
      */
-    private static final FreeMinuteAllocator FREE_MINUTE_ALLOCATOR = new FreeMinuteAllocator();
+    public static final FreeMinuteAllocator FREE_MINUTE_ALLOCATOR = new FreeMinuteAllocator();
 
     /**
      * 把 PromotionAggregate 中的未时段化 FREE_MINUTES 时段化为时间段，与 FREE_RANGE 合并，
@@ -449,7 +427,7 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
      * @param window              计算窗口
      * @return finalFreeRanges（FREE_RANGE + 时段化 FREE_MINUTES，已合并）+ FREE_MINUTES usages
      */
-    protected FreeMinuteAllocationResult materializeFreeMinutes(
+    public static FreeMinuteAllocationResult materializeFreeMinutes(
             PromotionAggregate promotionAggregate, CalculationWindow window) {
         List<FreeMinutes> freeMinutesList = promotionAggregate != null
                 ? promotionAggregate.getFreeMinutesList() : null;

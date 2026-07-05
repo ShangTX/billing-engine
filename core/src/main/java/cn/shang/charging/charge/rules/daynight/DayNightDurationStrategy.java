@@ -5,11 +5,11 @@ import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.billing.pojo.DurationSegment;
+import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.charge.rules.BoundaryDrivenLoop;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeMinutes;
@@ -41,7 +41,6 @@ final class DayNightDurationStrategy {
 
     private static final int MINUTES_PER_CYCLE = 1440;
 
-    private static final FreeMinuteAllocator FREE_MINUTE_ALLOCATOR = new FreeMinuteAllocator();
 
     private final DayNightPriceResolver priceResolver = new DayNightPriceResolver();
 
@@ -66,7 +65,7 @@ final class DayNightDurationStrategy {
         List<FreeMinutes> freeMinutesList = null;
         List<FreeTimeRange> freeTimeRanges;
         if (durationMode == BConstants.DurationMode.PERIOD) {
-            materialized = materializeFreeMinutes(promotionAggregate, context.getWindow());
+            materialized = AbstractTimeBasedRule.materializeFreeMinutes(promotionAggregate, context.getWindow());
             freeTimeRanges = materialized.getFinalFreeRanges() != null
                     ? materialized.getFinalFreeRanges() : List.of();
         } else {
@@ -191,19 +190,6 @@ final class DayNightDurationStrategy {
      * 时段化 FREE_MINUTES（TODO-20260702-004：策略侧时段化，PERIOD 模式用）。
      * 本策略不继承 AbstractTimeBasedRule，故本地调用 FreeMinuteAllocator。
      */
-    private FreeMinuteAllocationResult materializeFreeMinutes(PromotionAggregate promotionAggregate,
-                                                              CalculationWindow window) {
-        var freeMinutesList = promotionAggregate != null ? promotionAggregate.getFreeMinutesList() : null;
-        List<FreeTimeRange> freeRangeOnly = promotionAggregate != null
-                && promotionAggregate.getFreeTimeRanges() != null
-                ? promotionAggregate.getFreeTimeRanges() : List.of();
-        if (freeMinutesList == null || freeMinutesList.isEmpty()) {
-            return new FreeMinuteAllocationResult()
-                    .setFinalFreeRanges(freeRangeOnly)
-                    .setPromotionUsages(List.of());
-        }
-        return FREE_MINUTE_ALLOCATOR.allocateAndMerge(freeMinutesList, freeRangeOnly, window);
-    }
 
     private void validateConfig(DayNightConfig config) {
         if (config.getMaxChargeOneDay() == null || config.getMaxChargeOneDay().compareTo(BigDecimal.ZERO) <= 0) {

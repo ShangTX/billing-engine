@@ -206,7 +206,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         LocalDateTime cycleOriginBegin = context.getBeginTime();
 
         // 初始化单次计算周期跟踪状态
-        initializeState(calcBegin);
 
         // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
         FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, window);
