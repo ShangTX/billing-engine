@@ -1,7 +1,6 @@
 package cn.shang.charging.promotion.pojo;
 
 import cn.shang.charging.billing.pojo.BConstants;
-import cn.shang.charging.billing.pojo.PromotionCarryOver;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -28,18 +27,8 @@ public class PromotionAggregate {
     long freeMinutes;                       // 同化后的总免费分钟（= freeMinutesList 求和，简化计算判定用）
     List<FreeMinutes> freeMinutesList;      // 未时段化的 FREE_MINUTES 列表（TODO-20260702-004：时段化下放到策略侧）
 
-    // 使用统计（来自规则 & 外部）
-    // 注：FREE_MINUTES 的 usage 由策略侧时段化/扣减时产出，不再由 PromotionEngine 填充
-    List<PromotionUsage> usages;
-
     // —— 可选：等效金额（仅统计，不参与计费） ——
     BigDecimal equivalentAmount;
-
-    /**
-     * 优惠结转输出状态
-     * 用于 CONTINUE 模式的下次计算
-     */
-    PromotionCarryOver promotionCarryOver;
 
     // ==================== AMOUNT/DISCOUNT 优惠 ====================
 

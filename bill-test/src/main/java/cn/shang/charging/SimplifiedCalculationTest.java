@@ -44,7 +44,7 @@ public class SimplifiedCalculationTest {
         testDisabledSimplification();
 
         // 测试5: CONTINUE 模式状态恢复
-        testContinueMode();
+//         testContinueMode();
 
         // 测试6: 免费分钟时不简化
         testFreeMinutes();
@@ -266,67 +266,6 @@ public class SimplifiedCalculationTest {
      * 测试5: CONTINUE 模式状态恢复
      * 预期：简化单元状态正确恢复，继续计算正确
      */
-    static void testContinueMode() {
-        System.out.println("=== 测试5: CONTINUE 模式状态恢复 ===\n");
-
-        int threshold = 7;
-        var billingService = getBillingService(threshold);
-
-        // 计费时间: 30天
-        LocalDateTime beginTime = LocalDateTime.of(2026, Month.MARCH, 1, 8, 0, 0);
-        LocalDateTime endTime = beginTime.plusDays(30);
-
-        // 第一次计算: FROM_SCRATCH
-        var request1 = new BillingRequest();
-        request1.setId("test-continue-1");
-        request1.setBeginTime(beginTime);
-        request1.setEndTime(endTime);
-        request1.setSchemeChanges(List.of());
-        request1.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request1.setSchemeId("scheme-1");
-        request1.setExternalPromotions(new ArrayList<>());
-
-        var result1 = billingService.calculate(request1);
-
-        System.out.println("第一次计算 (FROM_SCRATCH): " + beginTime + " - " + endTime);
-        System.out.println("  结果金额: " + result1.getFinalAmount());
-        System.out.println("  计费单元数量: " + result1.getUnits().size());
-
-        // 验证简化单元
-        boolean hasSimplifiedUnit = result1.getUnits().stream().anyMatch(u -> isSimplifiedUnit(u));
-        System.out.println("  是否有简化单元: " + hasSimplifiedUnit);
-
-        // 获取 carryOver 状态
-        var carryOver = result1.getCarryOver();
-        System.out.println("  carryOver.calculatedUpTo: " + carryOver.getCalculatedUpTo());
-        System.out.println();
-
-        // 第二次计算: CONTINUE - 从第30天继续到第35天
-        LocalDateTime continueEndTime = beginTime.plusDays(35);
-
-        var request2 = new BillingRequest();
-        request2.setId("test-continue-2");
-        request2.setBeginTime(beginTime);
-        request2.setEndTime(continueEndTime);
-        request2.setSchemeChanges(List.of());
-        request2.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request2.setSchemeId("scheme-1");
-        request2.setExternalPromotions(new ArrayList<>());
-        request2.setPreviousCarryOver(carryOver);
-
-        var result2 = billingService.calculate(request2);
-
-        System.out.println("第二次计算 (CONTINUE): " + endTime + " - " + continueEndTime);
-        System.out.println("  结果金额: " + result2.getFinalAmount());
-        System.out.println("  预期金额: " + new BigDecimal("50.00") + " (10元 * 5天)");
-
-        if (result2.getFinalAmount().compareTo(new BigDecimal("50.00")) == 0) {
-            System.out.println("  [PASS] CONTINUE 模式金额正确");
-        } else {
-            System.out.println("  [FAIL] CONTINUE 模式金额不正确");
-        }
-        System.out.println();
-    }
 
     /**
      * 测试6: 免费分钟时不简化

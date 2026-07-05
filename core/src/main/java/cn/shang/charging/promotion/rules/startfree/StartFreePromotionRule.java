@@ -41,12 +41,6 @@ public class StartFreePromotionRule implements PromotionRule<StartFreePromotionC
                 .setBeginTime(beginTime)
                 .setEndTime(endTime);
 
-        // 条件免费：当 validateQueryTime 启用时，标记为条件免费
-        if (Boolean.TRUE.equals(config.getValidateQueryTime())) {
-            grant.setConditional(true)
-                    .setConditionalUntil(endTime);
-        }
-
         return List.of(grant);
     }
 }

@@ -11,8 +11,6 @@ import lombok.Data;
 @Data
 @Builder
 public class CalculationContext {
-    /** 是否为 CONTINUE 模式 */
-    private boolean hasContinueMode;
 
     /** 是否有优惠 */
     private boolean hasPromotion;
@@ -25,11 +23,6 @@ public class CalculationContext {
 
     // ==================== 跳过判断方法 ====================
 
-    /** 是否跳过状态恢复 */
-    public boolean shouldSkipStateRestore() {
-        return !hasContinueMode;
-    }
-
     /** 是否跳过优惠处理 */
     public boolean shouldSkipPromotionHandling() {
         return !hasPromotion;
@@ -38,10 +31,5 @@ public class CalculationContext {
     /** 是否为简单优惠（单一类型） */
     public boolean isSimplePromotion() {
         return hasPromotion && !hasMultiplePromotionTypes;
-    }
-
-    /** 是否简化状态输出 */
-    public boolean shouldSimplifyStateOutput() {
-        return !hasContinueMode;
     }
 }

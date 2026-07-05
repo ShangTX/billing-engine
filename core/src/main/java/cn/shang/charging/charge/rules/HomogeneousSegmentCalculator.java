@@ -1,10 +1,6 @@
 package cn.shang.charging.charge.rules;
 
 import cn.shang.charging.billing.pojo.BillingUnit;
-import cn.shang.charging.billing.value.UnitValueSpec;
-import cn.shang.charging.billing.value.FixedValueSpec;
-import cn.shang.charging.promotion.pojo.FreeTimeRange;
-import cn.shang.charging.util.TypeConversionUtil;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -31,16 +27,13 @@ public final class HomogeneousSegmentCalculator {
      * 合并规则：相邻段 canMergeWith 为 true 时合并为 compact 单元，count 累加；
      * 否则保留为单子单元（compact=false, count=1）。
      */
-    public static List<BillingUnit> toCompactUnits(List<HomogeneousSegment> segments,
-                                                   BigDecimal previousAccumulated,
-                                                   BigDecimal truncatedUnitDeduction) {
+    public static List<BillingUnit> toCompactUnits(List<HomogeneousSegment> segments) {
         if (segments == null || segments.isEmpty()) {
             return new ArrayList<>();
         }
 
         List<BillingUnit> units = new ArrayList<>();
-        BigDecimal accumulated = previousAccumulated;
-        if (accumulated == null) accumulated = BigDecimal.ZERO;
+        BigDecimal accumulated = BigDecimal.ZERO;
 
         int i = 0;
         while (i < segments.size()) {
@@ -57,17 +50,9 @@ public final class HomogeneousSegmentCalculator {
 
             // 生成一个 BillingUnit（compact 或非 compact）
             BigDecimal segmentCharged = computeChargedAmount(current, runLength, totalMinutes);
-            if (truncatedUnitDeduction != null && i == 0) {
-                BigDecimal adjusted = segmentCharged.subtract(truncatedUnitDeduction);
-                if (adjusted.signum() < 0) adjusted = BigDecimal.ZERO;
-                segmentCharged = adjusted;
-            }
 
             accumulated = accumulated.add(segmentCharged);
             boolean isCompact = runLength > 1;
-
-            // valueSpec 转换：HomogeneousSegment 的 valueSpec 是 Object，需转 UnitValueSpec
-            UnitValueSpec spec = toValueSpec(current);
 
             BillingUnit unit = BillingUnit.builder()
                     .beginTime(current.getBeginTime())
@@ -81,7 +66,6 @@ public final class HomogeneousSegmentCalculator {
                     .freePromotionId(current.getFreePromotionId())
                     .chargedAmount(segmentCharged)
                     .accumulatedAmount(accumulated)
-                    .valueSpec(spec)
                     .ruleData(current.getRuleData())
                     .compact(isCompact)
                     .count(isCompact ? runLength : 1)
@@ -102,24 +86,5 @@ public final class HomogeneousSegmentCalculator {
             return BigDecimal.ZERO;
         }
         return original.multiply(BigDecimal.valueOf(runLength));
-    }
-
-    private static UnitValueSpec toValueSpec(HomogeneousSegment segment) {
-        Object raw = segment.getValueSpec();
-        if (raw == null) {
-            if (segment.isFree()) {
-                return new FixedValueSpec(BigDecimal.ZERO);
-            }
-            return new FixedValueSpec(segment.getOriginalAmount() != null
-                    ? segment.getOriginalAmount() : BigDecimal.ZERO);
-        }
-        if (raw instanceof UnitValueSpec spec) {
-            return spec;
-        }
-        if (raw instanceof BigDecimal bd) {
-            return new FixedValueSpec(bd);
-        }
-        return new FixedValueSpec(segment.getOriginalAmount() != null
-                ? segment.getOriginalAmount() : BigDecimal.ZERO);
     }
 }

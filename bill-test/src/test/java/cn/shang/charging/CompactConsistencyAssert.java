@@ -136,7 +136,6 @@ final class CompactConsistencyAssert {
                     .freePromotionId(unit.getFreePromotionId())
                     .chargedAmount(subCharged)
                     .accumulatedAmount(segmentAccumulated)
-                    .valueSpec(unit.getValueSpec())
                     .ruleData(unit.getRuleData())
                     .build();
             subs.add(sub);

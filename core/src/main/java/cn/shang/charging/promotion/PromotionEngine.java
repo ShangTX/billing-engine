@@ -80,28 +80,9 @@ public class PromotionEngine {
             }
         }
 
-        // 3️⃣ 应用优惠结转状态（CONTINUE 模式）
-        Map<String, Integer> remainingMinutes = null;
-        List<FreeTimeRange> usedFreeRanges = null;
-        if (context.getPromotionCarryOver() != null) {
-            remainingMinutes = context.getPromotionCarryOver().getRemainingMinutesConverted();
-            usedFreeRanges = context.getPromotionCarryOver().getUsedFreeRanges();
-        }
-
-        // 4️⃣ 应用剩余免费分钟数
-        if (remainingMinutes != null && !remainingMinutes.isEmpty()) {
-            applyRemainingMinutes(freeMinutesPromotions, remainingMinutes);
-        }
-
-        // 5️⃣ 处理已使用的免费时段（排除已用部分）
-        List<FreeTimeRange> filteredTimeRangePromotions = timeRangePromotions;
-        if (usedFreeRanges != null && !usedFreeRanges.isEmpty()) {
-            filteredTimeRangePromotions = filterUsedFreeRanges(timeRangePromotions, usedFreeRanges, window);
-        }
-
-        // 6️⃣ 合并显式免费时间段（FREE_RANGE；FREE_MINUTES 不在此处时段化）
+        // 3️⃣ 合并显式免费时间段（FREE_RANGE；FREE_MINUTES 不在此处时段化）
         TimeRangeMergeResult rangeMergeResult = freeTimeRangeMerger.merge(
-                filteredTimeRangePromotions,
+                timeRangePromotions,
                 context.getBeginTime(),
                 context.getEndTime());
         List<FreeTimeRange> explicitFreeRanges = rangeMergeResult.getMergedRanges();
@@ -111,106 +92,20 @@ public class PromotionEngine {
                 .mapToLong(fm -> fm.getMinutes())
                 .sum();
 
-        // 7️⃣ 计算 AMOUNT/DISCOUNT 优惠汇总
+        // 4️⃣ 计算 AMOUNT/DISCOUNT 优惠汇总
         BigDecimal totalAmountDiscount = calculateTotalAmountDiscount(amountDiscounts);
         BigDecimal bestDiscountRate = calculateBestDiscountRate(amountDiscounts);
 
         // 产出规范中间形式：FREE_RANGE 时段 + 未时段化 FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量。
-        // FREE_MINUTES 时段化、PromotionUsage、PromotionCarryOver 由策略侧产出（TODO-20260702-004）。
+        // FREE_MINUTES 时段化、PromotionUsage 由策略侧产出（TODO-20260702-004）。
         return PromotionAggregate.builder()
                 .freeTimeRanges(explicitFreeRanges)
                 .freeMinutes(totalFreeMinutes)
                 .freeMinutesList(freeMinutesPromotions)
-                .usages(null)
-                .promotionCarryOver(null)
                 .amountDiscounts(amountDiscounts.isEmpty() ? null : amountDiscounts)
                 .totalAmountDiscount(totalAmountDiscount)
                 .bestDiscountRate(bestDiscountRate)
                 .build();
-    }
-
-    /**
-     * 应用剩余免费分钟数
-     * 将结转的剩余分钟数更新到免费分钟数列表中
-     */
-    private void applyRemainingMinutes(List<FreeMinutes> freeMinutesPromotions, Map<String, Integer> remainingMinutes) {
-        for (FreeMinutes fm : freeMinutesPromotions) {
-            Integer remaining = remainingMinutes.get(fm.getId());
-            if (remaining != null && remaining > 0) {
-                // 使用剩余分钟数替换原始分钟数
-                fm.setMinutes(remaining);
-            } else if (remaining != null && remaining <= 0) {
-                // 已用完，标记为 0
-                fm.setMinutes(0);
-            }
-        }
-    }
-
-    /**
-     * 过滤已使用的免费时段
-     * 从可用时段中排除已使用的部分
-     */
-    private List<FreeTimeRange> filterUsedFreeRanges(List<FreeTimeRange> timeRangePromotions,
-                                                      List<FreeTimeRange> usedFreeRanges,
-                                                      CalculationWindow window) {
-        List<FreeTimeRange> result = new ArrayList<>();
-
-        for (FreeTimeRange range : timeRangePromotions) {
-            List<FreeTimeRange> remaining = List.of(range);
-
-            // 对每个已使用时段，从剩余时段中减去
-            for (FreeTimeRange used : usedFreeRanges) {
-                if (used.getId() != null && used.getId().equals(range.getId())) {
-                    remaining = subtractFreeRanges(remaining, used);
-                }
-            }
-
-            result.addAll(remaining);
-        }
-
-        return result;
-    }
-
-    /**
-     * 从时段列表中减去一个已使用时段
-     */
-    private List<FreeTimeRange> subtractFreeRanges(List<FreeTimeRange> ranges, FreeTimeRange used) {
-        List<FreeTimeRange> result = new ArrayList<>();
-
-        for (FreeTimeRange range : ranges) {
-            // 无交集，保留原时段
-            if (!range.overlaps(used)) {
-                result.add(range);
-                continue;
-            }
-
-            // 有交集，分割时段
-            // 前半段：range.beginTime ~ used.beginTime
-            if (range.getBeginTime().isBefore(used.getBeginTime())) {
-                result.add(FreeTimeRange.builder()
-                        .id(range.getId())
-                        .beginTime(range.getBeginTime())
-                        .endTime(used.getBeginTime())
-                        .priority(range.getPriority())
-                        .promotionType(range.getPromotionType())
-                        .rangeType(range.getRangeType())
-                        .build());
-            }
-
-            // 后半段：used.endTime ~ range.endTime
-            if (used.getEndTime().isBefore(range.getEndTime())) {
-                result.add(FreeTimeRange.builder()
-                        .id(range.getId())
-                        .beginTime(used.getEndTime())
-                        .endTime(range.getEndTime())
-                        .priority(range.getPriority())
-                        .promotionType(range.getPromotionType())
-                        .rangeType(range.getRangeType())
-                        .build());
-            }
-        }
-
-        return result;
     }
 
     /**
@@ -248,8 +143,6 @@ public class PromotionEngine {
                 .priority(grant.getPriority())
                 .rangeType(grant.getRangeType())
                 .source(grant.getSource())
-                .conditional(Boolean.TRUE.equals(grant.getConditional()))
-                .conditionalUntil(grant.getConditionalUntil())
                 .build();
     }
 

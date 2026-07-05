@@ -13,7 +13,7 @@ import java.util.Objects;
  * <p>
  * 合并条件（除时间窗连续外，其他字段完全相同）：
  * <ul>
- *   <li>unitPrice、originalAmount、free、freePromotionId、chargedAmount、valueSpec、ruleData 一致</li>
+ *   <li>unitPrice、originalAmount、free、freePromotionId、chargedAmount、ruleData 一致</li>
  *   <li>非 compact、非 truncated、非简化单元</li>
  *   <li>前后单元时间连续（prev.endTime == next.beginTime）</li>
  *   <li>单子单元时长一致（即 prev.durationMinutes == next.durationMinutes）</li>
@@ -78,7 +78,6 @@ public final class CompactMerger {
         if (a.isFree() != b.isFree()) return false;
         if (!Objects.equals(a.getFreePromotionId(), b.getFreePromotionId())) return false;
         if (!Objects.equals(a.getChargedAmount(), b.getChargedAmount())) return false;
-        if (!Objects.equals(a.getValueSpec(), b.getValueSpec())) return false;
         if (!Objects.equals(a.getRuleData(), b.getRuleData())) return false;
         if (a.getDurationMinutes() != b.getDurationMinutes()) return false;
         if (runCurrentEnd == null || !runCurrentEnd.equals(b.getBeginTime())) return false;
@@ -104,12 +103,10 @@ public final class CompactMerger {
                         ? first.getChargedAmount().multiply(BigDecimal.valueOf(runCount))
                         : null)
                 .accumulatedAmount(accumulatedAtEnd)
-                .valueSpec(first.getValueSpec())
                 .ruleData(first.getRuleData())
                 .isTruncated(first.getIsTruncated())
                 .compact(true)
                 .count(runCount)
-                .mergedFromPrevious(first.getMergedFromPrevious())
                 .build();
     }
 }

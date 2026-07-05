@@ -40,7 +40,6 @@ import java.util.Map;
 final class DayNightDurationStrategy {
 
     private static final int MINUTES_PER_CYCLE = 1440;
-    private static final String RULE_TYPE = "dayNight";
 
     private static final FreeMinuteAllocator FREE_MINUTE_ALLOCATOR = new FreeMinuteAllocator();
 
@@ -110,12 +109,12 @@ final class DayNightDurationStrategy {
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
                     return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
-                            true, range.getId(), null, null);
+                            true, range.getId(), null);
                 }
             }
             // 计算日夜单价
             BigDecimal unitPrice = priceResolver.determineUnitPriceForContinuous(current, next, config);
-            return new HomogeneousSegment(current, next, unitPrice, unitPrice, false, null, null, null);
+            return new HomogeneousSegment(current, next, unitPrice, unitPrice, false, null, null);
         });
 
         // period 解析器：仅提供 day/night 标签，无 period 级封顶
@@ -153,13 +152,7 @@ final class DayNightDurationStrategy {
             globalFreeMinutesUsages = global.freeMinutesUsages;
         }
 
-        // 周期状态输出（时长模式不参与 CONTINUE，状态仅为格式一致）
-        Map<String, Object> dayNightState = new HashMap<>();
-        dayNightState.put("cycleIndex", 0);
-        dayNightState.put("cycleAccumulated", BigDecimal.ZERO);
-        dayNightState.put("cycleBoundary", calcBegin.plusMinutes(MINUTES_PER_CYCLE));
-        Map<String, Object> ruleOutputState = new HashMap<>();
-        ruleOutputState.put(RULE_TYPE, dayNightState);
+        // 周期状态输出已下线（时长模式不参与 CONTINUE 续算）
 
         // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 从 DurationSegment.originalAmount 聚合）
         final List<DurationSegment> finalSegments = durationResult.segments;
@@ -176,11 +169,6 @@ final class DayNightDurationStrategy {
                         ? materialized.getPromotionUsages() : List.of())
                 : globalFreeMinutesUsages;
         allUsages.addAll(freeMinutesUsages);
-        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
-        if (promotionAggregate != null) {
-            promotionAggregate.setPromotionCarryOver(
-                    PromotionAggregateUtil.buildCarryOver(freeMinutesUsages, freeTimeRanges, calcEnd));
-        }
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
@@ -197,7 +185,6 @@ final class DayNightDurationStrategy {
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(calcBegin)
                 .feeEffectiveEnd(calcEnd)
-                .ruleOutputState(ruleOutputState)
                 .build();
     }
 

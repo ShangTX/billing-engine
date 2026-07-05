@@ -13,9 +13,8 @@ import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
-import cn.shang.charging.billing.value.FixedValueSpec;
-import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
+import cn.shang.charging.promotion.pojo.PromotionUsage;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -40,17 +39,11 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
 
     private static final int MINUTES_PER_DAY = 1440;
 
-    private static final String RULE_TYPE = "compositeTime";
     private final CompositeTimeContinuousCalculator continuousCalculator = new CompositeTimeContinuousCalculator();
     private final CompositeTimePeriodResolver periodResolver = new CompositeTimePeriodResolver();
     private final CompositeTimeCrossPeriodPriceResolver crossPeriodPriceResolver = new CompositeTimeCrossPeriodPriceResolver();
     private final CompositeTimeContinuousCapHandler continuousCapHandler = new CompositeTimeContinuousCapHandler();
     private final CompositeTimeSimplifiedCycleStateManager simplifiedCycleStateManager = new CompositeTimeSimplifiedCycleStateManager();
-
-    @Override
-    protected String getRuleType() {
-        return RULE_TYPE;
-    }
 
     @Override
     protected boolean hasComplexFeatures(CompositeTimeConfig config) {
@@ -181,22 +174,12 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         // 获取计费起点（从分段信息获取）
         LocalDateTime billingOrigin = context.getSegment().getBeginTime();
 
-        // 恢复状态
-        RuleState state = restoreState(context.getRuleState());
-        if (state == null) {
-            state = AbstractTimeBasedRule.RuleState.builder()
-                    .cycleIndex(0)
-                    .cycleAccumulated(BigDecimal.ZERO)
-                    .cycleBoundary(billingOrigin.plusMinutes(getCycleMinutes()))
-                    .build();
-        } else {
-            // CONTINUE: 更新周期状态
-            while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
-                state.setCycleIndex(state.getCycleIndex() + 1);
-                state.setCycleAccumulated(BigDecimal.ZERO);
-                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(getCycleMinutes()));
-            }
-        }
+        // 初始化单次计算周期跟踪状态（CONTINUE 续算已下线）
+        RuleState state = AbstractTimeBasedRule.RuleState.builder()
+                .cycleIndex(0)
+                .cycleAccumulated(BigDecimal.ZERO)
+                .cycleBoundary(billingOrigin.plusMinutes(getCycleMinutes()))
+                .build();
 
         // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
         FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, window);
@@ -228,9 +211,8 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         }
 
         // 如果未使用简化，使用边界驱动循环
-        BigDecimal lastCycleAccumulated = BigDecimal.ZERO;
         if (allUnits.isEmpty()) {
-            BigDecimal carryOverAccumulated = state.getCycleAccumulated();
+            BigDecimal carryOverAccumulated = BigDecimal.ZERO;
             BigDecimal maxCharge = config.getMaxChargeOneCycle();
 
             // 边界来源：period 边界 + cycle 边界 + 免费时段起止 + 单元对齐 + calcEnd
@@ -274,7 +256,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 for (FreeTimeRange range : freeTimeRanges) {
                     if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
                         return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
-                                true, range.getId(), null, null);
+                                true, range.getId(), null);
                     }
                 }
                 long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
@@ -282,37 +264,14 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 CompositePeriod period = periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
                 BigDecimal unitPrice = crossPeriodPriceResolver.calculateUnitPrice(current, next, period);
                 return new HomogeneousSegment(current, next, unitPrice, unitPrice,
-                        false, null, null, null);
+                        false, null, null);
             });
 
             // 转换为 BillingUnit（封顶 + 累计 + compact + 截断）
             ContinuousResult result = applyCapAndAccumulate(segments, maxCharge, carryOverAccumulated,
                     context, config, billingOrigin, calcBegin);
             allUnits = result.units;
-            lastCycleAccumulated = result.lastCycleAccumulated;
-
-            // 更新最终状态
-            simplifiedCycleStateManager.updateStateAfterPlainContinuous(
-                    cycles,
-                    state,
-                    lastCycleAccumulated,
-                    calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd),
-                    cycle -> ((CycleFragments) cycle).cycleStart,
-                    MINUTES_PER_DAY
-            );
-        } else {
-            // 简化计算模式：更新状态
-            simplifiedCycleStateManager.updateStateAfterContinuousSimplified(
-                    allUnits,
-                    state,
-                    cycles.size(),
-                    getCycleCapAmount(config),
-                    calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd),
-                    cycles.isEmpty() ? null : cycles.get(cycles.size() - 1).cycleStart.plusMinutes(MINUTES_PER_DAY),
-                    calcBegin,
-                    this::getCycleBoundary,
-                    this::isSimplifiedUnit
-            );
+            // 状态续算已下线（CONTINUE 移除），不再输出周期状态
         }
 
         BigDecimal totalAmount = allUnits.stream()
@@ -338,14 +297,17 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             }
         }
 
-        // 构建输出状态
-        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
-
-        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
-        // CompositeTime 沿用既有行为：result.promotionUsages 为空，但 carryOver 须构建。
-        if (promotionAggregate != null) {
-            promotionAggregate.setPromotionCarryOver(
-                    PromotionAggregateUtil.buildCarryOver(materialized.getPromotionUsages(), freeTimeRanges, calcEnd));
+        // 产出 FREE_RANGE 的 PromotionUsage（CONTINUOUS 免费单元 originalAmount=0）
+        final List<BillingUnit> finalAllUnits = allUnits;
+        List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
+                freeTimeRanges, calcBegin, calcEnd,
+                rangeId -> finalAllUnits.stream()
+                        .filter(u -> u.isFree() && rangeId.equals(u.getFreePromotionId()))
+                        .map(BillingUnit::getOriginalAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
+        if (materialized.getPromotionUsages() != null) {
+            allUsages.addAll(materialized.getPromotionUsages());
         }
 
         return BillingSegmentResult.builder()
@@ -356,11 +318,10 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 .calculationEndTime(calcEnd)
                 .chargedAmount(totalAmount)
                 .billingUnits(allUnits)
-                .promotionUsages(new ArrayList<>())
+                .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)
-                .ruleOutputState(ruleOutputState)
                 .build();
     }
 
@@ -382,7 +343,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
 
         int consecutiveSimplified = 0;
         int simplifiedStartIndex = -1;
-        BigDecimal carryOverAccumulated = state.getCycleAccumulated();
+        BigDecimal carryOverAccumulated = BigDecimal.ZERO;
 
         for (int cycleIdx = 0; cycleIdx < cycles.size(); cycleIdx++) {
             CycleFragments cycle = cycles.get(cycleIdx);
@@ -480,9 +441,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         CompositePeriod currentPeriod = null;
         int periodStartIndex = 0;
 
-        BigDecimal accumulated = context.getPreviousAccumulatedAmount();
-        if (accumulated == null) accumulated = BigDecimal.ZERO;
-        BigDecimal truncatedDeduction = context.getTruncatedUnitChargedAmount();
+        BigDecimal accumulated = BigDecimal.ZERO;
 
         for (int i = 0; i < segments.size(); i++) {
             HomogeneousSegment seg = segments.get(i);
@@ -547,12 +506,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 }
             }
 
-            if (truncatedDeduction != null && i == 0) {
-                BigDecimal adjusted = charged.subtract(truncatedDeduction);
-                if (adjusted.signum() < 0) adjusted = BigDecimal.ZERO;
-                charged = adjusted;
-            }
-
             accumulated = accumulated.add(charged);
             if (!seg.isFree() && !cycleCapped && !incompleteFree) {
                 cycleAccumulated = cycleAccumulated.add(charged);
@@ -560,23 +513,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
             lastCycleAccumulated = cycleAccumulated;
 
             boolean isCompact = !isTruncated && subCount > 1;
-
-            // valueSpec
-            UnitValueSpec spec;
-            if (isTruncated && !seg.isFree() && !cycleCapped && !incompleteFree) {
-                spec = computeIncompleteValueSpec(unitPrice, segMinutes, unitMinutes,
-                        config.getIncompleteUnitChargeMode(),
-                        config.getThresholdMinutes(), config.getThresholdRatio());
-            } else {
-                spec = seg.getValueSpec() instanceof UnitValueSpec us ? us
-                        : new FixedValueSpec(seg.isFree() || incompleteFree ? BigDecimal.ZERO : unitPrice);
-            }
-            boolean cappedOrReduced = cycleCapped
-                    || (charged.compareTo(originalPerSub.multiply(BigDecimal.valueOf(subCount))) < 0
-                        && !seg.isFree() && !isTruncated);
-            if (cappedOrReduced) {
-                spec = new FixedValueSpec(charged);
-            }
 
             BillingUnit unit = BillingUnit.builder()
                     .beginTime(seg.getBeginTime())
@@ -589,7 +525,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                             : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
                     .chargedAmount(charged)
                     .accumulatedAmount(accumulated)
-                    .valueSpec(spec)
                     .ruleData(seg.getRuleData())
                     .compact(isCompact)
                     .count(isCompact ? subCount : 1)
@@ -693,18 +628,10 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
      * 削减只改变 chargedAmount，需重算前缀累计。
      */
     private void recomputeAccumulatedAmounts(List<BillingUnit> units, BillingContext context) {
-        BigDecimal accumulated = context.getPreviousAccumulatedAmount();
-        if (accumulated == null) accumulated = BigDecimal.ZERO;
-        BigDecimal truncatedDeduction = context.getTruncatedUnitChargedAmount();
+        BigDecimal accumulated = BigDecimal.ZERO;
         for (int i = 0; i < units.size(); i++) {
             BillingUnit unit = units.get(i);
             BigDecimal charged = unit.getChargedAmount();
-            if (truncatedDeduction != null && i == 0) {
-                BigDecimal adjusted = charged.subtract(truncatedDeduction);
-                if (adjusted.signum() < 0) adjusted = BigDecimal.ZERO;
-                charged = adjusted;
-                unit.setChargedAmount(charged);
-            }
             accumulated = accumulated.add(charged);
             unit.setAccumulatedAmount(accumulated);
         }

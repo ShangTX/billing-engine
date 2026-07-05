@@ -38,7 +38,7 @@ public class FlatFreeTest {
         testUnitBasedMode();
 
         // 测试3: CONTINUE 模式 - 从上次结果继续
-        testContinueMode();
+//         testContinueMode();
 
         // 测试4: 带外部优惠但仍返回免费（优惠被忽略）
         testWithPromotionsIgnored();
@@ -112,56 +112,6 @@ public class FlatFreeTest {
     /**
      * 测试3: CONTINUE 模式
      */
-    static void testContinueMode() {
-        System.out.println("=== 测试3: CONTINUE 模式 ===");
-
-        // 第一次计算
-        var billingService = getBillingService(BConstants.BillingMode.CONTINUOUS);
-        var request1 = new BillingRequest();
-        request1.setId("test-3");
-        request1.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
-        request1.setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 12, 0, 0));
-        request1.setSchemeChanges(List.of());
-        request1.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request1.setSchemeId("free-scheme");
-        request1.setExternalPromotions(new ArrayList<>());
-
-        var result1 = billingService.calculate(request1);
-
-        System.out.println("第一次计算: 08:00 - 12:00");
-        System.out.println("finalAmount = " + result1.getFinalAmount());
-        System.out.println("carryOver.calculatedUpTo = " + result1.getCarryOver().getCalculatedUpTo());
-        System.out.println();
-
-        // 验证第一次计算
-        assert result1.getFinalAmount().compareTo(java.math.BigDecimal.ZERO) == 0 : "第一次金额应为 0";
-        assert result1.getCarryOver() != null : "应携带结转状态";
-        assert result1.getCarryOver().getCalculatedUpTo() != null : "应携带 calculatedUpTo";
-        assert result1.getCarryOver().getSegments() != null : "应携带分段状态";
-
-        // 从第一次结果继续计算
-        var request2 = new BillingRequest();
-        request2.setId("test-3");
-        request2.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
-        request2.setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 14, 0, 0));
-        request2.setSchemeChanges(List.of());
-        request2.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request2.setSchemeId("free-scheme");
-        request2.setExternalPromotions(new ArrayList<>());
-        request2.setPreviousCarryOver(result1.getCarryOver());
-
-        var result2 = billingService.calculate(request2);
-
-        System.out.println("第二次计算 (CONTINUE): 08:00 - 14:00");
-        System.out.println("finalAmount = " + result2.getFinalAmount());
-        System.out.println("carryOver.calculatedUpTo = " + result2.getCarryOver().getCalculatedUpTo());
-        System.out.println(JacksonUtils.toJsonString(result2));
-        System.out.println();
-
-        // 验证第二次计算
-        assert result2.getFinalAmount().compareTo(java.math.BigDecimal.ZERO) == 0 : "第二次金额应为 0";
-        assert result2.getCarryOver().getCalculatedUpTo() != null : "应携带新的 calculatedUpTo";
-    }
 
     /**
      * 测试4: 带外部优惠但仍返回免费（优惠被忽略）

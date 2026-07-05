@@ -6,7 +6,6 @@ import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
-import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
@@ -14,9 +13,8 @@ import cn.shang.charging.charge.rules.HomogeneousSegmentCalculator;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
-import cn.shang.charging.billing.value.FixedValueSpec;
-import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
+import cn.shang.charging.promotion.pojo.PromotionUsage;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -28,10 +26,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -48,17 +43,10 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
 
     private static final int MINUTES_PER_CYCLE = 1440; // 24小时 = 1440分钟
 
-    // 规则类型标识（用于 ruleState Map 的 key）
-    private static final String RULE_TYPE = "relativeTime";
     private final RelativeTimeContinuousCalculator continuousCalculator = new RelativeTimeContinuousCalculator();
     private final RelativeTimePeriodResolver periodResolver = new RelativeTimePeriodResolver();
     private final RelativeTimeContinuousCapHandler continuousCapHandler = new RelativeTimeContinuousCapHandler();
     private final RelativeTimeSimplifiedCycleStateManager simplifiedCycleStateManager = new RelativeTimeSimplifiedCycleStateManager();
-
-    @Override
-    protected String getRuleType() {
-        return RULE_TYPE;
-    }
 
     @Override
     protected boolean hasComplexFeatures(RelativeTimeConfig config) {
@@ -218,17 +206,8 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         LocalDateTime calcEnd = window.getCalculationEnd();
         LocalDateTime cycleOriginBegin = context.getBeginTime();
 
-        // 恢复状态
-        RuleState state = restoreState(context.getRuleState());
-        if (state == null) {
-            state = initializeState(calcBegin);
-        } else {
-            while (state.getCycleBoundary() != null && !calcBegin.isBefore(state.getCycleBoundary())) {
-                state.setCycleIndex(state.getCycleIndex() + 1);
-                state.setCycleAccumulated(BigDecimal.ZERO);
-                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(getCycleMinutes()));
-            }
-        }
+        // 初始化单次计算周期跟踪状态（CONTINUE 续算已下线）
+        initializeState(calcBegin);
 
         // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
         FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, window);
@@ -285,7 +264,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
                     return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
-                            true, range.getId(), null, null);
+                            true, range.getId(), null);
                 }
             }
             // 计费段：根据当前位置找 period
@@ -296,14 +275,13 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             BigDecimal unitPrice = period.getUnitPrice();
             // 不足单元也收全额：segment 时长 = next - current（由 boundary-driven 已对齐到 unit grid 或 boundary）
             return new HomogeneousSegment(current, next, unitPrice, unitPrice,
-                    false, null, null, null);
+                    false, null, null);
         });
 
         // 应用封顶 + 累计 + 截断标记（自然日 24h 周期内统计）
-        ContinuousResult capResult = applyCapAndAccumulate(segments, maxCharge, state.getCycleAccumulated(),
+        ContinuousResult capResult = applyCapAndAccumulate(segments, maxCharge, BigDecimal.ZERO,
                 context, periods, periodResolver, cycleOriginBegin, calcBegin, config);
         List<BillingUnit> allUnits = capResult.units;
-        BigDecimal lastCycleAccumulated = capResult.lastCycleAccumulated;
 
         // 简化计算模式：边界驱动已直接产出 compact 单元，简化路径暂不再叠加
         // （简化与 compact 正交，后续可在 compact 基础上进一步合并无优惠周期）
@@ -336,45 +314,23 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             }
         }
 
-        // 计算累计金额
-        BigDecimal accumulatedAmount = context.getPreviousAccumulatedAmount();
-        if (accumulatedAmount == null) {
-            accumulatedAmount = BigDecimal.ZERO;
-        }
-        BigDecimal truncatedUnitChargedAmount = context.getTruncatedUnitChargedAmount();
-        if (truncatedUnitChargedAmount != null && !allUnits.isEmpty()) {
-            accumulatedAmount = accumulatedAmount.subtract(truncatedUnitChargedAmount);
-            if (accumulatedAmount.compareTo(BigDecimal.ZERO) < 0) {
-                accumulatedAmount = BigDecimal.ZERO;
-            }
-        }
+        // 计算累计金额（每段从 ZERO 开始累加）
+        BigDecimal accumulatedAmount = BigDecimal.ZERO;
         for (BillingUnit unit : allUnits) {
             accumulatedAmount = accumulatedAmount.add(unit.getChargedAmount());
             unit.setAccumulatedAmount(accumulatedAmount);
         }
 
-        // 更新状态
-        if (!allUnits.isEmpty()) {
-            // 周期索引由 cycleBoundary 推进逻辑维护，此处仅同步最后周期累计
-            state.setCycleAccumulated(lastCycleAccumulated);
-            int bubbleExtension = calculateBubbleExtension(freeTimeRanges, calcBegin, calcEnd);
-            if (state.getCycleBoundary() != null) {
-                state.setCycleBoundary(state.getCycleBoundary().plusMinutes(bubbleExtension));
-            } else {
-                state.setCycleBoundary(cycleOriginBegin.plusMinutes(
-                        (long) ((Duration.between(cycleOriginBegin, calcEnd).toMinutes() / MINUTES_PER_CYCLE) + 1) * MINUTES_PER_CYCLE
-                ).plusMinutes(bubbleExtension));
-            }
-        }
-
-        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
-
-        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
-        // RelativeTime 沿用既有行为：result.promotionUsages 为空（FREE_MINUTES usage 不并入结果），
-        // 但 carryOver 须从时段化 usage 构建，否则 CONTINUE + FREE_MINUTES 续算 break。
-        if (promotionAggregate != null) {
-            promotionAggregate.setPromotionCarryOver(
-                    PromotionAggregateUtil.buildCarryOver(materialized.getPromotionUsages(), freeTimeRanges, calcEnd));
+        // 产出 FREE_RANGE 的 PromotionUsage（CONTINUOUS 免费单元 originalAmount=0）
+        List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
+                freeTimeRanges, calcBegin, calcEnd,
+                rangeId -> allUnits.stream()
+                        .filter(u -> u.isFree() && rangeId.equals(u.getFreePromotionId()))
+                        .map(BillingUnit::getOriginalAmount)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+        List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
+        if (materialized.getPromotionUsages() != null) {
+            allUsages.addAll(materialized.getPromotionUsages());
         }
 
         return BillingSegmentResult.builder()
@@ -385,11 +341,10 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                 .calculationEndTime(calcEnd)
                 .chargedAmount(totalAmount)
                 .billingUnits(allUnits)
-                .promotionUsages(new ArrayList<>())
+                .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)
-                .ruleOutputState(ruleOutputState)
                 .build();
     }
 
@@ -420,9 +375,7 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         long nextCycleBoundaryOffset = ((calcBeginOffset / MINUTES_PER_CYCLE) + 1) * MINUTES_PER_CYCLE;
         BigDecimal lastCycleAccumulated = cycleAccumulated;
 
-        BigDecimal accumulated = context.getPreviousAccumulatedAmount();
-        if (accumulated == null) accumulated = BigDecimal.ZERO;
-        BigDecimal truncatedDeduction = context.getTruncatedUnitChargedAmount();
+        BigDecimal accumulated = BigDecimal.ZERO;
 
         for (int i = 0; i < segments.size(); i++) {
             HomogeneousSegment seg = segments.get(i);
@@ -476,12 +429,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                 }
             }
 
-            if (truncatedDeduction != null && i == 0) {
-                BigDecimal adjusted = charged.subtract(truncatedDeduction);
-                if (adjusted.signum() < 0) adjusted = BigDecimal.ZERO;
-                charged = adjusted;
-            }
-
             accumulated = accumulated.add(charged);
             if (!seg.isFree() && !cycleCapped && !incompleteFree) {
                 cycleAccumulated = cycleAccumulated.add(charged);
@@ -489,23 +436,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
             lastCycleAccumulated = cycleAccumulated;
 
             boolean isCompact = !isTruncated && subCount > 1;
-
-            // valueSpec
-            UnitValueSpec spec;
-            if (isTruncated && !seg.isFree() && !cycleCapped && !incompleteFree) {
-                spec = computeIncompleteValueSpec(unitPrice, segMinutes, unitMinutes,
-                        config.getIncompleteUnitChargeMode(),
-                        config.getThresholdMinutes(), config.getThresholdRatio());
-            } else {
-                spec = seg.getValueSpec() instanceof UnitValueSpec us ? us
-                        : new FixedValueSpec(seg.isFree() || incompleteFree ? BigDecimal.ZERO : unitPrice);
-            }
-            boolean cappedOrReduced = cycleCapped
-                    || (charged.compareTo(originalPerSub.multiply(BigDecimal.valueOf(subCount))) < 0
-                        && !seg.isFree() && !isTruncated);
-            if (cappedOrReduced) {
-                spec = new FixedValueSpec(charged);
-            }
 
             BillingUnit unit = BillingUnit.builder()
                     .beginTime(seg.getBeginTime())
@@ -518,7 +448,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                             : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
                     .chargedAmount(charged)
                     .accumulatedAmount(accumulated)
-                    .valueSpec(spec)
                     .ruleData(seg.getRuleData())
                     .compact(isCompact)
                     .count(isCompact ? subCount : 1)

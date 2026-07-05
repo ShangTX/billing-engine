@@ -9,9 +9,6 @@ import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.billing.pojo.DurationSegment;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.billing.pojo.SimplifiedUnitMeta;
-import cn.shang.charging.billing.value.FixedValueSpec;
-import cn.shang.charging.billing.value.ProportionalValueSpec;
-import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeMinutes;
@@ -40,21 +37,15 @@ import java.util.Set;
  * 时间计费规则抽象基类
  * <p>
  * 提取公共逻辑：
- * 1. RuleState 状态结构
- * 2. restoreState/toMap 状态序列化
- * 3. buildCarryOverState 结转输出
- * 4. CalculationContext 跳过判断
+ * 1. RuleState 单次计算周期跟踪状态
+ * 2. CalculationContext 跳过判断
+ * 3. 边界驱动循环、时间轴切分、周期组织、简化单元、不足单元计费
  */
 public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements BillingRule<C> {
 
     protected static final int MINUTES_PER_CYCLE = 1440; // 24小时
 
     // ==================== 子类必须实现 ====================
-
-    /**
-     * 规则类型标识（用于 ruleState Map 的 key）
-     */
-    protected abstract String getRuleType();
 
     /**
      * 周期长度（分钟），子类可覆盖
@@ -239,62 +230,11 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
         return meta != null && meta.simplified();
     }
 
-    /**
-     * 从简化单元恢复 RuleState
-     */
-    @SuppressWarnings("unchecked")
-    protected RuleState restoreStateFromSimplifiedUnit(RuleState state, BillingUnit simplifiedUnit, LocalDateTime calcBegin) {
-        if (state == null || simplifiedUnit == null || !isSimplifiedUnit(simplifiedUnit)) {
-            return state;
-        }
-
-        SimplifiedUnitMeta meta = extractSimplifiedUnitMeta(simplifiedUnit);
-        if (meta == null) {
-            return state;
-        }
-
-        state.setCycleIndex(state.getCycleIndex() + meta.simplifiedCycleCount());
-        state.setCycleAccumulated(meta.simplifiedCycleAmount());
-        state.setCycleBoundary(getCycleBoundary(state.getCycleIndex() + 1, calcBegin));
-
-        return state;
-    }
-
     protected SimplifiedUnitMeta extractSimplifiedUnitMeta(BillingUnit unit) {
         return SimplifiedUnitMeta.from(unit);
     }
 
-    /**
-     * 从 Map 恢复 RuleState（支持简化单元）
-     * @param stateMap 状态 Map
-     * @param previousResult 上一次计算结果（用于检测简化单元）
-     * @param calcBegin 当前计算起点
-     */
-    @SuppressWarnings("unchecked")
-    protected RuleState restoreStateWithSimplification(
-            Map<String, Object> stateMap,
-            BillingSegmentResult previousResult,
-            LocalDateTime calcBegin) {
-
-        RuleState state = restoreState(stateMap);
-        if (state == null) {
-            return null;
-        }
-
-        // 检查上一个结果的最后一个单元是否为简化单元
-        if (previousResult != null && previousResult.getBillingUnits() != null
-                && !previousResult.getBillingUnits().isEmpty()) {
-            BillingUnit lastUnit = previousResult.getBillingUnits().get(
-                previousResult.getBillingUnits().size() - 1);
-            if (isSimplifiedUnit(lastUnit)) {
-                restoreStateFromSimplifiedUnit(state, lastUnit, calcBegin);
-            }
-        }
-
-        return state;
-    }
-
-    // ==================== 共同 RuleState 结构 ====================
+    // ==================== 共同 RuleState 结构（单次计算周期跟踪） ====================
 
     @Data
     @Builder
@@ -309,46 +249,8 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
         private LocalDateTime cycleBoundary;
     }
 
-    // ==================== 状态恢复/序列化（共同实现） ====================
-
     /**
-     * 从 Map 恢复 RuleState
-     * 支持序列化后的类型转换（LocalDateTime→String, BigDecimal→String/Double）
-     */
-    @SuppressWarnings("unchecked")
-    protected RuleState restoreState(Map<String, Object> stateMap) {
-        if (stateMap == null) return null;
-        Object state = stateMap.get(getRuleType());
-        if (state == null) return null;
-
-        if (state instanceof RuleState) {
-            return (RuleState) state;
-        }
-
-        if (state instanceof Map) {
-            Map<String, Object> map = (Map<String, Object>) state;
-            return RuleState.builder()
-                    .cycleIndex(TypeConversionUtil.toInteger(map.getOrDefault("cycleIndex", 0)))
-                    .cycleAccumulated(TypeConversionUtil.toBigDecimal(map.getOrDefault("cycleAccumulated", "0")))
-                    .cycleBoundary(TypeConversionUtil.toLocalDateTime(map.get("cycleBoundary")))
-                    .build();
-        }
-        return null;
-    }
-
-    /**
-     * 序列化 RuleState 为 Map
-     */
-    protected Map<String, Object> toMap(RuleState state) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("cycleIndex", state.getCycleIndex());
-        map.put("cycleAccumulated", state.getCycleAccumulated());
-        map.put("cycleBoundary", state.getCycleBoundary());
-        return map;
-    }
-
-    /**
-     * 初始化状态（FROM_SCRATCH 模式）
+     * 初始化状态
      */
     protected RuleState initializeState(LocalDateTime calcBegin) {
         return RuleState.builder()
@@ -356,16 +258,6 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
                 .cycleAccumulated(BigDecimal.ZERO)
                 .cycleBoundary(calcBegin.plusMinutes(getCycleMinutes()))
                 .build();
-    }
-
-    // ==================== buildCarryOverState 共同实现 ====================
-
-    @Override
-    public Map<String, Object> buildCarryOverState(BillingSegmentResult result) {
-        if (result.getRuleOutputState() == null) {
-            return Collections.emptyMap();
-        }
-        return result.getRuleOutputState();
     }
 
     // ==================== CalculationContext 构建 ====================
@@ -378,8 +270,6 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
             PromotionAggregate promotionAggregate,
             C config) {
 
-        boolean hasContinueMode = context.getContinueMode() == BConstants.ContinueMode.CONTINUE;
-
         boolean hasPromotion = promotionAggregate != null && !promotionAggregate.isEmpty();
 
         boolean hasMultiplePromotionTypes = hasPromotion && promotionAggregate.hasMultiplePromotionTypes();
@@ -387,20 +277,10 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
         boolean hasComplexFeatures = hasComplexFeatures(config);
 
         return CalculationContext.builder()
-                .hasContinueMode(hasContinueMode)
                 .hasPromotion(hasPromotion)
                 .hasMultiplePromotionTypes(hasMultiplePromotionTypes)
                 .hasComplexFeatures(hasComplexFeatures)
                 .build();
-    }
-
-    /**
-     * 更新状态到输出
-     */
-    protected Map<String, Object> buildRuleOutputState(RuleState state) {
-        Map<String, Object> ruleOutputState = new HashMap<>();
-        ruleOutputState.put(getRuleType(), toMap(state));
-        return ruleOutputState;
     }
 
     // ==================== CONTINUOUS 模式公共时间轴切分基础设施 ====================
@@ -408,9 +288,8 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
     /**
      * 时间片段（按免费时段边界切分后的时间范围）。
      * <p>
-     * 子类如需携带额外字段（如 DayNight 的 conditional 信息），可继承本类并覆盖
-     * {@link #applyFreeRange(FreeTimeRange)}、{@link #copy(LocalDateTime, LocalDateTime)}
-     * 以及 {@link #isConditional()} / {@link #getConditionalUntil()} 钩子。
+     * 子类如需携带额外字段，可继承本类并覆盖
+     * {@link #applyFreeRange(FreeTimeRange)} 与 {@link #copy(LocalDateTime, LocalDateTime)}。
      */
     protected static class TimeFragment {
         public LocalDateTime beginTime;
@@ -443,16 +322,6 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
             f.isFree = this.isFree;
             f.freePromotionId = this.freePromotionId;
             return f;
-        }
-
-        /** 是否为条件免费片段。默认 false，DayNight 等规则覆盖。 */
-        public boolean isConditional() {
-            return false;
-        }
-
-        /** 条件免费用效截止时间。默认 null。 */
-        public LocalDateTime getConditionalUntil() {
-            return null;
         }
     }
 
@@ -688,54 +557,6 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
             }
             default:
                 return unitPrice.setScale(2, RoundingMode.HALF_UP);
-        }
-    }
-
-    /**
-     * 按不足单元计费模式构造截断单元的 valueSpec。
-     * <p>
-     * 与 {@link #computeIncompleteCharge} 配套，保证查询时点投影与最终金额语义一致：
-     * <ul>
-     *   <li>FULL_CHARGE / THRESHOLD_MINUTES 达阈值：FixedValueSpec(unitPrice)（单元内固定全额）</li>
-     *   <li>PROPORTIONAL / THRESHOLD_RATIO 达阈值：ProportionalValueSpec（按分钟线性）</li>
-     *   <li>FREE / THRESHOLD 未达阈值：FixedValueSpec(ZERO)</li>
-     * </ul>
-     */
-    public static UnitValueSpec computeIncompleteValueSpec(BigDecimal unitPrice,
-                                                               int segMinutes,
-                                                               int unitMinutes,
-                                                               BConstants.IncompleteUnitChargeMode mode,
-                                                               Integer thresholdMinutes,
-                                                               BigDecimal thresholdRatio) {
-        if (unitPrice == null) unitPrice = BigDecimal.ZERO;
-        if (mode == null) mode = BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
-        if (segMinutes >= unitMinutes || unitMinutes <= 0) {
-            return new FixedValueSpec(unitPrice);
-        }
-
-        switch (mode) {
-            case FULL_CHARGE:
-                return new FixedValueSpec(unitPrice);
-            case PROPORTIONAL:
-                return new ProportionalValueSpec(unitPrice, unitMinutes);
-            case FREE:
-                return new FixedValueSpec(BigDecimal.ZERO);
-            case THRESHOLD_MINUTES: {
-                int threshold = thresholdMinutes != null ? thresholdMinutes : 0;
-                return segMinutes >= threshold
-                        ? new FixedValueSpec(unitPrice)
-                        : new FixedValueSpec(BigDecimal.ZERO);
-            }
-            case THRESHOLD_RATIO: {
-                BigDecimal ratio = BigDecimal.valueOf(segMinutes)
-                        .divide(BigDecimal.valueOf(unitMinutes), 6, RoundingMode.HALF_UP);
-                BigDecimal threshold = thresholdRatio != null ? thresholdRatio : BigDecimal.ZERO;
-                return ratio.compareTo(threshold) >= 0
-                        ? new ProportionalValueSpec(unitPrice, unitMinutes)
-                        : new FixedValueSpec(BigDecimal.ZERO);
-            }
-            default:
-                return new FixedValueSpec(unitPrice);
         }
     }
 

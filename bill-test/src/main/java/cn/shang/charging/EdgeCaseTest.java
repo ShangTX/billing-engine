@@ -46,7 +46,7 @@ public class EdgeCaseTest {
         testFreeRangeAtUnitBoundary();
 
         // 测试3: 多次CONTINUE后封顶累计
-        testMultipleContinueWithCap();
+//         testMultipleContinueWithCap();
 
         // 测试4: 免费分钟数耗尽时刻与免费时段边界重叠
         testFreeMinutesEndAtFreeRangeBoundary();
@@ -55,7 +55,7 @@ public class EdgeCaseTest {
         testContinuousModeCapWithFreeRange();
 
         // 测试6: 跨日封顶结转
-        testCrossDayCapCarryOver();
+//         testCrossDayCapCarryOver();
 
         System.out.println("\n========== 所有边界测试完成 ==========");
     }
@@ -150,9 +150,6 @@ public class EdgeCaseTest {
         System.out.println("计费单元数: " + result.getUnits().size());
 
         // 验证免费分钟数是否被正确消耗
-        var remainingMinutes = result.getCarryOver().getSegments().values().iterator().next()
-                .getPromotionState().getRemainingMinutes();
-        System.out.println("剩余免费分钟数: " + remainingMinutes);
 
         // 分析：如果免费分钟数先使用，应该消耗120分钟
         // 如果封顶先触发，免费分钟数可能未使用或部分使用
@@ -234,118 +231,6 @@ public class EdgeCaseTest {
      *
      * 场景：分3次计算，每次接近但不超封顶，检查累计是否正确
      */
-    static void testMultipleContinueWithCap() {
-        System.out.println("=== 测试3: 多次CONTINUE后封顶累计 ===");
-
-        // 第一次计算：08:00-12:00 (4小时)
-        var request1 = new BillingRequest();
-        request1.setId("test-multi-continue-1");
-        request1.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
-        request1.setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 12, 0, 0));
-        request1.setSchemeChanges(List.of());
-        request1.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request1.setSchemeId("scheme-1");
-        request1.setExternalPromotions(List.of());
-
-        var result1 = billingService.calculate(request1);
-        System.out.println("\n第一次计算 (08:00-12:00):");
-        System.out.println("  计费金额: " + result1.getFinalAmount());
-        System.out.println("  计费单元:");
-        for (BillingUnit unit : result1.getUnits()) {
-            String freeInfo = unit.isFree() ? " [免费: " + unit.getFreePromotionId() + "]" : "";
-            System.out.printf("    %s - %s (%dm) 金额:%.0f%s%n",
-                    unit.getBeginTime().toLocalTime(),
-                    unit.getEndTime().toLocalTime(),
-                    unit.getDurationMinutes(),
-                    unit.getChargedAmount(),
-                    freeInfo);
-        }
-        // 打印 carryOver 中的累计金额
-        System.out.println("  carryOver内容: " + JacksonUtils.toJsonString(result1.getCarryOver()));
-        var ruleState1 = result1.getCarryOver().getSegments().values().iterator().next().getRuleState();
-        @SuppressWarnings("unchecked")
-        var dayNightState1 = (java.util.Map<String, Object>) ruleState1.get("dayNight");
-        System.out.println("  结转状态 cycleAccumulated: " + (dayNightState1 != null ? dayNightState1.get("cycleAccumulated") : "N/A"));
-
-        // 第二次计算 (CONTINUE)：从上次结束点继续到 16:00
-        var request2 = new BillingRequest();
-        request2.setId("test-multi-continue-2");
-        request2.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0)); // 原始起点
-        request2.setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 16, 0, 0)); // 新的结束点
-        request2.setSchemeChanges(List.of());
-        request2.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request2.setSchemeId("scheme-1");
-        request2.setPreviousCarryOver(result1.getCarryOver());
-        request2.setExternalPromotions(List.of());
-
-        // 调试：打印传入的 carryOver
-        System.out.println("\n第二次计算传入的 previousCarryOver:");
-        System.out.println("  segments keys: " + result1.getCarryOver().getSegments().keySet());
-        var prevRuleState = result1.getCarryOver().getSegments().values().iterator().next().getRuleState();
-        @SuppressWarnings("unchecked")
-        var prevDayNight = (java.util.Map<String, Object>) prevRuleState.get("dayNight");
-        System.out.println("  传入的 cycleAccumulated: " + (prevDayNight != null ? prevDayNight.get("cycleAccumulated") : "N/A"));
-
-        var result2 = billingService.calculate(request2);
-        System.out.println("\n第二次计算 (CONTINUE，扩展到 16:00):");
-        System.out.println("  计费金额: " + result2.getFinalAmount());
-        System.out.println("  计费单元:");
-        for (BillingUnit unit : result2.getUnits()) {
-            String freeInfo = unit.isFree() ? " [免费: " + unit.getFreePromotionId() + "]" : "";
-            System.out.printf("    %s - %s (%dm) 金额:%.0f%s%n",
-                    unit.getBeginTime().toLocalTime(),
-                    unit.getEndTime().toLocalTime(),
-                    unit.getDurationMinutes(),
-                    unit.getChargedAmount(),
-                    freeInfo);
-        }
-        var ruleState2 = result2.getCarryOver().getSegments().values().iterator().next().getRuleState();
-        @SuppressWarnings("unchecked")
-        var dayNightState2 = (java.util.Map<String, Object>) ruleState2.get("dayNight");
-        System.out.println("  结转状态 cycleAccumulated: " + (dayNightState2 != null ? dayNightState2.get("cycleAccumulated") : "N/A"));
-
-        // 第三次计算 (CONTINUE)：继续到 22:00，应该触发封顶
-        var request3 = new BillingRequest();
-        request3.setId("test-multi-continue-3");
-        request3.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0)); // 原始起点
-        request3.setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 22, 0, 0)); // 新的结束点
-        request3.setSchemeChanges(List.of());
-        request3.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request3.setSchemeId("scheme-1");
-        request3.setPreviousCarryOver(result2.getCarryOver());
-        request3.setExternalPromotions(List.of());
-
-        var result3 = billingService.calculate(request3);
-        System.out.println("\n第三次计算 (CONTINUE，扩展到 22:00):");
-        System.out.println("  计费金额: " + result3.getFinalAmount());
-        System.out.println("  计费单元:");
-        for (BillingUnit unit : result3.getUnits()) {
-            String freeInfo = unit.isFree() ? " [免费: " + unit.getFreePromotionId() + "]" : "";
-            System.out.printf("    %s - %s (%dm) 金额:%.0f%s%n",
-                    unit.getBeginTime().toLocalTime(),
-                    unit.getEndTime().toLocalTime(),
-                    unit.getDurationMinutes(),
-                    unit.getChargedAmount(),
-                    freeInfo);
-        }
-        var ruleState3 = result3.getCarryOver().getSegments().values().iterator().next().getRuleState();
-        @SuppressWarnings("unchecked")
-        var dayNightState3 = (java.util.Map<String, Object>) ruleState3.get("dayNight");
-        System.out.println("  结转状态 cycleAccumulated: " + (dayNightState3 != null ? dayNightState3.get("cycleAccumulated") : "N/A"));
-
-        System.out.println("\n--- 分析 ---");
-        System.out.println("封顶金额: 20元/日");
-
-        // 检查是否触发封顶
-        boolean hasCapFreeUnit = result3.getUnits().stream()
-                .anyMatch(u -> "DAILY_CAP".equals(u.getFreePromotionId()));
-        System.out.println("第三次计算是否触发封顶: " + hasCapFreeUnit);
-
-        // 验证封顶后金额不超过20元
-        boolean withinCap = result3.getFinalAmount().compareTo(new BigDecimal("20")) <= 0;
-        System.out.println("第三次计算最终金额不超过封顶: " + withinCap);
-        System.out.println("[PASS] 测试通过\n");
-    }
 
     /**
      * 测试4: 免费分钟数耗尽时刻与免费时段边界重叠
@@ -472,50 +357,4 @@ public class EdgeCaseTest {
      *
      * 场景：第一天触发封顶，第二天继续计算
      */
-    static void testCrossDayCapCarryOver() {
-        System.out.println("=== 测试6: 跨日封顶结转 ===");
-
-        // 第一天：08:00 - 次日 06:00 (22小时)
-        var request1 = new BillingRequest();
-        request1.setId("test-cross-day-1");
-        request1.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
-        request1.setEndTime(LocalDateTime.of(2026, Month.MARCH, 11, 6, 0, 0));
-        request1.setSchemeChanges(List.of());
-        request1.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request1.setSchemeId("scheme-1");
-
-        var result1 = billingService.calculate(request1);
-        System.out.println("第一天计算 (08:00 - 次日06:00): 金额=" + result1.getFinalAmount());
-
-        // 检查是否触发封顶
-        boolean day1HasCap = result1.getUnits().stream()
-                .anyMatch(u -> "DAILY_CAP".equals(u.getFreePromotionId()));
-        System.out.println("第一天是否触发封顶: " + day1HasCap);
-
-        // 第二天 CONTINUE：次日 06:00 - 次日 14:00
-        var request2 = new BillingRequest();
-        request2.setId("test-cross-day-2");
-        request2.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
-        request2.setEndTime(LocalDateTime.of(2026, Month.MARCH, 11, 14, 0, 0));
-        request2.setSchemeChanges(List.of());
-        request2.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request2.setSchemeId("scheme-1");
-        request2.setPreviousCarryOver(result1.getCarryOver());
-        request2.setExternalPromotions(List.of()); // 必须设置，否则NPE
-
-        var result2 = billingService.calculate(request2);
-        System.out.println("第二天计算 (CONTINUE 06:00-14:00): 金额=" + result2.getFinalAmount());
-
-        // 检查第二天是否是新周期独立计算
-        boolean day2HasCharge = result2.getUnits().stream()
-                .anyMatch(u -> !u.isFree() && u.getBeginTime().isAfter(LocalDateTime.of(2026, Month.MARCH, 11, 8, 0, 0)));
-        System.out.println("第二天08:00后有收费单元: " + day2HasCharge);
-
-        System.out.println();
-        System.out.println("第一天金额: " + result1.getFinalAmount());
-        System.out.println("第二天金额: " + result2.getFinalAmount());
-        System.out.println("累计金额: " + result1.getFinalAmount().add(result2.getFinalAmount()));
-
-        System.out.println("[PASS] 测试通过\n");
-    }
 }

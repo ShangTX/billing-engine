@@ -11,7 +11,6 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -54,11 +53,6 @@ public class FlatFreeRule implements BillingRule<FlatFreeConfig> {
                 .freePromotionId(FREE_PROMOTION_ID)
                 .build();
 
-        // 保存结转状态，使调用方能识别这是 CONTINUE 模式的计算结果
-        Map<String, Object> ruleOutputState = Map.of(
-                "flatFree", Map.of("calculatedUpTo", calcEnd)
-        );
-
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
                 .segmentStartTime(context.getSegment().getBeginTime())
@@ -71,7 +65,6 @@ public class FlatFreeRule implements BillingRule<FlatFreeConfig> {
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(calcBegin)
                 .feeEffectiveEnd(calcEnd)
-                .ruleOutputState(ruleOutputState)
                 .build();
     }
 }

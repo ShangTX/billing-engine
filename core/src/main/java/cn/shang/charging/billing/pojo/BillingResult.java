@@ -31,26 +31,10 @@ public class BillingResult {
     private LocalDateTime effectiveTo;
 
     /**
-     * 实际计算到的时间点（延伸后，用于缓存有效性判断和 CONTINUE 起点）
+     * 实际计算到的时间点（延伸后，用于缓存有效性判断）
      * 最后一个计费单元延伸后的结束时间
      */
     private LocalDateTime calculationEndTime;
-
-    /**
-     * 本次计算后的结转状态（供下次 CONTINUE 使用）
-     */
-    private BillingCarryOver carryOver;
-
-    /**
-     * 第一个计费单元是否需要与上一次结果的截断单元合并
-     * 仅在 CONTINUE 模式下有意义
-     * 为 true 时，调用方应：
-     *   1. 更新上一次结果的最后一个单元（用本结果第一个单元的完整信息）
-     *   2. 删除本结果的第一个单元（已合并到上一次结果）
-     * @deprecated 已废弃，改用 BillingUnit.accumulatedAmount 字段，CONTINUE 模式返回累计总费用
-     */
-    @Deprecated
-    private Boolean firstUnitMerged;
 
 
     public static BillingResult of(ChargingResult chargingResult, SettlementResult settlementResult) {

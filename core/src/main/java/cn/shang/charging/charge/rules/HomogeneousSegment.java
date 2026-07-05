@@ -8,8 +8,8 @@ import java.util.Objects;
  * 同质计费段：一次边界驱动的最小产出。
  * <p>
  * 表示从 {@code beginTime}（含）到 {@code endTime}（不含）的一段时间，
- * 在此区间内所有计费参数（单价、免费状态、valueSpec、规则特化数据）保持一致。
- * 子类可扩展特化字段（如 DayNight 的 conditional/conditionalUntil）。
+ * 在此区间内所有计费参数（单价、免费状态、规则特化数据）保持一致。
+ * 子类可扩展特化字段。
  */
 public class HomogeneousSegment {
 
@@ -19,7 +19,6 @@ public class HomogeneousSegment {
     private final BigDecimal originalAmount;
     private final boolean free;
     private final String freePromotionId;
-    private final Object valueSpec;
     private final Object ruleData;
 
     public HomogeneousSegment(LocalDateTime beginTime,
@@ -28,7 +27,6 @@ public class HomogeneousSegment {
                               BigDecimal originalAmount,
                               boolean free,
                               String freePromotionId,
-                              Object valueSpec,
                               Object ruleData) {
         this.beginTime = beginTime;
         this.endTime = endTime;
@@ -36,7 +34,6 @@ public class HomogeneousSegment {
         this.originalAmount = originalAmount;
         this.free = free;
         this.freePromotionId = freePromotionId;
-        this.valueSpec = valueSpec;
         this.ruleData = ruleData;
     }
 
@@ -64,10 +61,6 @@ public class HomogeneousSegment {
         return freePromotionId;
     }
 
-    public Object getValueSpec() {
-        return valueSpec;
-    }
-
     public Object getRuleData() {
         return ruleData;
     }
@@ -77,7 +70,7 @@ public class HomogeneousSegment {
     }
 
     /**
-     * 同质合并判定：除时间窗外所有字段（单价、原始金额、免费状态、freePromotionId、valueSpec）一致才可合并。
+     * 同质合并判定：除时间窗外所有字段（单价、原始金额、免费状态、freePromotionId、ruleData）一致才可合并。
      * 子类可覆盖以加入特化字段。
      */
     public boolean canMergeWith(HomogeneousSegment other) {
@@ -86,7 +79,6 @@ public class HomogeneousSegment {
         if (!Objects.equals(freePromotionId, other.freePromotionId)) return false;
         if (!Objects.equals(unitPrice, other.unitPrice)) return false;
         if (!Objects.equals(originalAmount, other.originalAmount)) return false;
-        if (!Objects.equals(valueSpec, other.valueSpec)) return false;
         if (!Objects.equals(ruleData, other.ruleData)) return false;
         // 时间连续：other.beginTime == this.endTime
         return other.beginTime.equals(this.endTime);

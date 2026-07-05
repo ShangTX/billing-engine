@@ -1,7 +1,6 @@
 package cn.shang.charging.charge.rules.naturaltime;
 
 import cn.shang.charging.billing.pojo.BillingUnit;
-import cn.shang.charging.charge.rules.AbstractTimeBasedRule.RuleState;
 import cn.shang.charging.charge.rules.SimplifiedCycleStateHelper;
 
 import java.math.BigDecimal;
@@ -9,7 +8,6 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.function.BiFunction;
 
 /**
  * `naturalTime` 规则的周期状态与封顶处理器。
@@ -30,8 +28,7 @@ final class NaturalTimeCycleStateManager {
     BigDecimal applyDailyCapWithCarryOver(List<BillingUnit> units,
                                           BigDecimal maxCharge,
                                           BigDecimal carryOverAccumulated,
-                                          LocalDateTime calcBegin,
-                                          BiFunction<LocalDateTime, LocalDateTime, cn.shang.charging.billing.value.UnitValueSpec> cappedSpecFactory) {
+                                          LocalDateTime calcBegin) {
         if (carryOverAccumulated.compareTo(maxCharge) >= 0) {
             // 已超过封顶，全部免费
             return handleAllFree(units, maxCharge);
@@ -116,23 +113,5 @@ final class NaturalTimeCycleStateManager {
             units.add(mergedFreeUnit);
         }
         return maxCharge;
-    }
-
-    /**
-     * UNIT_BASED 模式后更新状态
-     */
-    void updateStateAfterUnitBased(List<BillingUnit> billingUnits, RuleState state) {
-        int maxCycleIndex = billingUnits.stream()
-                .mapToInt(u -> extractCycleIndex(u))
-                .max().orElse(0);
-        state.setCycleIndex(maxCycleIndex);
-    }
-
-    /**
-     * CONTINUOUS 模式后更新状态
-     */
-    void updateStateAfterContinuous(int cycleCount, RuleState state, BigDecimal lastCycleAccumulated) {
-        state.setCycleIndex(state.getCycleIndex() + cycleCount - 1);
-        state.setCycleAccumulated(lastCycleAccumulated);
     }
 }

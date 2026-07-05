@@ -10,11 +10,8 @@ import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
-import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
-import cn.shang.charging.billing.value.FixedValueSpec;
-import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 
 import java.math.BigDecimal;
@@ -23,7 +20,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -47,11 +43,6 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
     @Override
     public Class<NaturalTimeConfig> configClass() {
         return NaturalTimeConfig.class;
-    }
-
-    @Override
-    public String getRuleType() {
-        return "naturalTime";
     }
 
     @Override
@@ -133,12 +124,12 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
             FreeTimeRange covering = findCoveringRange(current, freeTimeRanges);
             if (covering != null) {
                 return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
-                        true, covering.getId(), null, null);
+                        true, covering.getId(), null);
             }
             // 计费段
             BigDecimal unitPrice = priceResolver.calculateUnitPrice(current, next, periods, crossPeriodMode);
             return new HomogeneousSegment(current, next, unitPrice, unitPrice,
-                    false, null, null, null);
+                    false, null, null);
         });
 
         // 转换为 BillingUnit（compact 合并 + 累计金额 + 封顶处理）
@@ -151,29 +142,8 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(billingUnits);
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
 
-        RuleState state = restoreState(context.getRuleState());
-        if (state == null) {
-            state = initializeState(calcBegin);
-        }
-        // 简化近似：cycleCount/cycleAccumulated 沿用上一状态 + 当前段尾
-        int cycleCount = billingUnits.isEmpty() ? 0 : Math.max(1, (int)
-                Duration.between(calcBegin, billingUnits.get(billingUnits.size() - 1).getEndTime()).toMinutes() / MINUTES_PER_DAY);
-        BigDecimal cycleAccumulated = state.getCycleAccumulated();
-        if (billingUnits.size() > 0) {
-            BillingUnit last = billingUnits.get(billingUnits.size() - 1);
-            if (last.getAccumulatedAmount() != null && !state.getCycleAccumulated().equals(last.getAccumulatedAmount())) {
-                cycleAccumulated = last.getAccumulatedAmount();
-            }
-        }
-        cycleStateManager.updateStateAfterContinuous(Math.max(1, cycleCount), state, cycleAccumulated);
-        Map<String, Object> ruleOutputState = buildRuleOutputState(state);
-
-        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
-        // NaturalTime 沿用既有行为：result.promotionUsages 为 null（不并入 usage），但 carryOver 须构建。
-        if (promotionAggregate != null) {
-            promotionAggregate.setPromotionCarryOver(
-                    PromotionAggregateUtil.buildCarryOver(materialized.getPromotionUsages(), freeTimeRanges, calcEnd));
-        }
+        // 状态续算已下线（CONTINUE 移除），单次计算周期跟踪从 calcBegin 初始化
+        initializeState(calcBegin);
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
@@ -186,7 +156,6 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)
-                .ruleOutputState(ruleOutputState)
                 .build();
     }
 
@@ -261,9 +230,7 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
         LocalDateTime dayStart = calcBegin;
         BigDecimal dayAccumulated = BigDecimal.ZERO;
 
-        BigDecimal accumulated = context.getPreviousAccumulatedAmount();
-        if (accumulated == null) accumulated = BigDecimal.ZERO;
-        BigDecimal truncatedDeduction = context.getTruncatedUnitChargedAmount();
+        BigDecimal accumulated = BigDecimal.ZERO;
 
         for (int i = 0; i < segments.size(); i++) {
             HomogeneousSegment seg = segments.get(i);
@@ -315,13 +282,7 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
                 }
             }
 
-            // 截断扣减（CONTINUE 模式衔接）
-            if (truncatedDeduction != null && i == 0) {
-                BigDecimal adjusted = charged.subtract(truncatedDeduction);
-                if (adjusted.signum() < 0) adjusted = BigDecimal.ZERO;
-                charged = adjusted;
-            }
-
+            // 截断扣减已下线（CONTINUE 移除），单次计算从 ZERO 累加
             accumulated = accumulated.add(charged);
             if (!seg.isFree() && !cycleCapped && !incompleteFree) {
                 dayAccumulated = dayAccumulated.add(charged);
@@ -329,24 +290,6 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
 
             // 截断单元永不 compact
             boolean isCompact = !isTruncated && subCount > 1;
-
-            // valueSpec
-            UnitValueSpec spec;
-            if (isTruncated && !seg.isFree() && !cycleCapped && !incompleteFree) {
-                spec = computeIncompleteValueSpec(unitPrice, segMinutes, unitMinutes,
-                        config.getIncompleteUnitChargeMode(),
-                        config.getThresholdMinutes(), config.getThresholdRatio());
-            } else {
-                spec = seg.getValueSpec() instanceof UnitValueSpec us ? us
-                        : new FixedValueSpec(seg.isFree() || incompleteFree ? BigDecimal.ZERO : unitPrice);
-            }
-            // 封顶削减时覆盖 valueSpec
-            boolean cappedOrReduced = cycleCapped
-                    || (charged.compareTo(originalPerSub.multiply(BigDecimal.valueOf(subCount))) < 0
-                        && !seg.isFree() && !isTruncated);
-            if (cappedOrReduced) {
-                spec = new FixedValueSpec(charged);
-            }
 
             BillingUnit unit = BillingUnit.builder()
                     .beginTime(seg.getBeginTime())
@@ -359,7 +302,6 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
                             : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
                     .chargedAmount(charged)
                     .accumulatedAmount(accumulated)
-                    .valueSpec(spec)
                     .ruleData(seg.getRuleData())
                     .compact(isCompact)
                     .count(isCompact ? subCount : 1)

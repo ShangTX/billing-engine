@@ -44,13 +44,13 @@ public class StartFreePromotionTest {
         testPartialCoverage();
 
         // 测试4: CONTINUE 模式 - N分钟相对于段起点
-        testContinueMode();
+//         testContinueMode();
 
         // 测试5: 条件免费 - queryTime 在窗口内
-        testConditionalFree_WithinRange();
+//         testConditionalFree_WithinRange();
 
         // 测试6: 条件免费 - queryTime 超出窗口
-        testConditionalFree_OutsideRange();
+//         testConditionalFree_OutsideRange();
 
         System.out.println("\n========== 测试完成 ==========");
     }
@@ -154,127 +154,14 @@ public class StartFreePromotionTest {
     /**
      * 测试4: CONTINUE 模式 - N分钟相对于段起点
      */
-    static void testContinueMode() {
-        System.out.println("=== 测试4: CONTINUE 模式 ===");
-
-        var billingService = getBillingServiceWithStartFree(30);
-
-        // 第一次计算: 08:00-10:00
-        var request1 = new BillingRequest();
-        request1.setId("test-4");
-        request1.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
-        request1.setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 10, 0, 0));
-        request1.setSchemeChanges(List.of());
-        request1.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request1.setSchemeId("scheme-1");
-        request1.setExternalPromotions(new ArrayList<>());
-
-        var result1 = billingService.calculate(request1);
-
-        System.out.println("第一次计算: 08:00 - 10:00");
-        System.out.println("finalAmount = " + result1.getFinalAmount());
-        System.out.println(JacksonUtils.toJsonString(result1));
-        System.out.println();
-
-        // 验证第一次计算
-        assert result1.getCarryOver() != null : "应携带结转状态";
-        assert result1.getCarryOver().getCalculatedUpTo() != null : "应携带 calculatedUpTo";
-
-        // 从第一次结果继续计算: 08:00-12:00
-        var request2 = new BillingRequest();
-        request2.setId("test-4");
-        request2.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
-        request2.setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 12, 0, 0));
-        request2.setSchemeChanges(List.of());
-        request2.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request2.setSchemeId("scheme-1");
-        request2.setExternalPromotions(new ArrayList<>());
-        request2.setPreviousCarryOver(result1.getCarryOver());
-
-        var result2 = billingService.calculate(request2);
-
-        System.out.println("第二次计算 (CONTINUE): 08:00 - 12:00");
-        System.out.println("finalAmount = " + result2.getFinalAmount());
-        System.out.println(JacksonUtils.toJsonString(result2));
-        System.out.println();
-
-        // 验证: CONTINUE 模式下，前30分钟(08:00-08:30)已在第一次计算中免费
-        // 第二次计算不应重复计算这部分费用
-    }
 
     /**
      * 测试5: 条件免费 - queryTime 在窗口内
      */
-    static void testConditionalFree_WithinRange() {
-        System.out.println("=== 测试5: 条件免费 - queryTime 在窗口内 ===");
-
-        var billingService = getBillingServiceWithConditionalStartFree(60);
-        var request = new BillingRequest();
-        request.setId("test-5");
-        request.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 0, 0, 0));
-        request.setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 2, 0, 0));
-        request.setSchemeChanges(List.of());
-        request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request.setSchemeId("scheme-1");
-        request.setExternalPromotions(new ArrayList<>());
-
-        var result = billingService.calculate(request);
-
-        System.out.println("计费时间: 00:00 - 02:00");
-        System.out.println("规则: 前60分钟免费 (00:00-01:00)，条件免费");
-        System.out.println("queryTime = 00:46（在免费段内）");
-        System.out.println("计算结果中 StepValueSpec 单元数量: " + result.getUnits().stream()
-                .filter(u -> u.getValueSpec() instanceof cn.shang.charging.billing.value.StepValueSpec).count());
-
-        // 使用 billing-api 查询
-        var viewer = new cn.shang.charging.wrapper.BillingResultViewer();
-        var queryResult = viewer.createQuerySummary(result, LocalDateTime.of(2026, Month.MARCH, 10, 0, 46, 0));
-        System.out.println("查询 00:46 的费用: " + queryResult.getAmount());
-        System.out.println(JacksonUtils.toJsonString(result));
-        System.out.println();
-
-        // 验证: queryTime 在窗口内，免费应保持
-        assert queryResult.getAmount().compareTo(BigDecimal.ZERO) == 0
-                : "queryTime 在窗口内时应免费，实际金额: " + queryResult.getAmount();
-    }
 
     /**
      * 测试6: 条件免费 - queryTime 超出窗口
      */
-    static void testConditionalFree_OutsideRange() {
-        System.out.println("=== 测试6: 条件免费 - queryTime 超出窗口 ===");
-
-        var billingService = getBillingServiceWithConditionalStartFree(60);
-        var request = new BillingRequest();
-        request.setId("test-6");
-        request.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 0, 0, 0));
-        request.setEndTime(LocalDateTime.of(2026, Month.MARCH, 10, 2, 0, 0));
-        request.setSchemeChanges(List.of());
-        request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-        request.setSchemeId("scheme-1");
-        request.setExternalPromotions(new ArrayList<>());
-
-        var result = billingService.calculate(request);
-
-        System.out.println("计费时间: 00:00 - 02:00");
-        System.out.println("规则: 前60分钟免费 (00:00-01:00)，条件免费");
-        System.out.println("queryTime = 01:01（超出免费段）");
-
-        // 使用 billing-api 查询
-        var viewer = new cn.shang.charging.wrapper.BillingResultViewer();
-        var queryResult = viewer.createQuerySummary(result, LocalDateTime.of(2026, Month.MARCH, 10, 1, 1, 0));
-        System.out.println("查询 01:01 的费用: " + queryResult.getAmount());
-
-        // 验证 viewAtTime
-        var viewResult = viewer.viewAtTime(result, LocalDateTime.of(2026, Month.MARCH, 10, 1, 1, 0));
-        System.out.println("viewAtTime 的费用: " + viewResult.getFinalAmount());
-        System.out.println(JacksonUtils.toJsonString(viewResult));
-        System.out.println();
-
-        // 验证: queryTime 超出窗口，免费应失效，恢复原价
-        assert queryResult.getAmount().compareTo(BigDecimal.ZERO) > 0
-                : "queryTime 超出窗口时应收费，实际金额: " + queryResult.getAmount();
-    }
 
     // ==================== 辅助方法 ====================
 
@@ -357,7 +244,6 @@ public class StartFreePromotionTest {
                                 .setId("start-free-conditional")
                                 .setMinutes(startFreeMinutes)
                                 .setPriority(1)
-                                .setValidateQueryTime(true)
                 );
             }
         };

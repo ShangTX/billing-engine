@@ -35,8 +35,6 @@ import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
 import cn.shang.charging.promotion.rules.startfree.StartFreePromotionConfig;
 import cn.shang.charging.promotion.rules.startfree.StartFreePromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
-import cn.shang.charging.wrapper.BillingResultViewer;
-import cn.shang.charging.wrapper.QuerySummary;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -86,23 +84,9 @@ public class BillingTestCaseGenerator {
         List<PromotionRuleConfig> promotionConfigs = createPromotionConfigs(features, index);
         BConstants.BillingMode billingMode = selectBillingMode(features);
         BillingService billingService = createBillingService(ruleType, ruleConfig, promotionConfigs, billingMode, features);
-        BillingResultViewer viewer = new BillingResultViewer();
 
         BillingRequest request = createRequest("case-" + (index + 1), features, index, random);
-        BillingResult result;
-        List<QuerySummary> querySummaries;
-        List<GeneratedContinueStep> continueSteps = new ArrayList<>();
-
-        if (features.contains(TestFeature.CONTINUE)) {
-            ContinueScenario scenario = calculateContinueScenario(request, billingService, viewer, features);
-            result = scenario.finalResult();
-            querySummaries = scenario.finalQuerySummaries();
-            continueSteps = scenario.steps();
-            request = scenario.finalRequest();
-        } else {
-            result = billingService.calculate(request);
-            querySummaries = createQuerySummaries(result, viewer, features);
-        }
+        BillingResult result = billingService.calculate(request);
 
         return GeneratedBillingCase.builder()
                 .caseId(request.getId())
@@ -113,8 +97,6 @@ public class BillingTestCaseGenerator {
                 .promotionConfigs(promotionConfigs)
                 .externalPromotions(request.getExternalPromotions())
                 .result(result)
-                .querySummaries(querySummaries)
-                .continueSteps(continueSteps)
                 .build();
     }
 
@@ -326,7 +308,6 @@ public class BillingTestCaseGenerator {
                     .id("rule-start-free-" + (index + 1))
                     .priority(5)
                     .minutes(60)
-                    .validateQueryTime(features.contains(TestFeature.CONDITIONAL_START_FREE))
                     .build());
         }
         return configs;
@@ -437,76 +418,6 @@ public class BillingTestCaseGenerator {
     }
 
     /**
-     * 执行 CONTINUE 场景。
-     * <p>
-     * 第一步计算到中间时间并产出 carryOver，第二步携带 carryOver 继续算到原始结束时间。
-     */
-    private ContinueScenario calculateContinueScenario(
-            BillingRequest fullRequest,
-            BillingService billingService,
-            BillingResultViewer viewer,
-            Set<TestFeature> features) {
-        LocalDateTime splitTime = fullRequest.getBeginTime()
-                .plusMinutes(java.time.Duration.between(fullRequest.getBeginTime(), fullRequest.getEndTime()).toMinutes() / 2);
-
-        BillingRequest firstRequest = copyRequest(fullRequest);
-        firstRequest.setId(fullRequest.getId() + "-continue-1");
-        firstRequest.setEndTime(splitTime);
-        BillingResult firstResult = billingService.calculate(firstRequest);
-
-        BillingRequest secondRequest = copyRequest(fullRequest);
-        secondRequest.setId(fullRequest.getId() + "-continue-2");
-        secondRequest.setPreviousCarryOver(firstResult.getCarryOver());
-        BillingResult secondResult = billingService.calculate(secondRequest);
-
-        List<GeneratedContinueStep> steps = List.of(
-                GeneratedContinueStep.builder()
-                        .stepId(firstRequest.getId())
-                        .request(firstRequest)
-                        .result(firstResult)
-                        .querySummaries(createQuerySummaries(firstResult, viewer, features))
-                        .build(),
-                GeneratedContinueStep.builder()
-                        .stepId(secondRequest.getId())
-                        .request(secondRequest)
-                        .result(secondResult)
-                        .querySummaries(createQuerySummaries(secondResult, viewer, features))
-                        .build()
-        );
-        return new ContinueScenario(secondRequest, secondResult, createQuerySummaries(secondResult, viewer, features), steps);
-    }
-
-    /**
-     * 根据计费结果生成查询摘要。
-     * <p>
-     * 查询点覆盖开头附近、中间位置和计算结束前，便于人工观察单元内 valueSpec 的即时值。
-     */
-    private List<QuerySummary> createQuerySummaries(BillingResult result, BillingResultViewer viewer, Set<TestFeature> features) {
-        if (!features.contains(TestFeature.QUERY_TIME) || result == null || result.getUnits() == null || result.getUnits().isEmpty()) {
-            return List.of();
-        }
-
-        LocalDateTime firstBegin = result.getUnits().get(0).getBeginTime();
-        LocalDateTime calculationEnd = result.getCalculationEndTime();
-        LocalDateTime middle = firstBegin.plusMinutes(
-                Math.max(1, java.time.Duration.between(firstBegin, calculationEnd).toMinutes() / 2)
-        );
-        List<LocalDateTime> candidates = List.of(
-                firstBegin.plusMinutes(1),
-                middle,
-                calculationEnd.minusMinutes(1).isAfter(firstBegin) ? calculationEnd.minusMinutes(1) : calculationEnd
-        );
-
-        List<QuerySummary> summaries = new ArrayList<>();
-        for (LocalDateTime queryTime : candidates) {
-            if (queryTime.isAfter(firstBegin) && !queryTime.isAfter(calculationEnd)) {
-                summaries.add(viewer.createQuerySummary(result, queryTime));
-            }
-        }
-        return summaries;
-    }
-
-    /**
      * 为样本装配一套纯内存 BillingService。
      */
     private BillingService createBillingService(
@@ -554,7 +465,6 @@ public class BillingTestCaseGenerator {
         copied.setSegmentCalculationMode(source.getSegmentCalculationMode());
         copied.setSchemeId(source.getSchemeId());
         copied.setSchemeChanges(source.getSchemeChanges());
-        copied.setPreviousCarryOver(source.getPreviousCarryOver());
         copied.setTimeRoundingMode(source.getTimeRoundingMode());
         copied.setContext(source.getContext());
         copied.setDisableSimplification(source.getDisableSimplification());
@@ -565,16 +475,6 @@ public class BillingTestCaseGenerator {
      * 真实业务时间窗口。
      */
     private record TimeWindow(LocalDateTime begin, LocalDateTime end) {
-    }
-
-    /**
-     * CONTINUE 场景的中间结果。
-     */
-    private record ContinueScenario(
-            BillingRequest finalRequest,
-            BillingResult finalResult,
-            List<QuerySummary> finalQuerySummaries,
-            List<GeneratedContinueStep> steps) {
     }
 
     /**

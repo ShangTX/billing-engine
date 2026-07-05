@@ -44,8 +44,6 @@ class BillingTestCaseGeneratorTest {
             assertNotNull(generatedCase.getRuleConfig());
             assertNotNull(generatedCase.getResult());
             assertFalse(generatedCase.getResult().getUnits().isEmpty());
-            assertFalse(generatedCase.getQuerySummaries().isEmpty());
-            assertFalse(generatedCase.getContinueSteps().isEmpty());
         }
     }
 
@@ -71,8 +69,6 @@ class BillingTestCaseGeneratorTest {
             long compactCount = generatedCase.getResult().getUnits().stream()
                     .filter(BillingUnit::isCompact).count();
             assertTrue(compactCount > 0, "COMPACT 场景应产出 compact 单元");
-            assertFalse(generatedCase.getQuerySummaries().isEmpty(),
-                    "COMPACT + QUERY_TIME 应产出查询摘要以校验投影");
         }
     }
 }

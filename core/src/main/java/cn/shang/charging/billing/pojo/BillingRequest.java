@@ -41,12 +41,6 @@ public class BillingRequest {
     private List<SchemeChange> schemeChanges;
 
     /**
-     * 上一次计费的结转状态（用于 CONTINUE 模式）
-     * 如果不为 null，则从 previousCarryOver.calculatedUpTo 继续计算
-     */
-    private BillingCarryOver previousCarryOver;
-
-    /**
      * 时间取整模式（可选）
      * 用于处理开始/结束时间中的秒数
      * 不设置时，在 BillingTemplate.calculate 中默认使用 CEIL_BEGIN_TRUNCATE_END

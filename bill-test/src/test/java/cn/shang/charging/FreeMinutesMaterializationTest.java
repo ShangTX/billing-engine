@@ -162,8 +162,6 @@ class FreeMinutesMaterializationTest {
         // freeTimeRanges 不含 FREE_MINUTES（仅 FREE_RANGE，这里无）
         assertTrue(aggregate.getFreeTimeRanges() == null || aggregate.getFreeTimeRanges().isEmpty());
         // usages / promotionCarryOver 不再由 PromotionEngine 填充
-        assertTrue(aggregate.getUsages() == null || aggregate.getUsages().isEmpty());
-        assertTrue(aggregate.getPromotionCarryOver() == null);
     }
 
     // ==================== 辅助方法 ====================

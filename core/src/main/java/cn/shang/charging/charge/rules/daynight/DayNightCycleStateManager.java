@@ -1,18 +1,12 @@
 package cn.shang.charging.charge.rules.daynight;
 
 import cn.shang.charging.billing.pojo.BillingUnit;
-import cn.shang.charging.billing.pojo.SimplifiedUnitMeta;
-import cn.shang.charging.charge.rules.AbstractTimeBasedRule.RuleState;
 import cn.shang.charging.charge.rules.SimplifiedCycleStateHelper;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.function.BiFunction;
-import java.util.function.Function;
 
 /**
  * `dayNight` 规则的周期状态与封顶处理器。
@@ -31,8 +25,7 @@ final class DayNightCycleStateManager {
 
     BigDecimal applyDailyCapWithCarryOver(List<BillingUnit> units,
                                           DayNightConfig config,
-                                          BigDecimal carryOverAccumulated,
-                                          BiFunction<LocalDateTime, LocalDateTime, cn.shang.charging.billing.value.UnitValueSpec> cappedSpecFactory) {
+                                          BigDecimal carryOverAccumulated) {
         BigDecimal maxCharge = config.getMaxChargeOneDay();
 
         if (carryOverAccumulated.compareTo(maxCharge) >= 0) {
@@ -55,7 +48,6 @@ final class DayNightCycleStateManager {
                         .free(true)
                         .freePromotionId("DAILY_CAP")
                         .chargedAmount(BigDecimal.ZERO)
-                        .valueSpec(new cn.shang.charging.billing.value.FixedValueSpec(BigDecimal.ZERO))
                         .build();
                 units.add(mergedFreeUnit);
             }
@@ -88,10 +80,6 @@ final class DayNightCycleStateManager {
         }
 
         units.get(capIndex).setChargedAmount(lastChargeAmount.setScale(2, RoundingMode.HALF_UP));
-        units.get(capIndex).setValueSpec(cappedSpecFactory.apply(
-                units.get(capIndex).getBeginTime(),
-                units.get(capIndex).getEndTime()
-        ));
         if (units.get(capIndex).getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
             units.get(capIndex).setFree(true);
             units.get(capIndex).setFreePromotionId("DAILY_CAP");
@@ -110,7 +98,6 @@ final class DayNightCycleStateManager {
                     .free(true)
                     .freePromotionId("DAILY_CAP")
                     .chargedAmount(BigDecimal.ZERO)
-                    .valueSpec(new cn.shang.charging.billing.value.FixedValueSpec(BigDecimal.ZERO))
                     .build();
 
             units.subList(capIndex + 1, units.size()).clear();
@@ -118,40 +105,5 @@ final class DayNightCycleStateManager {
         }
 
         return maxCharge;
-    }
-
-    void updateStateAfterUnitBased(List<BillingUnit> billingUnits, RuleState state) {
-        int maxCycleIndex = billingUnits.stream()
-                .mapToInt(u -> extractCycleIndex(u))
-                .max().orElse(0);
-        state.setCycleIndex(maxCycleIndex);
-    }
-
-    void updateStateAfterSimplified(List<BillingUnit> billingUnits,
-                                    RuleState state,
-                                    LocalDateTime calcBegin,
-                                    BiFunction<Integer, LocalDateTime, LocalDateTime> cycleBoundaryResolver,
-                                    Function<BillingUnit, Boolean> simplifiedChecker) {
-        if (!billingUnits.isEmpty()) {
-            BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
-            if (simplifiedChecker.apply(lastUnit)) {
-                SimplifiedUnitMeta meta = SimplifiedUnitMeta.from(lastUnit);
-                if (meta != null) {
-                    state.setCycleIndex(meta.cycleIndex() + meta.simplifiedCycleCount() - 1);
-                    state.setCycleAccumulated(meta.simplifiedCycleAmount());
-                    state.setCycleBoundary(cycleBoundaryResolver.apply(meta.cycleIndex() + meta.simplifiedCycleCount(), calcBegin));
-                }
-            } else {
-                int lastCycleIndex = extractCycleIndex(lastUnit);
-                state.setCycleIndex(lastCycleIndex);
-                final int finalLastCycleIndex = lastCycleIndex;
-                BigDecimal lastCycleAccumulated = billingUnits.stream()
-                        .filter(u -> !simplifiedChecker.apply(u) && extractCycleIndex(u) == finalLastCycleIndex)
-                        .map(BillingUnit::getChargedAmount)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add);
-                state.setCycleAccumulated(lastCycleAccumulated);
-                state.setCycleBoundary(cycleBoundaryResolver.apply(lastCycleIndex + 1, calcBegin));
-            }
-        }
     }
 }

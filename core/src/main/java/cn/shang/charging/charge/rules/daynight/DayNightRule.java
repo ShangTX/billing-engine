@@ -6,9 +6,7 @@ import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 
-import java.util.Collections;
 import java.util.EnumSet;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -59,18 +57,5 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
         }
         // 单元计费类 CONTINUOUS：委托 ContinuousStrategy
         return continuousStrategy.calculate(context, config, promotionAggregate);
-    }
-
-    /**
-     * 从计费结果提取状态，用于下次 CONTINUE 计算。
-     * <p>
-     * 转发策略产出的 ruleOutputState（CONTINUOUS/UNIT_BASED 需要周期状态续算；时长模式状态仅为格式一致）。
-     */
-    @Override
-    public Map<String, Object> buildCarryOverState(BillingSegmentResult result) {
-        if (result.getRuleOutputState() == null) {
-            return Collections.emptyMap();
-        }
-        return result.getRuleOutputState();
     }
 }

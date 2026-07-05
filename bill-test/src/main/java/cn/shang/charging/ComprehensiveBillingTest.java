@@ -205,26 +205,13 @@ public class ComprehensiveBillingTest {
         printUnits(result1);
         System.out.println("  封顶触发: " + (result1.getFinalAmount().compareTo(new BigDecimal("8")) == 0));
 
-        // 第二次计算（CONTINUE）
-        LocalDateTime endTime2 = time(3, 10, 18, 53);
+        // 第二次计算（CONTINUE - DELETED）：此测试已删除，因为项目重构移除了 CONTINUE 续算模式
+        System.out.println("\n【第二次计算 (CONTINUE)】- 已删除");
+        System.out.println("  此测试方法已被删除，因为项目重构移除了 CONTINUE 续算模式。");
 
-        System.out.println("\n【第二次计算 (CONTINUE)】");
-        System.out.println("  计费时间: 14:37 - 18:53 (4小时16分钟)");
-        System.out.println("  上次结束: " + result1.getCalculationEndTime().format(TIME_FORMAT));
-        System.out.println("\n【预期结果】");
-        System.out.println("  因本日已封顶，后续时间免费");
-        System.out.println("  预期金额: 0元");
-
-        BillingRequest request2 = createRequest(beginTime1, endTime2, new ArrayList<>());
-        request2.setPreviousCarryOver(result1.getCarryOver());
-        BillingResult result2 = service.calculate(request2);
-
-        printResult(result2);
-        printUnits(result2);
-
-        BigDecimal total = result1.getFinalAmount().add(result2.getFinalAmount());
-        System.out.println("\n  两次累计金额: " + total + "元");
-        printVerification("第二次0元，累计8元", total);
+        BigDecimal total = result1.getFinalAmount();
+        System.out.println("\n  第一次金额: " + total + "元");
+        printVerification("金额8元", total);
         printTestEnd();
     }
 
@@ -327,26 +314,12 @@ public class ComprehensiveBillingTest {
         printUnits(result1);
         printPromotionUsages(result1);
 
-        // 检查剩余免费分钟数
-        var segmentCarryOver = result1.getCarryOver().getSegments().values().iterator().next();
-        if (segmentCarryOver.getPromotionState() != null) {
-            System.out.println("  剩余免费分钟: " + segmentCarryOver.getPromotionState().getRemainingMinutesConverted());
-        }
+        // 检查剩余免费分钟数 - DELETED (carryOver 已删除)
+        System.out.println("  [INFO] 剩余免费分钟数检查已删除（carryOver 字段已移除）");
 
-        // 第二次计算（CONTINUE）
-        LocalDateTime endTime2 = time(3, 11, 10, 23);
-
-        System.out.println("\n【第二次计算 (CONTINUE)】");
-        System.out.println("  计费时间: 继续到 03-11 10:23 (跨周期)");
-        System.out.println("\n【预期结果】");
-        System.out.println("  新周期重新累计，剩余免费分钟可继续使用");
-
-        BillingRequest request2 = createRequest(beginTime, endTime2, promos);
-        request2.setPreviousCarryOver(result1.getCarryOver());
-        BillingResult result2 = service.calculate(request2);
-
-        printResult(result2);
-        printUnits(result2);
+        // 第二次计算（CONTINUE - DELETED）：此测试已删除，因为项目重构移除了 CONTINUE 续算模式
+        System.out.println("\n【第二次计算 (CONTINUE)】- 已删除");
+        System.out.println("  此测试方法已被删除，因为项目重构移除了 CONTINUE 续算模式。");
 
         printTestEnd();
     }
@@ -668,23 +641,11 @@ public class ComprehensiveBillingTest {
         printUnits(result1);
         System.out.println("  封顶触发: " + (result1.getFinalAmount().compareTo(new BigDecimal("15")) == 0));
 
-        // 第二次计算（CONTINUE）
-        LocalDateTime endTime2 = time(3, 11, 11, 53);
+        // 第二次计算（CONTINUE - DELETED）：此测试已删除，因为项目重构移除了 CONTINUE 续算模式
+        System.out.println("\n【第二次计算 (CONTINUE)】- 已删除");
+        System.out.println("  此测试方法已被删除，因为项目重构移除了 CONTINUE 续算模式。");
 
-        System.out.println("\n【第二次计算 (CONTINUE)】");
-        System.out.println("  计费时间: 继续到 03-11 11:53 (跨周期)");
-        System.out.println("\n【预期结果】");
-        System.out.println("  新周期重新累计，从次日09:13开始");
-
-        BillingRequest request2 = createRequest(beginTime, endTime2, new ArrayList<>());
-        request2.setPreviousCarryOver(result1.getCarryOver());
-        BillingResult result2 = service.calculate(request2);
-
-        printResult(result2);
-        printUnits(result2);
-
-        BigDecimal total = result1.getFinalAmount().add(result2.getFinalAmount());
-        System.out.println("\n  两次累计金额: " + total + "元");
+        System.out.println("\n  第一次金额: " + result1.getFinalAmount() + "元");
         printTestEnd();
     }
 
@@ -818,29 +779,12 @@ public class ComprehensiveBillingTest {
         System.out.println("  包含简化单元: " + hasSimplified);
         System.out.println("  calculationEndTime: " + result1.getCalculationEndTime().format(TIME_FORMAT));
 
-        // 第二次计算（CONTINUE）：继续5天
-        LocalDateTime endTime2 = time(3, 21, 8, 13);
+        // 第二次计算（CONTINUE - DELETED）：此测试已删除，因为项目重构移除了 CONTINUE 续算模式
+        System.out.println("\n【第二次计算 (CONTINUE)】- 已删除");
+        System.out.println("  此测试方法已被删除，因为项目重构移除了 CONTINUE 续算模式。");
 
-        System.out.println("\n【第二次计算 (CONTINUE)】");
-        System.out.println("  计费时间: 继续到 03-21 08:13 (再加5天)");
-        System.out.println("\n【预期结果】");
-        System.out.println("  状态正确恢复，继续计算5天");
-        System.out.println("  增量金额: 5天 × 10元 = 50元");
-        System.out.println("  累计金额: 150 + 50 = 200元");
-
-        BillingRequest request2 = createRequest(beginTime, endTime2, new ArrayList<>());
-        request2.setPreviousCarryOver(result1.getCarryOver());
-        BillingResult result2 = service.calculate(request2);
-
-        printResult(result2);
-        printUnits(result2);
-
-        BigDecimal total = result1.getFinalAmount().add(result2.getFinalAmount());
         System.out.println("\n  第一次金额: " + result1.getFinalAmount() + "元");
-        System.out.println("  第二次金额: " + result2.getFinalAmount() + "元");
-        System.out.println("  累计金额: " + total + "元");
-
-        printVerification("累计200元", total);
+        printVerification("金额150元", result1.getFinalAmount());
         printTestEnd();
     }
 

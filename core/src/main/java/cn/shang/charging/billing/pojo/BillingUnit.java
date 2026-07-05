@@ -1,6 +1,5 @@
 package cn.shang.charging.billing.pojo;
 
-import cn.shang.charging.billing.value.UnitValueSpec;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -52,7 +51,7 @@ public class BillingUnit {
 
     /**
      * 是否被 calcEndTime 截断
-     * 用于 CONTINUE 模式恢复截断单元
+     * 用于触发不足单元计费（IncompleteUnitChargeMode）
      */
     private Boolean isTruncated;
 
@@ -67,15 +66,10 @@ public class BillingUnit {
     private BigDecimal chargedAmount;
 
     /**
-     * 从计费开始到当前单元的累计金额
-     * CONTINUE 模式下，从 previousAccumulatedAmount 继续累加
+     * 段内累计金额：从当前分段起点到本单元的累计 chargedAmount。
+     * 不跨分段累计。
      */
     private BigDecimal accumulatedAmount;
-
-    /**
-     * 单元内统一求值描述
-     */
-    private UnitValueSpec valueSpec;
 
     /**
      * 规则扩展数据，由具体规则使用
@@ -96,12 +90,4 @@ public class BillingUnit {
      */
     @Builder.Default
     private int count = 1;
-
-    /**
-     * 此单元是否是通过 CONTINUE 模式合并生成的
-     * 如果为 true，此单元的开始时间在上次计算的截断单元位置
-     * @deprecated 已废弃，改用 accumulatedAmount 字段
-     */
-    @Deprecated
-    private Boolean mergedFromPrevious;
 }

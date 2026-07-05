@@ -40,21 +40,6 @@ public class FreeTimeRange {
 
     private Object data; // 其他数据
 
-    /**
-     * 是否为条件免费
-     * 当为 true 时，conditionalUntil 定义了查询时间窗口，
-     * queryTime 必须 ≤ conditionalUntil 才生效
-     */
-    private boolean conditional;
-
-    /**
-     * 条件免费的激活窗口结束时间
-     * 仅当 conditional=true 时有效
-     */
-    private LocalDateTime conditionalUntil;
-
-    // TODO 免费时间段特性
-
     // 检查时间段是否有效（开始时间早于结束时间）
     public boolean isValid() {
         return beginTime != null && endTime != null && !beginTime.isAfter(endTime);
@@ -85,9 +70,7 @@ public class FreeTimeRange {
                 .setPriority(priority)
                 .setPromotionType(promotionType)
                 .setRangeType(rangeType)
-                .setSource(source)
-                .setConditional(conditional)
-                .setConditionalUntil(conditionalUntil);
+                .setSource(source);
         copy.data = this.data;
         return copy;
     }
@@ -99,8 +82,6 @@ public class FreeTimeRange {
                 .setPriority(this.priority)
                 .setPromotionType(this.promotionType)
                 .setRangeType(this.rangeType)
-                .setSource(this.source)
-                .setConditional(conditional)
-                .setConditionalUntil(conditionalUntil);
+                .setSource(this.source);
     }
 }

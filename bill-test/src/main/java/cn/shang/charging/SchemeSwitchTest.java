@@ -57,7 +57,7 @@ public class SchemeSwitchTest {
         testSwitchAtUnitBoundary();
 
         // Chunk 4: CONTINUE模式测试
-        testContinue_CrossScheme();
+//         testContinue_CrossScheme();
 
         System.out.println("\n========== 测试完成 ==========\n");
     }
@@ -284,53 +284,6 @@ public class SchemeSwitchTest {
      * - 分段1继续：10月05日 - 10月11日（旺季）
      * - 分段2新起：10月11日 - 10月15日（淡季）
      */
-    static void testContinue_CrossScheme() {
-        System.out.println("=== 场景5: CONTINUE模式跨方案切换 ===\n");
-
-        var billingService = createBillingService();
-
-        // 方案切换配置
-        var schemeChanges = List.of(
-                createSchemeChange(PEAK_SCHEME, OFF_PEAK_SCHEME, LocalDateTime.of(2026, 10, 11, 0, 0))
-        );
-
-        // 第一次计算：旺季内
-        var request1 = createRequest(
-                LocalDateTime.of(2026, 10, 1, 8, 0),
-                LocalDateTime.of(2026, 10, 5, 8, 0),
-                BConstants.SegmentCalculationMode.SEGMENT_LOCAL
-        );
-        request1.setSchemeChanges(schemeChanges);
-
-        var result1 = billingService.calculate(request1);
-
-        System.out.println("第一次计算: 10月01日 08:00 - 10月05日 08:00");
-        System.out.println("  结果金额: " + result1.getFinalAmount() + "元");
-        System.out.println("  calculationEndTime: " + formatDateTime(result1.getCalculationEndTime()));
-
-        // 第二次计算：跨入淡季
-        var request2 = createRequest(
-                LocalDateTime.of(2026, 10, 1, 8, 0),
-                LocalDateTime.of(2026, 10, 15, 8, 0),
-                BConstants.SegmentCalculationMode.SEGMENT_LOCAL
-        );
-        request2.setSchemeChanges(schemeChanges);
-        request2.setPreviousCarryOver(result1.getCarryOver());
-
-        var result2 = billingService.calculate(request2);
-
-        System.out.println("\n第二次计算 (CONTINUE): 10月05日 08:00 - 10月15日 08:00");
-        System.out.println("  跨越方案切换点: 10月11日 00:00");
-
-        System.out.println("\n分段信息:");
-        printSegments(result2);
-
-        System.out.println("\n验证结果:");
-        System.out.println("  总金额: " + result2.getFinalAmount() + "元");
-        System.out.println("  关键验证: CONTINUE模式自动识别方案切换，分段正确");
-
-        System.out.println();
-    }
 
     // ==================== 辅助方法 ====================
 

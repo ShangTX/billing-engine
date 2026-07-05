@@ -104,9 +104,7 @@ public class FreeTimeRangeMerger {
                         .setEndTime(originalRange.getEndTime())
                         .setPriority(originalRange.getPriority())
                         .setPromotionType(originalRange.getPromotionType())
-                        .setRangeType(originalRange.getRangeType())
-                        .setConditional(originalRange.isConditional())
-                        .setConditionalUntil(originalRange.getConditionalUntil());
+                        .setRangeType(originalRange.getRangeType());
                 result.addDiscardedRange(discarded);
             }
 
@@ -124,9 +122,7 @@ public class FreeTimeRangeMerger {
                         .setEndTime(end)
                         .setPriority(originalRange.getPriority())
                         .setPromotionType(originalRange.getPromotionType())
-                        .setRangeType(originalRange.getRangeType())
-                        .setConditional(originalRange.isConditional())
-                        .setConditionalUntil(originalRange.getConditionalUntil());
+                        .setRangeType(originalRange.getRangeType());
                 processedRange.setData(originalRange.getData());
                 processed.add(processedRange);
             }
@@ -166,9 +162,7 @@ public class FreeTimeRangeMerger {
                             .setEndTime(overlap.getEndTime())
                             .setPriority(next.getPriority())
                             .setPromotionType(next.getPromotionType())
-                            .setRangeType(next.getRangeType())
-                            .setConditional(next.isConditional())
-                            .setConditionalUntil(next.getConditionalUntil()));
+                            .setRangeType(next.getRangeType()));
 
                     // 分割下一个时间段
                     List<FreeTimeRange> splitParts = splitFreeTimeRange(next, overlap);
@@ -230,9 +224,7 @@ public class FreeTimeRangeMerger {
                                     .setEndTime(overlap.getEndTime())
                                     .setPriority(part.getPriority())
                                     .setPromotionType(part.getPromotionType())
-                                    .setRangeType(part.getRangeType())
-                                    .setConditional(part.isConditional())
-                                    .setConditionalUntil(part.getConditionalUntil()));
+                                    .setRangeType(part.getRangeType()));
 
                             // 分割时间段
                             List<FreeTimeRange> splitParts = splitFreeTimeRange(part, overlap);
@@ -274,9 +266,7 @@ public class FreeTimeRangeMerger {
                     .setEndTime(overlapToRemove.getBeginTime())
                     .setPriority(original.getPriority())
                     .setPromotionType(original.getPromotionType())
-                    .setRangeType(original.getRangeType())
-                    .setConditional(original.isConditional())
-                    .setConditionalUntil(original.getConditionalUntil()));
+                    .setRangeType(original.getRangeType()));
         }
 
         // 重叠部分在中间（会产生两个部分）
@@ -288,9 +278,7 @@ public class FreeTimeRangeMerger {
                     .setEndTime(original.getEndTime())
                     .setPriority(original.getPriority())
                     .setPromotionType(original.getPromotionType())
-                    .setRangeType(original.getRangeType())
-                    .setConditional(original.isConditional())
-                    .setConditionalUntil(original.getConditionalUntil()));
+                    .setRangeType(original.getRangeType()));
         }
 
         return parts;

@@ -4,7 +4,6 @@ import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
-import cn.shang.charging.billing.value.UnitValueSpec;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
@@ -19,7 +18,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * `dayNight` 规则在 UNIT_BASED 模式下的策略实现。
@@ -41,7 +39,6 @@ final class DayNightUnitBasedStrategy {
     private static final FreeMinuteAllocator FREE_MINUTE_ALLOCATOR = new FreeMinuteAllocator();
 
     private final DayNightPriceResolver priceResolver = new DayNightPriceResolver();
-    private final DayNightValueSpecFactory valueSpecFactory = new DayNightValueSpecFactory();
 
     BillingSegmentResult calculate(BillingContext context,
                                    DayNightConfig config,
@@ -58,11 +55,9 @@ final class DayNightUnitBasedStrategy {
         final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
 
-        // 恢复周期状态（CONTINUE 模式）
+        // 周期封顶累计（每段从 ZERO 开始）
         int cycleIndex = 0;
         BigDecimal cycleAccumulated = BigDecimal.ZERO;
-        LocalDateTime cycleBoundary = calcBegin.plusMinutes(MINUTES_PER_DAY);
-        // TODO: CONTINUE 状态恢复需从 BillingContext.ruleState 解析，当前先按 FROM_SCRATCH
 
         List<BillingUnit> billingUnits = new ArrayList<>();
         LocalDateTime current = calcBegin;
@@ -122,21 +117,7 @@ final class DayNightUnitBasedStrategy {
                 cycleAccumulated = cycleAccumulated.add(chargedAmount);
             }
 
-            // valueSpec：封顶时用封顶值，不足单元按模式，否则按时段类型生成
-            UnitValueSpec valueSpec;
-            if (dailyCapped) {
-                valueSpec = valueSpecFactory.createCappedSpec(null, current, unitEnd, chargedAmount);
-            } else if (isTruncated && !isFree) {
-                valueSpec = AbstractTimeBasedRule.computeIncompleteValueSpec(unitPrice, duration, unitMinutes,
-                        config.getIncompleteUnitChargeMode(),
-                        config.getThresholdMinutes(), config.getThresholdRatio());
-            } else if (isFree) {
-                valueSpec = valueSpecFactory.createFreeSpec();
-            } else {
-                DayNightPeriodType periodType = priceResolver.determinePeriodType(current, pricingEnd, config);
-                valueSpec = valueSpecFactory.createRegularSpec(periodType, current, pricingEnd, config, originalAmount);
-            }
-
+            // valueSpec 已下线，单元计费只产出 chargedAmount
             BillingUnit unit = BillingUnit.builder()
                     .beginTime(current)
                     .endTime(unitEnd)
@@ -146,7 +127,6 @@ final class DayNightUnitBasedStrategy {
                     .free(isFree)
                     .freePromotionId(freePromotionId)
                     .chargedAmount(chargedAmount)
-                    .valueSpec(valueSpec)
                     .ruleData(cycleIndex)
                     .build();
             billingUnits.add(unit);
@@ -160,14 +140,8 @@ final class DayNightUnitBasedStrategy {
             }
         }
 
-        // 计算累计金额（CONTINUE 支持）
-        BigDecimal accumulatedAmount = context.getPreviousAccumulatedAmount();
-        if (accumulatedAmount == null) accumulatedAmount = BigDecimal.ZERO;
-        BigDecimal truncatedDeduction = context.getTruncatedUnitChargedAmount();
-        if (truncatedDeduction != null && !billingUnits.isEmpty()) {
-            accumulatedAmount = accumulatedAmount.subtract(truncatedDeduction);
-            if (accumulatedAmount.compareTo(BigDecimal.ZERO) < 0) accumulatedAmount = BigDecimal.ZERO;
-        }
+        // 计算累计金额（每段从 ZERO 开始累加）
+        BigDecimal accumulatedAmount = BigDecimal.ZERO;
         for (BillingUnit unit : billingUnits) {
             accumulatedAmount = accumulatedAmount.add(unit.getChargedAmount());
             unit.setAccumulatedAmount(accumulatedAmount);
@@ -188,15 +162,6 @@ final class DayNightUnitBasedStrategy {
         LocalDateTime feeEffectiveStart = calculateEffectiveFrom(billingUnits);
         LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
 
-        // 输出状态（CONTINUE 用）
-        Map<String, Object> ruleOutputState = Map.of(
-                "dayNight", Map.of(
-                        "cycleIndex", cycleIndex,
-                        "cycleAccumulated", cycleAccumulated,
-                        "cycleBoundary", cycleBoundary
-                )
-        );
-
         // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 从 BillingUnit.originalAmount 聚合）
         List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
                 freeTimeRanges, calcBegin, calcEnd,
@@ -207,11 +172,6 @@ final class DayNightUnitBasedStrategy {
         List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
         if (materialized.getPromotionUsages() != null) {
             allUsages.addAll(materialized.getPromotionUsages());
-        }
-        // 写回 PromotionCarryOver（TODO-20260702-004：carryOver 构建从 PromotionEngine 迁移到策略侧）
-        if (promotionAggregate != null) {
-            promotionAggregate.setPromotionCarryOver(
-                    PromotionAggregateUtil.buildCarryOver(materialized.getPromotionUsages(), freeTimeRanges, calcEnd));
         }
 
         return BillingSegmentResult.builder()
@@ -226,7 +186,6 @@ final class DayNightUnitBasedStrategy {
                 .promotionAggregate(promotionAggregate)
                 .feeEffectiveStart(feeEffectiveStart)
                 .feeEffectiveEnd(feeEffectiveEnd)
-                .ruleOutputState(ruleOutputState)
                 .build();
     }
 

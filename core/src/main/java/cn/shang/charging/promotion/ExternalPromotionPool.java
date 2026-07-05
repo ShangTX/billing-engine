@@ -172,8 +172,6 @@ public final class ExternalPromotionPool {
                 .promotionType(grant.getType())
                 .rangeType(grant.getRangeType())
                 .source(grant.getSource())
-                .conditional(Boolean.TRUE.equals(grant.getConditional()))
-                .conditionalUntil(grant.getConditionalUntil())
                 .build();
     }
 
@@ -186,8 +184,6 @@ public final class ExternalPromotionPool {
                 .endTime(range.getEndTime())
                 .priority(orig.getPriority())
                 .rangeType(orig.getRangeType())
-                .conditional(orig.getConditional())
-                .conditionalUntil(orig.getConditionalUntil())
                 .build();
     }
 }
