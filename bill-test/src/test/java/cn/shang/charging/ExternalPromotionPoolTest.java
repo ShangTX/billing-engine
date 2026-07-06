@@ -10,6 +10,7 @@ import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.PromotionRuleConfig;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.billing.pojo.SchemeChange;
+import cn.shang.charging.billing.pojo.SegmentContext;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
 import cn.shang.charging.charge.rules.daynight.DayNightRule;
@@ -27,6 +28,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -100,6 +103,81 @@ class ExternalPromotionPoolTest {
         assertTrue(rangeUsageCount >= 1, "应产出 FREE_RANGE usage");
     }
 
+    /**
+     * prepareContexts 路径与 calculate 解析一致（TODO-20260706-002 阶段6）。
+     * <p>
+     * 验证：分段上下文的 calculationMode 正确解析、externalPromotions 经 externalPool 路由
+     * （remaining 注入 BillingContext）、各段共享同一 externalPool 实例。
+     */
+    @Test
+    void prepareContexts_resolvesCalculationModeAndExternalPool() {
+        BillingService service = createService(BConstants.CalculationMode.UNIT_BASED);
+        BillingRequest request = baseRequest();
+        request.setExternalPromotions(List.of(
+                PromotionGrant.builder()
+                        .id("free-min-60")
+                        .type(BConstants.PromotionType.FREE_MINUTES)
+                        .priority(1)
+                        .source(BConstants.PromotionSource.COUPON)
+                        .freeMinutes(60)
+                        .build()
+        ));
+
+        List<SegmentContext> contexts = service.prepareContexts(request);
+
+        assertEquals(2, contexts.size(), "应切 2 段（12:00 切换）");
+        // calculationMode 经 resolveSegmentContext 正确解析（之前 prepareContexts 已解析，此处确认共享路径不丢）
+        for (SegmentContext ctx : contexts) {
+            assertEquals(BConstants.CalculationMode.UNIT_BASED,
+                    ctx.getBillingContext().getCalculationMode(),
+                    "calculationMode 应经 resolveSegmentContext 解析");
+            assertNotNull(ctx.getBillingContext().getExternalPromotions(),
+                    "externalPromotions 应经 externalPool.remaining() 注入");
+            assertNotNull(ctx.getExternalPool(), "externalPool 应挂到 SegmentContext 供 calculateWithContexts reset");
+        }
+        // 各段共享同一 externalPool 实例（跨段共享池）
+        assertSame(contexts.get(0).getExternalPool(), contexts.get(1).getExternalPool(),
+                "各段应共享同一 externalPool 实例");
+    }
+
+    /**
+     * prepareContexts + calculateWithContexts 单段场景 baseline 与 calculate 一致
+     * （TODO-20260706-002 阶段6，PromotionEquivalentCalculator 核心契约）。
+     * <p>
+     * 单段无跨段去重问题，externalPool.remaining() = 全量外部优惠，baseline 应等于 calculate。
+     */
+    @Test
+    void prepareAndCalculateWithContexts_matchesCalculate_singleSegment() {
+        BillingService service = createService(BConstants.CalculationMode.CONTINUOUS);
+        BillingRequest request = new BillingRequest();
+        request.setId("single-seg-equiv");
+        request.setBeginTime(BEGIN);
+        request.setEndTime(LocalDateTime.of(2026, 4, 20, 12, 0)); // 单段（8:00-12:00，不跨切换点）
+        request.setSchemeId("scheme-1");
+        request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SINGLE);
+        request.setSchemeChanges(List.of());
+        request.setExternalPromotions(List.of(
+                PromotionGrant.builder()
+                        .id("free-min-60")
+                        .type(BConstants.PromotionType.FREE_MINUTES)
+                        .priority(1)
+                        .source(BConstants.PromotionSource.COUPON)
+                        .freeMinutes(60)
+                        .build()
+        ));
+
+        BillingResult direct = service.calculate(request);
+        List<SegmentContext> contexts = service.prepareContexts(request);
+        // 多次重算：每次 calculateWithContexts 前 externalPool reset，结果应稳定且等于 calculate
+        BillingResult recalc1 = service.calculateWithContexts(contexts, request);
+        BillingResult recalc2 = service.calculateWithContexts(contexts, request);
+
+        assertEquals(0, direct.getFinalAmount().compareTo(recalc1.getFinalAmount()),
+                "prepareContexts+calculateWithContexts 应等于 calculate");
+        assertEquals(0, direct.getFinalAmount().compareTo(recalc2.getFinalAmount()),
+                "多次重算应稳定（externalPool reset 生效，无跨次污染）");
+    }
+
     private BillingRequest baseRequest() {
         BillingRequest request = new BillingRequest();
         request.setId("external-pool-test");
@@ -116,10 +194,14 @@ class ExternalPromotionPoolTest {
     }
 
     private static BillingService createService() {
+        return createService(BConstants.CalculationMode.CONTINUOUS);
+    }
+
+    private static BillingService createService(BConstants.CalculationMode calculationMode) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
             public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
-                return BConstants.CalculationMode.CONTINUOUS;
+                return calculationMode;
             }
 
             @Override

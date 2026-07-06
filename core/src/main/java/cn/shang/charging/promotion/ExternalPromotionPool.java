@@ -70,6 +70,21 @@ public final class ExternalPromotionPool {
     }
 
     /**
+     * 重置池到初始状态并重新用外部优惠初始化（TODO-20260706-002 阶段6）。
+     * <p>
+     * 分步重算语义：{@code prepareContexts} 一次初始化，{@code calculateWithContexts}
+     * 每次重算前调用本方法重置，避免上一次消去法迭代残留的剩余量污染本次计算。
+     */
+    public void reset(List<PromotionGrant> externalPromotions) {
+        originalGrants.clear();
+        remainingMinutes.clear();
+        minutesType.clear();
+        remainingRanges.clear();
+        amountDiscountGrants.clear();
+        init(externalPromotions);
+    }
+
+    /**
      * 构造剩余外部优惠 PromotionGrant 列表（给本段 PromotionEngine）。
      * <p>
      * FREE_MINUTES/FREE_RANGE 产出剩余量；AMOUNT/DISCOUNT 全量透传。

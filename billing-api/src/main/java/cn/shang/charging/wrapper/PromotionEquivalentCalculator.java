@@ -116,6 +116,8 @@ public class PromotionEquivalentCalculator {
                 .segmentId(ctx.getSegmentId())
                 .billingContext(ctx.getBillingContext())
                 .promotionAggregate(PromotionAggregateUtil.exclude(ctx.getPromotionAggregate(), excludedIds))
+                // 共享同一 externalPool 引用：calculateWithContexts 每次重算前 reset 同一实例
+                .externalPool(ctx.getExternalPool())
                 .build())
             .toList();
     }

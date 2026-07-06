@@ -74,46 +74,13 @@ public class BillingService {
                     request.getSegmentCalculationMode()
             );
 
-            // 2.2 解析规则快照（方案已确定）
-            Map<String, Object> contextParam = request.getContext();
-            RuleConfig chargingRule = billingConfigResolver.resolveChargingRule(
-                    segment.getSchemeId(),
-                    window.getCalculationBegin(),
-                    window.getCalculationEnd(),
-                    contextParam);
+            // 2.2 解析规则快照 + 聚合（方案已确定），与 prepareContexts 共用 resolveSegmentContext
+            SegmentContext segmentContext = resolveSegmentContext(request, segment, window, externalPool);
 
-            // 解析优惠规则
-            List<PromotionRuleConfig> promotionRules =
-                    billingConfigResolver.resolvePromotionRules(
-                            segment.getSchemeId(),
-                            window.getCalculationBegin(),
-                            window.getCalculationEnd(),
-                            contextParam);
-
-            // 解析计算模式
-            BConstants.CalculationMode calculationMode = billingConfigResolver.resolveCalculationMode(
-                    segment.getSchemeId(), contextParam);
-
-            // 2.3 构建 BillingContext（只读）
-            BillingContext context = BillingContext.builder()
-                    .id(request.getId())
-                    .beginTime(request.getBeginTime())
-                    .endTime(request.getEndTime())
-                    .segment(segment)
-                    .window(window)
-                    .chargingRule(chargingRule)
-                    .promotionRules(promotionRules)
-                    .externalPromotions(externalPool.remaining())
-                    .calculationMode(calculationMode)
-                    .disableSimplification(request.getDisableSimplification())
-                    .billingConfigResolver(billingConfigResolver)
-                    .build();
-
-            // 2.4 执行优惠聚合
-            PromotionAggregate promotionAggregate = promotionEngine.evaluate(context);
-
-            // 2.5 执行计费
-            BillingSegmentResult segmentResult = billingCalculator.calculate(context, promotionAggregate);
+            // 2.3 执行计费
+            BillingSegmentResult segmentResult = billingCalculator.calculate(
+                    segmentContext.getBillingContext(),
+                    segmentContext.getPromotionAggregate());
 
             segmentResults.add(segmentResult);
 
@@ -170,7 +137,12 @@ public class BillingService {
         // GLOBAL_ORIGIN 半成品守卫（TODO-20260702-001）
         validateGlobalOrigin(request, segments);
 
-        Map<String, Object> contextParam = request.getContext();
+        // 外部优惠跨段共享池（TODO-20260706-002 阶段6）：与 calculate 共用 resolveSegmentContext，
+        // 消除 calculationMode / externalPool 解析不同步。
+        // 注：prepareContexts 不执行计费，无法 writeBack 推进跨段剩余量；多段跨段去重由
+        // calculateWithContexts 重算时承担（单段场景已与 calculate 一致）。
+        ExternalPromotionPool externalPool = new ExternalPromotionPool();
+        externalPool.init(request.getExternalPromotions());
 
         for (BillingSegment segment : segments) {
             CalculationWindow window = CalculationWindowFactory.create(
@@ -179,42 +151,10 @@ public class BillingService {
                 request.getSegmentCalculationMode()
             );
 
-            RuleConfig chargingRule = billingConfigResolver.resolveChargingRule(
-                segment.getSchemeId(),
-                window.getCalculationBegin(),
-                window.getCalculationEnd(),
-                contextParam);
-
-            List<PromotionRuleConfig> promotionRules = billingConfigResolver.resolvePromotionRules(
-                segment.getSchemeId(),
-                window.getCalculationBegin(),
-                window.getCalculationEnd(),
-                contextParam);
-
-            BConstants.CalculationMode calculationMode = billingConfigResolver.resolveCalculationMode(
-                segment.getSchemeId(), contextParam);
-
-            BillingContext billingContext = BillingContext.builder()
-                .id(request.getId())
-                .beginTime(request.getBeginTime())
-                .endTime(request.getEndTime())
-                .segment(segment)
-                .window(window)
-                .chargingRule(chargingRule)
-                .promotionRules(promotionRules)
-                .externalPromotions(request.getExternalPromotions())
-                .calculationMode(calculationMode)
-                .disableSimplification(request.getDisableSimplification())
-                .billingConfigResolver(billingConfigResolver)
-                .build();
-
-            PromotionAggregate promotionAggregate = promotionEngine.evaluate(billingContext);
-
-            contexts.add(SegmentContext.builder()
-                .segmentId(segment.getId())
-                .billingContext(billingContext)
-                .promotionAggregate(promotionAggregate)
-                .build());
+            SegmentContext segmentContext = resolveSegmentContext(request, segment, window, externalPool);
+            // 共享池引用挂到 context 上，供 calculateWithContexts 每次重算前 reset
+            segmentContext.setExternalPool(externalPool);
+            contexts.add(segmentContext);
         }
 
         return contexts;
@@ -229,6 +169,15 @@ public class BillingService {
      * @return 计费结果
      */
     public BillingResult calculateWithContexts(List<SegmentContext> contexts, BillingRequest request) {
+        // externalPool 重置点（TODO-20260706-002 阶段6）：每次重算前把池恢复到初始状态，
+        // 避免上一次消去法迭代残留的剩余量污染本次计算（PromotionEquivalentCalculator 多次调用）。
+        if (contexts != null && !contexts.isEmpty()) {
+            ExternalPromotionPool pool = contexts.get(0).getExternalPool();
+            if (pool != null) {
+                pool.reset(request.getExternalPromotions());
+            }
+        }
+
         List<BillingSegmentResult> segmentResults = new ArrayList<>();
 
         for (SegmentContext ctx : contexts) {
@@ -240,6 +189,70 @@ public class BillingService {
         }
 
         return resultAssembler.assemble(request, segmentResults);
+    }
+
+    /**
+     * 解析分段上下文（TODO-20260706-002 阶段6，决策 E）。
+     * <p>
+     * calculate 与 prepareContexts 共用本方法，统一解析：
+     * <ul>
+     *   <li>calculationMode（resolveCalculationMode）</li>
+     *   <li>chargingRule（resolveChargingRule）</li>
+     *   <li>promotionRules（resolvePromotionRules）</li>
+     *   <li>externalPool（跨段共享优惠池，取 remaining() 注入 BillingContext）</li>
+     * </ul>
+     * 消除两路径解析不同步，保证 PromotionEquivalentCalculator 消去法基于与 calculate
+     * 完全一致的解析，等效金额准确。
+     *
+     * @param request      计费请求
+     * @param segment      分段
+     * @param window       计算窗口
+     * @param externalPool 外部优惠跨段共享池（取 remaining() 注入本段）
+     * @return 分段上下文（含 BillingContext 与优惠聚合）
+     */
+    private SegmentContext resolveSegmentContext(BillingRequest request,
+                                                 BillingSegment segment,
+                                                 CalculationWindow window,
+                                                 ExternalPromotionPool externalPool) {
+        Map<String, Object> contextParam = request.getContext();
+
+        RuleConfig chargingRule = billingConfigResolver.resolveChargingRule(
+                segment.getSchemeId(),
+                window.getCalculationBegin(),
+                window.getCalculationEnd(),
+                contextParam);
+
+        List<PromotionRuleConfig> promotionRules = billingConfigResolver.resolvePromotionRules(
+                segment.getSchemeId(),
+                window.getCalculationBegin(),
+                window.getCalculationEnd(),
+                contextParam);
+
+        BConstants.CalculationMode calculationMode = billingConfigResolver.resolveCalculationMode(
+                segment.getSchemeId(), contextParam);
+
+        BillingContext billingContext = BillingContext.builder()
+                .id(request.getId())
+                .beginTime(request.getBeginTime())
+                .endTime(request.getEndTime())
+                .segment(segment)
+                .window(window)
+                .chargingRule(chargingRule)
+                .promotionRules(promotionRules)
+                .externalPromotions(externalPool.remaining())
+                .calculationMode(calculationMode)
+                .disableSimplification(request.getDisableSimplification())
+                .billingConfigResolver(billingConfigResolver)
+                .build();
+
+        PromotionAggregate promotionAggregate = promotionEngine.evaluate(billingContext);
+
+        return SegmentContext.builder()
+                .segmentId(segment.getId())
+                .billingContext(billingContext)
+                .promotionAggregate(promotionAggregate)
+                .externalPool(externalPool)
+                .build();
     }
 
 }
