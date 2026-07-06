@@ -58,7 +58,8 @@ BillingRequest
 |------|------|
 | `SINGLE` | 整个请求只生成一个分段 |
 | `SEGMENT_LOCAL` | 每个分段以自身开始时间作为起算点 |
-| `GLOBAL_ORIGIN` | 所有分段共享全局时间轴，再裁剪到当前分段。**半成品**：减法未实现，多分段双重计费，当前仅单分段可用（等价 SEGMENT_LOCAL）；UNIT_BASED 不兼容（TODO-20260702-001） |
+
+> **GLOBAL_ORIGIN 已废弃（TODO-20260706-003）**：原"全局起算 + 分段截取"减法方案（4B）半成品止血后未实现，externalPool 跨段共享已替代其外部优惠一致性目标。`SegmentCalculationMode` 仅保留 `SINGLE` / `SEGMENT_LOCAL`，`SEGMENT_LOCAL` 作为扩展点。4A 减法方案设计见 `docs/designs/segment-promotion-consistency.md`。
 
 ---
 
@@ -275,7 +276,11 @@ BillingRequest
 
 ## 12. 优惠等效金额
 
-`PromotionEquivalentCalculator` 位于 `billing-api`。
+`PromotionEquivalentCalculator`（TODO-20260706-003 从 `billing-api` 迁入 `core` 的 `cn.shang.charging.billing` 包）使用消去法精确计算每个优惠的等效金额：依次排除某优惠后重算，差额即为该优惠的等效金额。
+
+- **按需计算**：`BillingRequest.equivalentAmountSpec`（`EquivalentAmountSpec`，`promotionIds` + `types`，`null`=不限）控制。`null`（默认）= 不计算，`PromotionUsage.equivalentAmount` 保持策略侧"原价之和"近似值，`BillingResult.totalEquivalentAmount` 为 `null`；非 `null` 时按规格过滤计算，回填到 `PromotionUsage.equivalentAmount`（覆盖近似值）与 `BillingResult.totalEquivalentAmount`（与 `finalAmount` 同级）。
+- **多段 + 外部优惠**：`calculateWithContexts` 重放 `PromotionEngine.evaluate`（externalPool reset + 每段 evaluate + writeBack 推进），`cloneAndExclude` 在源层（externalPromotions / promotionRules 按 id）排除，跨段去重在每次消去迭代中重放。
+- **优惠来源**：`PromotionUsage.source`（`RULE` 方案内 / `COUPON` 外部等）从 `FreeTimeRange.source` / `FreeMinutes.source` 透传，调用方可区分方案内与外部优惠。
 
 
 ---

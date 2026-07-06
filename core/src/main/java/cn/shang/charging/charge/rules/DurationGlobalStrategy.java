@@ -244,6 +244,7 @@ public final class DurationGlobalStrategy {
                             .setBeginTime(segBegin)
                             .setEndTime(segEnd)
                             .setPriority(smart.getPriority() != null ? smart.getPriority() : 0)
+                            .setSource(smart.getSource())
                             .setPromotionType(BConstants.PromotionType.SMART_FREE_MINUTES);
                     smartRanges.add(smartRange);
                     occupied.add(smartRange);
@@ -259,6 +260,7 @@ public final class DurationGlobalStrategy {
             smartUsages.add(PromotionUsage.builder()
                     .promotionId(smart.getId())
                     .type(BConstants.PromotionType.SMART_FREE_MINUTES)
+                    .source(smart.getSource())
                     .grantedMinutes(granted)
                     .usedMinutes(usedMinutes)
                     .usedFrom(usedFrom)

@@ -59,4 +59,13 @@ public class BillingRequest {
      */
     private Boolean disableSimplification;
 
+    /**
+     * 等效金额计算规格（TODO-20260706-003）。
+     * <p>
+     * {@code null}（默认）= 不计算等效金额，{@code promotionUsages.equivalentAmount}
+     * 保持策略侧"原价之和"近似值，{@code totalEquivalentAmount} 为 {@code null}。
+     * 非 {@code null} 时按规格过滤计算，回填到 usage 与 {@code totalEquivalentAmount}。
+     */
+    private EquivalentAmountSpec equivalentAmountSpec;
+
 }

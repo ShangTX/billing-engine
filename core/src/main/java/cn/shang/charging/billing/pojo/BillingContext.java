@@ -13,7 +13,7 @@ import java.util.List;
 
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@Builder(toBuilder = true)
 @Data
 public class BillingContext {
     // 计费id

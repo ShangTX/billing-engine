@@ -4,8 +4,11 @@ import cn.shang.charging.billing.pojo.*;
 import cn.shang.charging.promotion.ExternalPromotionPool;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
+import cn.shang.charging.promotion.pojo.PromotionGrant;
+import cn.shang.charging.promotion.pojo.PromotionUsage;
 import cn.shang.charging.settlement.ResultAssembler;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +22,9 @@ public class BillingService {
     private final BillingCalculator billingCalculator;
     private final ResultAssembler resultAssembler;
 
+    // 等效金额计算器（懒加载，避免构造函数循环依赖；TODO-20260706-003）
+    private PromotionEquivalentCalculator equivalentCalculator;
+
     public BillingService(
             SegmentBuilder segmentBuilder,
             BillingConfigResolver billingConfigResolver,
@@ -30,6 +36,19 @@ public class BillingService {
         this.promotionEngine = promotionEngine;
         this.billingCalculator = billingCalculator;
         this.resultAssembler = resultAssembler;
+    }
+
+    /**
+     * 获取等效金额计算器（懒加载，TODO-20260706-003）。
+     * <p>
+     * {@link PromotionEquivalentCalculator} 构造需要 {@link BillingService}（用于 prepareContexts /
+     * calculateWithContexts），故懒加载避免构造函数循环依赖。
+     */
+    private PromotionEquivalentCalculator getEquivalentCalculator() {
+        if (equivalentCalculator == null) {
+            equivalentCalculator = new PromotionEquivalentCalculator(this);
+        }
+        return equivalentCalculator;
     }
 
     /**
@@ -53,9 +72,6 @@ public class BillingService {
 
         // 1. 构建方案分段（只负责方案切换）
         List<BillingSegment> segments = segmentBuilder.buildSegments(request);
-
-        // GLOBAL_ORIGIN 半成品守卫（TODO-20260702-001）
-        validateGlobalOrigin(request, segments);
 
         // 外部优惠跨段共享可用量池（TODO-20260702-003）：整笔停车享一次，多分段不重复
         ExternalPromotionPool externalPool = new ExternalPromotionPool();
@@ -88,38 +104,34 @@ public class BillingService {
             externalPool.writeBack(segmentResult.getPromotionUsages());
         }
         // 3. 汇总结果（金额、满减、封顶等）
-        return resultAssembler.assemble(
-                request,
-                segmentResults
-        );
+        BillingResult result = resultAssembler.assemble(request, segmentResults);
+
+        // 4. 等效金额按需计算（TODO-20260706-003）：spec != null 时调用消去法，回填 usage + total
+        if (request.getEquivalentAmountSpec() != null) {
+            backfillEquivalentAmounts(result, request);
+        }
+
+        return result;
     }
 
     /**
-     * GLOBAL_ORIGIN 半成品守卫（TODO-20260702-001）。
+     * 用消去法计算等效金额并回填到 result（TODO-20260706-003）。
      * <p>
-     * GLOBAL_ORIGIN 窗口截取的减法语义未实现（clipBegin/clipEnd 从未被读取），
-     * 多分段下会双重计费。当前仅支持单分段（等价 SEGMENT_LOCAL）；
-     * UNIT_BASED 与 GLOBAL_ORIGIN 结构性不兼容（单元对齐 vs 全局起点截取）。
+     * 覆盖策略侧"原价之和"近似值；totalEquivalentAmount = 命中等效金额之和。
+     * spec 过滤后未命中的 usage.equivalentAmount 保持策略侧值（不被覆盖）。
      */
-    private void validateGlobalOrigin(BillingRequest request, List<BillingSegment> segments) {
-        if (request.getSegmentCalculationMode() != BConstants.SegmentCalculationMode.GLOBAL_ORIGIN) {
-            return;
-        }
-        if (segments.size() > 1) {
-            throw new IllegalStateException(
-                    "GLOBAL_ORIGIN 窗口截取模式当前为半成品（减法未实现），多分段（当前 "
-                            + segments.size() + " 段）下会双重计费；仅支持单分段（等价 SEGMENT_LOCAL）。"
-                            + "详见 TODO-20260702-001。");
-        }
-        Map<String, Object> contextParam = request.getContext();
-        for (BillingSegment segment : segments) {
-            BConstants.CalculationMode calculationMode = billingConfigResolver.resolveCalculationMode(segment.getSchemeId(), contextParam);
-            if (calculationMode == BConstants.CalculationMode.UNIT_BASED) {
-                throw new IllegalStateException(
-                        "UNIT_BASED 与 GLOBAL_ORIGIN 结构性不兼容：单元对齐语义与全局起点截取冲突；"
-                                + "UNIT_BASED 仅支持 SEGMENT_LOCAL。详见 TODO-20260702-001。");
+    private void backfillEquivalentAmounts(BillingResult result, BillingRequest request) {
+        Map<String, BigDecimal> equivalents = getEquivalentCalculator().calculate(request);
+        if (result.getPromotionUsages() != null) {
+            for (PromotionUsage usage : result.getPromotionUsages()) {
+                BigDecimal eq = equivalents.get(usage.getPromotionId());
+                if (eq != null) {
+                    usage.setEquivalentAmount(eq);
+                }
             }
         }
+        result.setTotalEquivalentAmount(
+                PromotionEquivalentCalculator.sumEquivalents(result, request.getEquivalentAmountSpec()));
     }
 
     /**
@@ -133,9 +145,6 @@ public class BillingService {
         List<SegmentContext> contexts = new ArrayList<>();
 
         List<BillingSegment> segments = segmentBuilder.buildSegments(request);
-
-        // GLOBAL_ORIGIN 半成品守卫（TODO-20260702-001）
-        validateGlobalOrigin(request, segments);
 
         // 外部优惠跨段共享池（TODO-20260706-002 阶段6）：与 calculate 共用 resolveSegmentContext，
         // 消除 calculationMode / externalPool 解析不同步。
@@ -154,6 +163,8 @@ public class BillingService {
             SegmentContext segmentContext = resolveSegmentContext(request, segment, window, externalPool);
             // 共享池引用挂到 context 上，供 calculateWithContexts 每次重算前 reset
             segmentContext.setExternalPool(externalPool);
+            // 源外部优惠列表（供 calculateWithContexts reset 用；TODO-20260706-003）
+            segmentContext.setSourceExternalPromotions(request.getExternalPromotions());
             contexts.add(segmentContext);
         }
 
@@ -169,23 +180,46 @@ public class BillingService {
      * @return 计费结果
      */
     public BillingResult calculateWithContexts(List<SegmentContext> contexts, BillingRequest request) {
-        // externalPool 重置点（TODO-20260706-002 阶段6）：每次重算前把池恢复到初始状态，
-        // 避免上一次消去法迭代残留的剩余量污染本次计算（PromotionEquivalentCalculator 多次调用）。
+        // externalPool 重置点（TODO-20260706-002 阶段6 + TODO-20260706-003 源层排除）：
+        // 用 context 的 sourceExternalPromotions（cloneAndExclude 过滤后的源列表）reset，
+        // 使源层排除的外部优惠在重放 evaluate 时不进入池。回退到 request.getExternalPromotions()
+        // 兼容未设 sourceExternalPromotions 的旧路径。
         if (contexts != null && !contexts.isEmpty()) {
             ExternalPromotionPool pool = contexts.get(0).getExternalPool();
             if (pool != null) {
-                pool.reset(request.getExternalPromotions());
+                List<PromotionGrant> sourceExternal = contexts.get(0).getSourceExternalPromotions();
+                if (sourceExternal == null) {
+                    sourceExternal = request.getExternalPromotions();
+                }
+                pool.reset(sourceExternal);
             }
         }
 
         List<BillingSegmentResult> segmentResults = new ArrayList<>();
 
         for (SegmentContext ctx : contexts) {
+            // 重放 evaluate：每段从 externalPool 取 remaining()，evaluate 后 writeBack 推进跨段剩余量
+            ExternalPromotionPool pool = ctx.getExternalPool();
+            List<PromotionGrant> segmentExternal = pool != null
+                    ? pool.remaining()
+                    : (ctx.getBillingContext().getExternalPromotions() != null
+                        ? ctx.getBillingContext().getExternalPromotions() : List.of());
+
+            BillingContext refreshedContext = ctx.getBillingContext().toBuilder()
+                    .externalPromotions(segmentExternal)
+                    .build();
+
+            PromotionAggregate promotionAggregate = promotionEngine.evaluate(refreshedContext);
+
             BillingSegmentResult segmentResult = billingCalculator.calculate(
-                ctx.getBillingContext(),
-                ctx.getPromotionAggregate()
+                refreshedContext,
+                promotionAggregate
             );
             segmentResults.add(segmentResult);
+
+            if (pool != null) {
+                pool.writeBack(segmentResult.getPromotionUsages());
+            }
         }
 
         return resultAssembler.assemble(request, segmentResults);

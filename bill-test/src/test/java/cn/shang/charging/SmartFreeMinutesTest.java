@@ -19,7 +19,7 @@ import cn.shang.charging.promotion.pojo.PromotionGrant;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
 import cn.shang.charging.settlement.ResultAssembler;
-import cn.shang.charging.wrapper.PromotionEquivalentCalculator;
+import cn.shang.charging.billing.PromotionEquivalentCalculator;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;

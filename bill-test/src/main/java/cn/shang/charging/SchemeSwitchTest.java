@@ -123,7 +123,7 @@ public class SchemeSwitchTest {
     }
 
     /**
-     * 场景2：单次切换 - 淡季→旺季（GLOBAL_ORIGIN）
+     * 场景2：单次切换 - 淡季→旺季（SEGMENT_LOCAL）
      *
      * 计费时间：04月15日 08:00 - 04月25日 08:00
      * 切换点：04月20日 00:00
@@ -132,10 +132,10 @@ public class SchemeSwitchTest {
      * - 分段1：04月15日 08:00 - 04月20日 00:00（淡季方案）
      * - 分段2：04月20日 00:00 - 04月25日 08:00（旺季方案）
      *
-     * GLOBAL_ORIGIN：从全局起点（04月15日 08:00）计算周期边界
+     * TODO-20260706-003：GLOBAL_ORIGIN 已废弃，本场景改用 SEGMENT_LOCAL（分段独立起算）。
      */
     static void testSingleSwitch_OffPeakToPeak_GlobalOrigin() {
-        System.out.println("=== 场景2: 单次切换 淡季→旺季 (GLOBAL_ORIGIN) ===\n");
+        System.out.println("=== 场景2: 单次切换 淡季→旺季 (SEGMENT_LOCAL) ===\n");
 
         var billingService = createBillingService();
 
@@ -145,7 +145,7 @@ public class SchemeSwitchTest {
         var request = createRequest(
                 LocalDateTime.of(2026, 4, 15, 8, 0),   // 04月15日 08:00
                 LocalDateTime.of(2026, 4, 25, 8, 0),   // 04月25日 08:00
-                BConstants.SegmentCalculationMode.GLOBAL_ORIGIN
+                BConstants.SegmentCalculationMode.SEGMENT_LOCAL
         );
 
         request.setSchemeChanges(List.of(
@@ -155,18 +155,12 @@ public class SchemeSwitchTest {
         System.out.println("输入参数:");
         System.out.println("  计费时间: 04月15日 08:00 - 04月25日 08:00");
         System.out.println("  切换点: 04月20日 00:00 (淡季→旺季)");
-        System.out.println("  计算模式: GLOBAL_ORIGIN (全局起算截取)");
+        System.out.println("  计算模式: SEGMENT_LOCAL (分段独立起算)");
         System.out.println();
 
-        // GLOBAL_ORIGIN 多分段守卫（TODO-20260702-001）：
-        // 减法未实现，多分段下双重计费，守卫抛异常。单分段等价 SEGMENT_LOCAL。
-        try {
-            billingService.calculate(request);
-            System.out.println("  ⚠ 未抛异常——守卫失效");
-        } catch (IllegalStateException ex) {
-            System.out.println("  守卫生效（预期）: " + ex.getMessage());
-        }
-        System.out.println("  说明: GLOBAL_ORIGIN 减法未实现，多分段已禁用；单分段等价 SEGMENT_LOCAL。");
+        var result = billingService.calculate(request);
+        System.out.println("  最终金额: " + result.getFinalAmount());
+        System.out.println("  说明: GLOBAL_ORIGIN 已废弃（TODO-20260706-003），externalPool 跨段共享替代。");
         System.out.println();
     }
 

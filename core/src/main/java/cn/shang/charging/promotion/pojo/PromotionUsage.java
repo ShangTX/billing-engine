@@ -24,6 +24,8 @@ public class PromotionUsage {
     private String promotionId;
     // 优惠类型
     private BConstants.PromotionType type;
+    // 优惠来源（RULE 方案内 / COUPON 外部等，TODO-20260706-003）
+    private BConstants.PromotionSource source;
 
     private long grantedMinutes;
     private long usedMinutes;

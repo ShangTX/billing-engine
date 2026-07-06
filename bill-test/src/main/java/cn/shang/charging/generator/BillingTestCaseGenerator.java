@@ -324,9 +324,9 @@ public class BillingTestCaseGenerator {
         request.setEndTime(timeWindow.end());
         request.setSchemeId(DEFAULT_SCHEME_ID);
         request.setSchemeChanges(List.of());
-        request.setSegmentCalculationMode(features.contains(TestFeature.GLOBAL_ORIGIN)
-                ? BConstants.SegmentCalculationMode.GLOBAL_ORIGIN
-                : BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
+        // TODO-20260706-003：GLOBAL_ORIGIN 已废弃，统一 SEGMENT_LOCAL。
+        // TestFeature.GLOBAL_ORIGIN 保留作兼容入口，行为同 SEGMENT_LOCAL。
+        request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
         request.setExternalPromotions(createExternalPromotions(features, timeWindow, index));
         if (features.contains(TestFeature.TIME_ROUNDING)) {
             request.setTimeRoundingMode(TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);

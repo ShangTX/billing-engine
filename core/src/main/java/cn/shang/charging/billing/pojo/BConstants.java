@@ -43,11 +43,14 @@ public class BConstants {
 
     /**
      * 分段计算方式
+     * <p>
+     * TODO-20260706-003：GLOBAL_ORIGIN（全局起算 + 分段截取，减法方案 4B）已废弃，
+     * externalPool 跨段共享替代其外部优惠一致性目标；4A 减法方案见
+     * {@code docs/designs/segment-promotion-consistency.md}（设计参考）。SEGMENT_LOCAL 保留作扩展点。
      */
     public enum SegmentCalculationMode {
         SINGLE, // 仅单个分段
-        SEGMENT_LOCAL,     // 分段独立起算
-        GLOBAL_ORIGIN      // 全局起算 + 分段截取
+        SEGMENT_LOCAL      // 分段独立起算
     }
 
     /**

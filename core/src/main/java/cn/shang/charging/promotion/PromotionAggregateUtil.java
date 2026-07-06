@@ -66,6 +66,7 @@ public class PromotionAggregateUtil {
             usages.add(PromotionUsage.builder()
                     .promotionId(range.getId())
                     .type(BConstants.PromotionType.FREE_RANGE)
+                    .source(range.getSource())
                     .grantedMinutes(grantedMinutes)
                     .usedMinutes(usedMinutes)
                     .usedFrom(usedFrom)

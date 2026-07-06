@@ -76,6 +76,7 @@ completed_git: 3e3830f
 - 优先级 P1：潜伏的计费正确性 bug，不仅是优惠一致性提升。
 - 后续实现方向（待立独立 TODO）：GLOBAL_ORIGIN 减法实现，先支持 CONTINUOUS + DurationMode，UNIT_BASED 显式排除。
 - 关联 TODO：TODO-20260701-001（FREE_RANGE 产出 PromotionUsage，是验证减法抵消的前置）、TODO-20260701-002（previousAccumulatedAmount 清理）。
+- **[2026-07-06 更新，TODO-20260706-003]**：GLOBAL_ORIGIN 枚举值已删除（废弃）。externalPool 跨段共享已替代其外部优惠一致性目标，4A 减法方案无明确业务诉求。`segment-promotion-consistency.md` 保留作 4A 设计参考。`SegmentCalculationMode` 仅保留 `SEGMENT_LOCAL` 作扩展点。
 
 ## 验证
 

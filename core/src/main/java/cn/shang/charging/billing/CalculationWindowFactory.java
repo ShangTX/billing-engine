@@ -8,20 +8,17 @@ import java.time.LocalDateTime;
 public class CalculationWindowFactory {
 
     /**
-     * 创建计算窗口
+     * 创建计算窗口。
+     * <p>
+     * TODO-20260706-003：GLOBAL_ORIGIN 已废弃，SINGLE / SEGMENT_LOCAL 统一以分段起点为 calculationBegin。
+     * {@code segmentCalculationMode} 参数保留作扩展点（未来恢复 4A 减法方案时加回分支）。
      */
     public static CalculationWindow create(LocalDateTime beginTime,
                                            BillingSegment segment,
                                            BConstants.SegmentCalculationMode segmentCalculationMode) {
         var calculationWindow = new CalculationWindow();
-        if(segmentCalculationMode == BConstants.SegmentCalculationMode.GLOBAL_ORIGIN) {
-            calculationWindow.setCalculationBegin(beginTime);
-        } else {
-            calculationWindow.setCalculationBegin(segment.getBeginTime());
-        }
+        calculationWindow.setCalculationBegin(segment.getBeginTime());
         calculationWindow.setCalculationEnd(segment.getEndTime());
-        calculationWindow.setClipBegin(segment.getBeginTime());
-        calculationWindow.setClipEnd(segment.getEndTime());
         return calculationWindow;
     }
 }

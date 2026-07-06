@@ -29,6 +29,14 @@ public class BillingResult {
     // 价格的有效时间
 
     /**
+     * 等效优惠金额汇总（TODO-20260706-003）。
+     * <p>
+     * 仅在 {@link BillingRequest#getEquivalentAmountSpec()} 非 {@code null} 时计算，
+     * 为所有命中优惠的等效金额之和；未计算时为 {@code null}。
+     */
+    private BigDecimal totalEquivalentAmount;
+
+    /**
      * 实际计算到的时间点（延伸后，用于缓存有效性判断）
      * 最后一个计费单元延伸后的结束时间
      */

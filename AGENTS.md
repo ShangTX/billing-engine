@@ -140,7 +140,7 @@ BillingService.calculate()
 - `CompactMerger` - compact 单元合并器（跨分段连续相同单元合并）
 - `BillingTemplate` - 便捷 API 入口（billing-api 模块）
 - `BillingResultViewer` - 查询时点视图逻辑（含 compact 单元子单元投影）
-- `PromotionEquivalentCalculator` - 优惠等效金额计算
+- `PromotionEquivalentCalculator` - 优惠等效金额计算（core 模块，TODO-20260706-003 从 billing-api 迁入；消去法 + `EquivalentAmountSpec` 按需过滤）
 
 四层架构：`RuleSemantics`（层 0，描述"是什么"）→ `BoundaryDrivenLoop`（层 1，纯调度）→ 4 个 `ModeStrategy`（层 2，描述"怎么算"）→ `BillingRule` 门面（层 3，纯分派）。`calculate` 与 `prepareContexts` 共用 `resolveSegmentContext` 解析分段上下文，消除不同步。
 

@@ -16,3 +16,4 @@
 |----|------|--------|------|------------|------|
 | TODO-20260630-002 | feature | P2 | 物化索引预估收入能力 | ec62357 | [materialized-index-revenue-estimation.md](tracking/items/materialized-index-revenue-estimation.md) |
 | TODO-20260623-001 | feature | P2 | 优化自定义规则扩展体验 | 4e081b3 | [custom-rule-extension-experience.md](tracking/items/custom-rule-extension-experience.md) |
+| TODO-20260706-003 | feature | P1 | 输出结果优化 + 废弃 GLOBAL_ORIGIN + 等效金额增强 | 82da1af | [output-optimization-and-equivalent-amount.md](tracking/items/output-optimization-and-equivalent-amount.md) |

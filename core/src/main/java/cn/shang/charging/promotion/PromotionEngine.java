@@ -166,6 +166,7 @@ public class PromotionEngine {
                 .id(grant.getId())
                 .minutes(grant.getFreeMinutes())
                 .priority(grant.getPriority())
+                .source(grant.getSource())
                 .build();
     }
 

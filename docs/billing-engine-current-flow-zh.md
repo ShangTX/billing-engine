@@ -19,12 +19,11 @@ flowchart TD
     UseBegin --> Seg
 
     Seg["SegmentBuilder.buildSegments<br/>按 schemeChanges 切分段"]
-    Seg --> Guard["GLOBAL_ORIGIN 半成品守卫 TODO-20260702-001<br/>多分段抛异常 / UNIT_BASED+GLOBAL_ORIGIN 抛异常"]
-    Guard --> Pool["ExternalPromotionPool.init<br/>外部优惠跨段共享 TODO-20260702-003<br/>FREE_MINUTES 按分钟 / FREE_RANGE 按时段 / AMOUNT·DISCOUNT 透传"]
+    Seg --> Pool["ExternalPromotionPool.init<br/>外部优惠跨段共享 TODO-20260702-003<br/>FREE_MINUTES 按分钟 / FREE_RANGE 按时段 / AMOUNT·DISCOUNT 透传"]
 
     Pool --> Loop{"遍历每个 BillingSegment"}
 
-    Loop --> Window["CalculationWindowFactory.create<br/>SINGLE / SEGMENT_LOCAL / GLOBAL_ORIGIN<br/>CONTINUE 调整起点不早于 actualBeginTime"]
+    Loop --> Window["CalculationWindowFactory.create<br/>SINGLE / SEGMENT_LOCAL<br/>(GLOBAL_ORIGIN 已废弃 TODO-20260706-003)"]
     Window --> Cfg["BillingConfigResolver<br/>resolveChargingRule → RuleConfig.type<br/>resolvePromotionRules 方案内优惠<br/>resolveBillingMode CONTINUOUS/UNIT_BASED<br/>resolveDurationMode PERIOD/GLOBAL/NONE"]
 
     Cfg --> CtxState["CONTINUE 恢复<br/>ruleState + promotionCarryOver<br/>（按 segmentId 取）"]
@@ -83,7 +82,7 @@ flowchart TD
 ### 2.1 BillingService.calculate（编排层）
 
 - **CONTINUE 起点恢复**：优先从 `lastTruncatedUnitStartTime` 重算（避免截断单元重复收费），否则从 `calculatedUpTo` 继续；`previousAccumulatedAmount` 与 `truncatedUnitChargedAmount` 跨段传递。
-- **GLOBAL_ORIGIN 半成品守卫**（TODO-20260702-001）：减法未实现，多分段抛异常（仅单分段可用，等价 SEGMENT_LOCAL）；UNIT_BASED + GLOBAL_ORIGIN 结构性不兼容抛异常。
+- **GLOBAL_ORIGIN 已废弃**（TODO-20260706-003）：减法方案（4B）半成品止血后未实现，externalPool 跨段共享替代其外部优惠一致性目标；`SegmentCalculationMode` 仅保留 `SINGLE` / `SEGMENT_LOCAL`。
 - **外部优惠跨段共享池**（TODO-20260702-003）：`ExternalPromotionPool` 段前 `remaining()` 取剩余量，段后 `writeBack(usages)` 扣减；AMOUNT/DISCOUNT 整笔透传不扣。
 - **previousAccumulatedAmount 跨段传递**（TODO-20260701-002）：仅 CONTINUE 模式跨段传，纯分段每段独立。
 
@@ -151,7 +150,7 @@ flowchart TD
 
 | 差距 | 现状 | 设计目标 |
 |------|------|----------|
-| GLOBAL_ORIGIN 减法未实现 | 半成品守卫挡多分段（TODO-20260702-001 done，加守卫；减法待立新 TODO） | `分段i = calc(全局起点→段末) − calc(全局起点→段首)` |
+| GLOBAL_ORIGIN 已废弃 | externalPool 跨段共享替代（TODO-20260706-003 删枚举值） | `分段i = calc(全局起点→段末) − calc(全局起点→段首)`（4A 设计参考 segment-promotion-consistency.md） |
 | carryOver 构建位置 | 策略侧 `buildCarryOver` 写回 aggregate，ResultAssembler 读取 | 设计文档未细化，当前实现是 004 衍生 |
 | GLOBAL FREE_MINUTES usage 形式 | 仅 `usedMinutes`，无 `usedFrom/usedTo`，不进等效金额迭代 | spec §5 待定项，004 暂定此形式 |
 | RelativeTime/NaturalTime/CompositeTime 的 FREE_MINUTES usage | 沿用既有空 `result.usages`（只写回 carryOver，不并入结果） | 设计未明确，004 保留既有行为（TODO-20260701-001 只在 DayNight 落地） |

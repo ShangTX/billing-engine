@@ -14,8 +14,4 @@ public class CalculationWindow {
     LocalDateTime calculationBegin;
     LocalDateTime calculationEnd;
 
-    // 最终要从计算结果中“截取”的时间范围（可为空）
-    LocalDateTime clipBegin;
-    LocalDateTime clipEnd;
-
 }

@@ -467,10 +467,10 @@ BillingRequest request = new BillingRequest();
 request.setBeginTime(beginTime);
 request.setEndTime(endTime);
 request.setSchemeChanges(changes);
-request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.GLOBAL_ORIGIN);
+request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
 ```
 
-`SEGMENT_LOCAL` 表示每段独立起算，`GLOBAL_ORIGIN` 表示所有分段共享全局起算点再裁剪。**注意**：GLOBAL_ORIGIN 减法当前为半成品（TODO-20260702-001），多分段下会双重计费，已被守卫拦截抛异常；仅单分段可用（等价 SEGMENT_LOCAL），且 UNIT_BASED 与 GLOBAL_ORIGIN 不兼容。
+`SEGMENT_LOCAL` 表示每段独立起算。`GLOBAL_ORIGIN`（全局起算 + 分段截取）已废弃（TODO-20260706-003）：减法方案未实现，externalPool 跨段共享已替代其外部优惠一致性目标。`SegmentCalculationMode` 仅保留 `SINGLE` / `SEGMENT_LOCAL`。
 
 ---
 
@@ -481,6 +481,22 @@ Map<String, BigDecimal> equivalents = billingTemplate.calculatePromotionEquivale
 ```
 
 等效金额基于完整计费结果计算，不依赖查询时点投影。查询不影响完整结算结果。
+
+### 14.1 按需计算 + 回填（TODO-20260706-003）
+
+设置 `BillingRequest.equivalentAmountSpec`（`EquivalentAmountSpec`，`promotionIds` + `types`，`null`=不限）后，`BillingService.calculate` 会在结算后调用消去法，把精确等效金额回填到 `PromotionUsage.equivalentAmount`（覆盖策略侧"原价之和"近似值），并汇总到 `BillingResult.totalEquivalentAmount`（与 `finalAmount` 同级）。
+
+```java
+request.setEquivalentAmountSpec(EquivalentAmountSpec.builder()
+        .promotionIds(Set.of("coupon-1"))      // null=不限 id（全部）
+        .types(Set.of(BConstants.PromotionType.FREE_RANGE))  // null=不限类型
+        .build());
+BillingResult result = billingTemplate.calculate(request);
+// result.getTotalEquivalentAmount()：命中优惠的等效金额之和（spec==null 时为 null）
+// result.getPromotionUsages().get(i).getEquivalentAmount()：spec 命中的被回填
+```
+
+`equivalentAmountSpec == null`（默认）时不计算，`totalEquivalentAmount` 为 `null`，`PromotionUsage.equivalentAmount` 保持策略侧近似值。`PromotionUsage.source`（`RULE` 方案内 / `COUPON` 外部等）从优惠来源透传，可区分方案内与外部优惠。
 
 ---
 

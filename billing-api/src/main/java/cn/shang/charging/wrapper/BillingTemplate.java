@@ -2,6 +2,7 @@ package cn.shang.charging.wrapper;
 
 import cn.shang.charging.billing.BillingConfigResolver;
 import cn.shang.charging.billing.BillingService;
+import cn.shang.charging.billing.PromotionEquivalentCalculator;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.TimeRoundingMode;

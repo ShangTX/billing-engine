@@ -1,5 +1,6 @@
 package cn.shang.charging.promotion.pojo;
 
+import cn.shang.charging.billing.pojo.BConstants;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,5 +20,8 @@ public class FreeMinutes {
 
     // 优先级
     private Integer priority;
+
+    // 优惠来源（TODO-20260706-003，从 PromotionGrant 透传）
+    private BConstants.PromotionSource source;
 
 }

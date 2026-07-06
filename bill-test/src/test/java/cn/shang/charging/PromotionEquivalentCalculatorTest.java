@@ -1,13 +1,13 @@
 package cn.shang.charging;
 
 import cn.shang.charging.billing.BillingService;
+import cn.shang.charging.billing.PromotionEquivalentCalculator;
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.SegmentContext;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
-import cn.shang.charging.wrapper.PromotionEquivalentCalculator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

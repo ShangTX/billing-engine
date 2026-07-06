@@ -58,7 +58,8 @@ Segment calculation modes:
 |------|----------|
 | `SINGLE` | One segment for the whole request |
 | `SEGMENT_LOCAL` | Each segment uses its own begin time as the calculation origin |
-| `GLOBAL_ORIGIN` | Segments are clipped from a shared global time axis. **Half-finished**: subtraction unimplemented, multi-segment double-counts; only single-segment allowed (equivalent to SEGMENT_LOCAL); UNIT_BASED incompatible (TODO-20260702-001) |
+
+> **GLOBAL_ORIGIN deprecated (TODO-20260706-003)**: The "global origin + segment clipping" subtraction scheme (4B) was never implemented; the cross-segment `externalPool` sharing replaces its external-promotion consistency goal. `SegmentCalculationMode` keeps only `SINGLE` / `SEGMENT_LOCAL` (SEGMENT_LOCAL as extension point). The 4A subtraction design is documented in `docs/designs/segment-promotion-consistency.md`.
 
 ---
 
@@ -260,7 +261,11 @@ This keeps long-range calculation efficient while preserving exact query behavio
 
 ## 12. Promotion Equivalent Amounts
 
-`PromotionEquivalentCalculator` lives in `billing-api`.
+`PromotionEquivalentCalculator` (TODO-20260706-003: moved from `billing-api` to `core` package `cn.shang.charging.billing`) computes each promotion's equivalent amount via elimination: exclude a promotion, recompute, and the delta is that promotion's equivalent amount.
+
+- **On-demand calculation**: `BillingRequest.equivalentAmountSpec` (`EquivalentAmountSpec`, `promotionIds` + `types`, `null`=any) controls it. `null` (default) = not computed; `PromotionUsage.equivalentAmount` keeps the strategy-side "sum of original prices" approximation and `BillingResult.totalEquivalentAmount` is `null`. When non-`null`, results are filtered by spec, backfilled into `PromotionUsage.equivalentAmount` (overriding the approximation) and summed into `BillingResult.totalEquivalentAmount` (same level as `finalAmount`).
+- **Multi-segment + external promotions**: `calculateWithContexts` replays `PromotionEngine.evaluate` (externalPool reset + per-segment evaluate + writeBack advance); `cloneAndExclude` excludes at the source layer (externalPromotions / promotionRules by id), so cross-segment dedup is replayed each elimination iteration.
+- **Promotion source**: `PromotionUsage.source` (`RULE` in-scheme / `COUPON` external, etc.) is propagated from `FreeTimeRange.source` / `FreeMinutes.source`, letting callers distinguish in-scheme from external promotions.
 
 
 ---

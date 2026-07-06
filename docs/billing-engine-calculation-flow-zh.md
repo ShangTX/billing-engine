@@ -38,7 +38,7 @@ flowchart TD
 
     Pool --> Loop{"遍历每个 BillingSegment"}
 
-    Loop --> CWF["CalculationWindowFactory.create<br/>SEGMENT_LOCAL: 段起点起算<br/>GLOBAL_ORIGIN: 全局起点 + 减法截取"]
+    Loop --> CWF["CalculationWindowFactory.create<br/>SEGMENT_LOCAL / SINGLE: 段起点起算<br/>(GLOBAL_ORIGIN 已废弃 TODO-20260706-003)"]
 
     CWF --> Cfg["BillingConfigResolver<br/>resolveChargingRule → RuleConfig.type<br/>resolvePromotionRules (本段方案内优惠)<br/>resolveCalculationMode (单一枚举四值)<br/>外部优惠可能被方案内优惠覆盖而未使用"]
 
@@ -143,8 +143,8 @@ schemeChanges -> multiple BillingSegment
 |------|------|
 | `calculationBegin` | 规则实际起算点 |
 | `calculationEnd` | 规则实际计算终点 |
-| `clipBegin` | 输出裁剪起点（GLOBAL_ORIGIN 减法用，未实现） |
-| `clipEnd` | 输出裁剪终点（GLOBAL_ORIGIN 减法用，未实现） |
+
+> `clipBegin` / `clipEnd`（GLOBAL_ORIGIN 减法用）已于 TODO-20260706-003 删除。
 
 `SegmentCalculationMode` 决定 `calculationBegin`：
 
@@ -152,9 +152,8 @@ schemeChanges -> multiple BillingSegment
 |------|------|
 | `SINGLE` | 单段计算 |
 | `SEGMENT_LOCAL` | 每个分段从自身开始时间起算 |
-| `GLOBAL_ORIGIN` | 所有分段共享请求开始时间作为全局原点（减法未实现，当前仅支持单分段） |
 
-**当前状态**：GLOBAL_ORIGIN 减法未实现，`BillingService` 加守卫——GLOBAL_ORIGIN + 多分段抛异常（仅单分段可用，等价 SEGMENT_LOCAL）；UNIT_BASED + GLOBAL_ORIGIN 抛异常。
+> **GLOBAL_ORIGIN 已废弃（TODO-20260706-003）**：externalPool 跨段共享替代其外部优惠一致性目标。`SEGMENT_LOCAL` 作为扩展点保留。
 
 ---
 

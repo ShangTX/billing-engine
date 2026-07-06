@@ -118,6 +118,7 @@ public class FreeMinuteAllocator {
                         currentFreeMinutes = freeMinutesIterator.next();
                         currentPromotionUsage = new PromotionUsage().setPromotionId(currentFreeMinutes.getId())
                                 .setType(BConstants.PromotionType.FREE_MINUTES)
+                                .setSource(currentFreeMinutes.getSource())
                                 .setGrantedMinutes(currentFreeMinutes.getMinutes())
                                 .setUsedMinutes(0)
                                 .setUsedFrom(cursor)
@@ -137,6 +138,7 @@ public class FreeMinuteAllocator {
                                 .setBeginTime(cursor).setEndTime(allocateEndTime)
                                 .setId(currentFreeMinutes.getId())
                                 .setPriority(currentFreeMinutes.getPriority())
+                                .setSource(currentFreeMinutes.getSource())
                                 .setPromotionType(BConstants.PromotionType.FREE_MINUTES));
                         // 更新已使用分钟数
                         currentPromotionUsage.setUsedMinutes(currentPromotionUsage.getUsedMinutes() + gapMinutes);
@@ -156,6 +158,7 @@ public class FreeMinuteAllocator {
                                 .setEndTime(newRangeEndTime)
                                 .setId(currentFreeMinutes.getId())
                                 .setPriority(currentFreeMinutes.getPriority())
+                                .setSource(currentFreeMinutes.getSource())
                                 .setPromotionType(BConstants.PromotionType.FREE_MINUTES));
 
                         // 更新已使用分钟数

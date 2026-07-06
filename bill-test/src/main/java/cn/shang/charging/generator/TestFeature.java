@@ -33,7 +33,11 @@ public enum TestFeature {
 
     /**
      * 全局起算后按分段裁剪。
+     *
+     * @deprecated TODO-20260706-003：GLOBAL_ORIGIN 模式已废弃，本 feature 保留作兼容入口，
+     * 实际映射为 {@link #SEGMENT_LOCAL}。
      */
+    @Deprecated
     GLOBAL_ORIGIN,
 
     /**
