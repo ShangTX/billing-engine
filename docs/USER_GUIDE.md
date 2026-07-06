@@ -13,7 +13,6 @@
 - `BillingRule`：具体计费规则，例如 `dayNight`、`relativeTime`、`compositeTime`。
 - `PromotionGrant`：外部优惠输入，例如免费时间段、免费分钟数。
 - `BillingUnit`：计费明细中的最小单元。
-- `BillingCarryOver`：继续计算使用的结转状态。
 
 推荐调用入口是 `billing-api` 模块中的 `BillingTemplate`。
 
@@ -48,8 +47,6 @@
 |------|------|
 | `BillingTemplate` | `cn.shang.charging.wrapper.BillingTemplate` |
 | `CalculationWithQueryResult` | `cn.shang.charging.wrapper.CalculationWithQueryResult` |
-| `QuerySummary` | `cn.shang.charging.wrapper.QuerySummary` |
-| `BillingResultViewer` | `cn.shang.charging.wrapper.BillingResultViewer` |
 | `PromotionEquivalentCalculator` | `cn.shang.charging.wrapper.PromotionEquivalentCalculator` |
 
 ### 2.3 计费规则类
@@ -257,7 +254,6 @@ starter 的自动装配范围见能力文档。复杂注册需求仍可手动装
 |------|------|
 | `calculate(request)` | 执行基础计费，默认使用 `CEIL_BEGIN_TRUNCATE_END` 时间取整 |
 | `calculate(request, roundingMode)` | 使用指定时间取整模式执行计费 |
-| `calculateWithQuery(request, queryTime)` | 计算完整结果，并返回指定查询时点的金额摘要 |
 | `calculatePromotionEquivalents(request)` | 计算每个优惠的等效金额 |
 | `calculatePromotionSavings(result)` | 基于已有结果分析优惠节省金额 |
 | `getConfigResolver()` | 获取配置解析器 |
@@ -273,17 +269,15 @@ starter 的自动装配范围见能力文档。复杂注册需求仍可手动装
 | `id` | 否 | 请求标识，用于追踪 |
 | `beginTime` | 是 | 计费开始时间 |
 | `endTime` | 是 | 计费结束时间 |
-| `calcEndTime` | 否 | 实际计算终点，用于局部计算和 CONTINUE |
+| `calcEndTime` | 否 | 实际计算终点，用于局部计算 |
 | `schemeId` | 条件 | 单方案 ID，与 `schemeChanges` 二选一 |
 | `schemeChanges` | 条件 | 多方案切换时间轴，与 `schemeId` 二选一 |
 | `segmentCalculationMode` | 是 | 分段计算模式 |
 | `externalPromotions` | 否 | 外部优惠列表 |
-| `previousCarryOver` | 否 | 上次计算返回的结转状态 |
 | `timeRoundingMode` | 否 | 时间取整模式 |
 | `disableSimplification` | 否 | 是否禁用长期简化计算 |
 | `context` | 否 | 传递给 `BillingConfigResolver` 的上下文 |
 
-`queryTime` 不建议作为普通请求字段使用。查询时点金额请使用 `BillingTemplate.calculateWithQuery(request, queryTime)`。
 
 ### `SchemeChange`
 
@@ -307,7 +301,6 @@ starter 的自动装配范围见能力文档。复杂注册需求仍可手动装
 | `finalAmount` | 最终应收金额 |
 | `effectiveFrom` / `effectiveTo` | 结果稳定时间窗口 |
 | `calculationEndTime` | 实际计算到的时间 |
-| `carryOver` | 下次 CONTINUE 使用的结转状态 |
 
 ### `BillingUnit`
 
@@ -319,51 +312,12 @@ starter 的自动装配范围见能力文档。复杂注册需求仍可手动装
 | `originalAmount` | 优惠前金额 |
 | `chargedAmount` | 单元完整结束后的最终金额 |
 | `accumulatedAmount` | 单元完整结束后的累计金额 |
-| `free` / `freePromotionId` | 是否由非条件免费完整覆盖及对应优惠 ID |
+| `free` / `freePromotionId` | 是否由优惠完全覆盖及对应优惠 ID |
 | `isTruncated` | 是否被 `calcEndTime` 截断 |
-| `valueSpec` | 单元内查询投影模型 |
 | `ruleData` | 规则私有扩展数据 |
 | `compact` | 是否为 compact 单元（合并了 N 个连续相同子单元） |
 | `count` | compact 单元代表的子单元数量，非 compact 始终为 1 |
 
-调用方通常只需要消费 `beginTime`、`endTime`、`chargedAmount`、`accumulatedAmount`、`free` 和 `freePromotionId`。`valueSpec` 和 `ruleData` 主要用于框架和诊断，不建议业务侧解析。`compact`/`count` 表示该单元合并了若干连续相同的子单元，`chargedAmount`/`accumulatedAmount` 为合并后的总值，查询时点金额由 `billing-api` 自动按子单元投影。
-
----
-
-## 9. 查询时点金额
-
-推荐使用：
-
-```java
-CalculationWithQueryResult result = billingTemplate.calculateWithQuery(request, queryTime);
-
-BillingResult fullResult = result.getCalculationResult();
-QuerySummary querySummary = result.getQueryResult();
-```
-
-重要语义：
-
-- `queryTime` 不能超过 `BillingResult.calculationEndTime`。
-- 查询只基于已经生成的计费单元，不重新执行规则主链路。
-- 命中普通单元时，查询金额由该单元的 `valueSpec` 投影得到。
-- 命中长期简化单元时，`billing-api` 会自动禁用简化并重算一次精确结果。
-- `QuerySummary.effectiveTo` 来自命中单元投影的下一变化时间，不一定等于单元结束时间。
-
-命中单元的查询金额公式：
-
-```text
-queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryTime)
-```
-
-`QuerySummary`：
-
-| 字段 | 说明 |
-|------|------|
-| `unitIndex` | 命中单元索引，`-1` 表示无命中单元 |
-| `amount` | 查询时点累计金额 |
-| `effectiveFrom` / `effectiveTo` | 当前查询金额的有效窗口 |
-| `queryTime` | 查询时点 |
-| `promotionUsages` | 截取后的优惠使用记录 |
 
 ---
 
@@ -427,7 +381,7 @@ DayNightConfig config = new DayNightConfig()
         .setBlockWeight(new BigDecimal("0.5"));
 ```
 
-`blockWeight` 用于跨日夜混合单元的最终价格判断。当前 `dayNight` 已支持混合单元、条件起始免费和封顶单元的 `valueSpec` 查询投影。
+`blockWeight` 用于跨日夜混合单元的最终价格判断。当前 `dayNight` 已支持混合单元和封顶单元。
 
 ### `relativeTime`
 
@@ -482,31 +436,6 @@ FlatFreeConfig config = FlatFreeConfig.builder()
 
 ---
 
-## 12. 继续计算
-
-继续计算适用于长期计费或分批查询。
-
-```java
-BillingResult first = billingTemplate.calculate(firstRequest);
-
-BillingRequest nextRequest = new BillingRequest();
-nextRequest.setBeginTime(originalBeginTime);
-nextRequest.setEndTime(nextEndTime);
-nextRequest.setSchemeId("scheme-1");
-nextRequest.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-nextRequest.setPreviousCarryOver(first.getCarryOver());
-
-BillingResult second = billingTemplate.calculate(nextRequest);
-```
-
-注意：
-
-- 下次请求仍应保留原始 `beginTime`，由引擎根据 `previousCarryOver` 决定实际恢复点。
-- 如果上次计算截断在某个计费单元内部，下次会从该单元开始时间重算，并通过结转金额避免重复收费。
-- 业务侧需要保存 `BillingResult.carryOver`。
-
----
-
 ## 13. 方案切换
 
 当计费方案会随时间变化时，使用 `schemeChanges`：
@@ -536,7 +465,7 @@ request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.GLOBAL_ORIGI
 Map<String, BigDecimal> equivalents = billingTemplate.calculatePromotionEquivalents(request);
 ```
 
-等效金额基于完整计费结果计算，不依赖查询时点投影。查询时点的 `valueSpec` 机制不会改变完整结算结果中的优惠等效金额契约。
+等效金额基于完整计费结果计算，不依赖查询时点投影。查询不影响完整结算结果。
 
 ---
 
@@ -587,7 +516,7 @@ public class MyBillingRule implements BillingRule<MyRuleConfig> {
 billingRuleRegistry.register("myRule", new MyBillingRule());
 ```
 
-规则私有逻辑可以保存在 `ruleData` 中，但通用查询语义应通过 `valueSpec` 表达，不建议让查询层解析规则私有结构。
+规则私有逻辑可以保存在 `ruleData` 中，
 
 ---
 
@@ -641,6 +570,6 @@ billingRuleRegistry.register("myRule", new MyBillingRule());
 - 规则实现必须是确定性的纯计算。
 - 规则配置和规则实现分离。
 - 规则之间不相互调用，由引擎统一编排。
-- 查询时点金额通过 `valueSpec` 表达，避免查询层理解规则私有细节。
+- 查询时点金额直接按 IncompleteUnitChargeMode 计费，不依赖投影机制。
 
 

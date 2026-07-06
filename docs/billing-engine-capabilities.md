@@ -49,7 +49,6 @@ The `core` module performs pure calculation. The `billing-api` module adds conve
 - Single-scheme calculation through `schemeId`.
 - Multi-scheme calculation through `schemeChanges`.
 - External promotions through `externalPromotions` (cross-segment shared pool, used once per parking, not duplicated across segments).
-- Continuation through `previousCarryOver`.
 - Partial calculation through `calcEndTime`.
 - Time rounding through `timeRoundingMode`.
 - Caller-defined context through `context`.
@@ -98,13 +97,10 @@ Capabilities:
 - `blockWeight` determines the final price of a mixed day/night unit.
 - `maxChargeOneDay` applies a daily cap.
 - UNIT_BASED semantics are carried by `DayNightUnitBasedStrategy` (a strategy under the facade: fixed unit alignment + full-coverage-free).
-- Emits `valueSpec` for stable units, conditional free units, mixed day/night units, and capped units.
 
 Important query behavior:
 
-- Mixed day/night units preserve rule-specific intra-unit valuation through `MixedUnitValueSpec`.
 - Query-time value may increase or decrease inside a unit because it represents "what would be charged if billing ended at this query time".
-- Daily cap is encoded into the hit unit's `valueSpec`, so settled amount and query-time amount stay aligned.
 
 ### `relativeTime`
 
@@ -119,7 +115,6 @@ Capabilities:
 
 Current limitation:
 
-- It has not yet been migrated to rule-specific `valueSpec` for mixed intra-unit query behavior.
 
 ### `compositeTime`
 
@@ -134,7 +129,6 @@ Capabilities:
 
 Current limitation:
 
-- It has not yet been migrated to rule-specific `valueSpec` for complex intra-unit query behavior.
 
 ### `flatFree`
 
@@ -169,7 +163,6 @@ Implemented promotion rules:
 | `freeMinutes` | Grants free minutes that are allocated across available gaps |
 | `startFree` | Grants an initial free range from segment start |
 
-`StartFreePromotionConfig.validateQueryTime=true` is no longer modeled through `BillingUnit.conditionalFree`. It is represented by a `StepValueSpec` on affected billing units: free before the condition boundary and normal price after the boundary.
 
 Free range type:
 
@@ -188,70 +181,13 @@ Current aggregation stages:
 
 1. Collect grants from `PromotionRuleConfig`.
 2. Add external `PromotionGrant` entries from the request.
-3. Restore promotion carry-over in `CONTINUE` mode.
+3. Summarize AMOUNT/DISCOUNT promotions.
 4. Merge explicit `FREE_RANGE` promotions through `FreeTimeRangeMerger`.
 5. Produce a canonical intermediate form: merged `FREE_RANGE` ranges + unmaterialized `FREE_MINUTES` list (`freeMinutesList`) + `AMOUNT`/`DISCOUNT` scalars.
 
 `FREE_MINUTES` materialization is delegated to strategies (TODO-20260702-004): `PromotionEngine` no longer materializes centrally, avoiding the aggregation layer coupling to "rule + mode" to decide output form. CONTINUOUS/UNIT_BASED/PERIOD strategies materialize via `FreeMinuteAllocator.allocateAndMerge` (merged with `FREE_RANGE`); the GLOBAL strategy does not materialize, deducting `chargedMinutes` by minute, equivalent in final amount to the materialized path. `PromotionUsage` (FREE_MINUTES/FREE_RANGE) and `PromotionCarryOver` are produced strategy-side; `PromotionCarryOver` is built via `PromotionAggregateUtil.buildCarryOver` and written back to the aggregate.
 
-`FreeTimeRangeMerger` preserves range metadata such as priority, source, range type, and conditional metadata. Query-time conditional behavior is interpreted later by rule-generated `valueSpec`, not by viewer-side field patching.
-
----
-
-## 8. Unit Valuation and Query-Time Amounts
-
-`BillingUnit` contains the settled full-unit amounts and an optional `valueSpec`.
-
-Important fields:
-
-| Field | Meaning |
-|-------|---------|
-| `chargedAmount` | Final amount after the whole unit settles |
-| `accumulatedAmount` | Total amount after the whole unit settles |
-| `valueSpec` | Unit-level projection model for query-time amount |
-| `ruleData` | Rule-private metadata, including simplified unit markers |
-
-The current core valuation protocol is:
-
-| Type | Role |
-|------|------|
-| `UnitValueSpec` | Interface for projecting a unit value at a query time |
-| `UnitValueProjection` | Projection result: `currentAmount` and `nextChangeTime` |
-| `UnitValueEvaluator` | Validates input and projection invariants |
-| `FixedValueSpec` | Stable unit value |
-| `StepValueSpec` | Step value, used by conditional start-free behavior |
-| `PiecewiseTimeValueSpec` | Generic time-segment expression model |
-| `DayNightValueSpecFactory.MixedUnitValueSpec` | Day/night rule-specific mixed unit projection |
-| `DayNightValueSpecFactory.CappedValueSpec` | Day/night rule-specific cap wrapper |
-
-Query amount formula for the hit unit:
-
-```
-queryAmount = unit.accumulatedAmount - unit.chargedAmount + valueAt(unit, queryTime)
-```
-
-This keeps `accumulatedAmount` as the settled prefix total while replacing the hit unit's full settled amount with its query-time projection.
-
----
-
-## 9. Query APIs
-
-`BillingResultViewer.createQuerySummary(result, queryTime)`:
-
-- Rejects `queryTime` after `result.calculationEndTime`.
-- Finds the unit containing the query time.
-- Evaluates the hit unit through `UnitValueEvaluator`.
-- Uses `valueSpec.nextChangeTime` as the query summary's `effectiveTo`.
-- Falls back to `FixedValueSpec(chargedAmount)` for old results that do not carry `valueSpec`.
-
-`BillingTemplate.calculateWithQuery(request, queryTime)`:
-
-- Calculates normally first.
-- Creates a query summary.
-- If the hit unit is a simplified unit, recalculates once with `disableSimplification=true`.
-- Returns the detailed calculation result and the query summary.
-
-`BillingResultViewer.viewAtTime(result, queryTime)` still provides a filtered result view based on finished units. For precise in-unit query amounts, prefer `createQuerySummary()` or `BillingTemplate.calculateWithQuery()`.
+`FreeTimeRangeMerger` preserves range metadata such as priority, source, and range type.
 
 ---
 
@@ -276,29 +212,10 @@ This keeps long-range calculation efficient while preserving exact query behavio
 
 ---
 
-## 11. CONTINUE Mode
-
-`CONTINUE` mode is driven by `BillingCarryOver`.
-
-Main carry-over data:
-
-- `calculatedUpTo`
-- per-segment carry-over state
-- `lastTruncatedUnitStartTime`
-- `truncatedUnitChargedAmount`
-- `accumulatedAmount`
-
-If the previous calculation ended inside a billing unit, the next calculation starts from the truncated unit's begin time and uses carry-over amounts to avoid double charging.
-
-Promotion carry-over keeps remaining free minutes and used free ranges so future calculations can continue the same promotion state.
-
----
-
 ## 12. Promotion Equivalent Amounts
 
 `PromotionEquivalentCalculator` lives in `billing-api`.
 
-It calculates equivalent promotion amounts by comparing full calculation results. The query-time `valueSpec` mechanism does not change the promotion equivalent amount contract as long as the full settled result has consistent `chargedAmount`, `accumulatedAmount`, and promotion usages.
 
 ---
 
@@ -307,8 +224,6 @@ It calculates equivalent promotion amounts by comparing full calculation results
 Current test support includes:
 
 - Regression tests for `UnitValueEvaluator`.
-- Query summary tests for `BillingResultViewer` and simplified-unit fallback.
-- Day/night query value tests for mixed units, capped units, and conditional start-free.
 - Runnable examples in `bill-test`.
 - `BillingTestCaseGenerator`, which generates billing result JSON for manual inspection without expected results.
 
@@ -324,8 +239,6 @@ Important current gaps include:
 
 - `AMOUNT` and `DISCOUNT` promotion rules are not fully implemented.
 - Reserved rule constants such as `times`, `naturalTime`, and `nrTimeMix` are not implemented.
-- `relativeTime` and `compositeTime` do not yet have the same rich rule-specific `valueSpec` coverage as `dayNight`.
-- Minute-by-minute `valueSpec` is planned as an extension point but is not implemented yet.
 
 ---
 
@@ -338,5 +251,3 @@ Important current gaps include:
 | `docs/USER_GUIDE.md` | User-facing guide |
 | `docs/TODO.md` | Active backlog and issue index |
 | `docs/DONE.md` | Completed backlog archive |
-| `docs/superpowers/specs/2026-04-20-unit-value-spec-design.md` | `valueSpec` design |
-| `docs/superpowers/plans/2026-04-20-unit-value-spec-implementation.md` | `valueSpec` implementation plan |
