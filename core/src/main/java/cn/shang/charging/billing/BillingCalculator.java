@@ -36,6 +36,18 @@ public class BillingCalculator {
             );
         }
 
+        // SMART_FREE_MINUTES 仅 DURATION_GLOBAL 消费（TODO-20260706-002 阶段5）：
+        // 优先高价分配依赖 RuleSemantics.priceAt，复杂度锁定在 GLOBAL 模式内，其余模式报错。
+        if (promotionAggregate != null
+                && calculationMode != cn.shang.charging.billing.pojo.BConstants.CalculationMode.DURATION_GLOBAL
+                && promotionAggregate.getSmartFreeMinutesList() != null
+                && !promotionAggregate.getSmartFreeMinutesList().isEmpty()) {
+            throw new IllegalStateException(
+                    "SMART_FREE_MINUTES is only supported in DURATION_GLOBAL mode, but current mode is: "
+                            + calculationMode
+            );
+        }
+
         return calculateInternal(context, billingRule, ruleConfig, promotionAggregate);
     }
 

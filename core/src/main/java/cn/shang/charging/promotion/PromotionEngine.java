@@ -16,18 +16,21 @@ import java.util.Map;
 /**
  * 优惠计算engine
  * <p>
- * 支持四种优惠类型：
+ * 支持五种优惠类型：
  * - FREE_RANGE: 免费时间段
- * - FREE_MINUTES: 免费分钟数
+ * - FREE_MINUTES: 免费分钟数（从窗口起点顺序分配）
+ * - SMART_FREE_MINUTES: 智能免费分钟数（仅 DURATION_GLOBAL 消费，按单价降序优先高价分配）
  * - AMOUNT: 金额减免
  * - DISCOUNT: 折扣优惠
  * <p>
  * 优惠叠加顺序：先折扣后减免，多个 AMOUNT 总和扣除，多个 DISCOUNT 取最优折扣。
  * <p>
  * TODO-20260702-004：FREE_MINUTES 时段化下放到策略侧。本引擎只产出规范中间形式
- * （合并后的 FREE_RANGE 时段 + 未时段化的 FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量），
- * 不再集中时段化。CONTINUOUS/UNIT_BASED/PERIOD 策略自行时段化，GLOBAL 按分钟扣减。
+ * （合并后的 FREE_RANGE 时段 + 未时段化的 FREE_MINUTES / SMART_FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量），
+ * 不再集中时段化。CONTINUOUS/UNIT_BASED/PERIOD 策略自行时段化 FREE_MINUTES，
+ * DurationGlobalStrategy 按优先高价分配 SMART_FREE_MINUTES，其余模式遇 SMART_FREE_MINUTES 报错。
  * PromotionUsage 与 PromotionCarryOver 由策略侧产出。
+ * TODO-20260706-002 阶段5：SMART_FREE_MINUTES 标量透传。
  */
 @AllArgsConstructor
 public class PromotionEngine {
@@ -41,6 +44,7 @@ public class PromotionEngine {
         CalculationWindow window = context.getWindow();
         List<FreeTimeRange> timeRangePromotions = new ArrayList<>();
         List<FreeMinutes> freeMinutesPromotions = new ArrayList<>();
+        List<FreeMinutes> smartFreeMinutesPromotions = new ArrayList<>();
         List<PromotionAggregate.AmountDiscount> amountDiscounts = new ArrayList<>();
 
         // 2.1 来自优惠规则（按方案 + 时间段）
@@ -52,6 +56,9 @@ public class PromotionEngine {
                 }
                 if (grant.getType() == BConstants.PromotionType.FREE_MINUTES) {
                     freeMinutesPromotions.add(convertMinutesFromRule(grant));
+                }
+                if (grant.getType() == BConstants.PromotionType.SMART_FREE_MINUTES) {
+                    smartFreeMinutesPromotions.add(convertMinutesFromRule(grant));
                 }
                 if (grant.getType() == BConstants.PromotionType.AMOUNT) {
                     amountDiscounts.add(convertAmountFromGrant(grant));
@@ -71,6 +78,9 @@ public class PromotionEngine {
                 if (externalPromotion.getType() == BConstants.PromotionType.FREE_MINUTES) {
                     freeMinutesPromotions.add(convertMinutesFromRule(externalPromotion));
                 }
+                if (externalPromotion.getType() == BConstants.PromotionType.SMART_FREE_MINUTES) {
+                    smartFreeMinutesPromotions.add(convertMinutesFromRule(externalPromotion));
+                }
                 if (externalPromotion.getType() == BConstants.PromotionType.AMOUNT) {
                     amountDiscounts.add(convertAmountFromGrant(externalPromotion));
                 }
@@ -80,14 +90,14 @@ public class PromotionEngine {
             }
         }
 
-        // 3️⃣ 合并显式免费时间段（FREE_RANGE；FREE_MINUTES 不在此处时段化）
+        // 3️⃣ 合并显式免费时间段（FREE_RANGE；FREE_MINUTES / SMART_FREE_MINUTES 不在此处时段化）
         TimeRangeMergeResult rangeMergeResult = freeTimeRangeMerger.merge(
                 timeRangePromotions,
                 context.getBeginTime(),
                 context.getEndTime());
         List<FreeTimeRange> explicitFreeRanges = rangeMergeResult.getMergedRanges();
 
-        // 计算总免费分钟数（用于简化计算判断）
+        // 计算总免费分钟数（用于简化计算判断；SMART_FREE_MINUTES 不计入，仅标量透传）
         long totalFreeMinutes = freeMinutesPromotions.stream()
                 .mapToLong(fm -> fm.getMinutes())
                 .sum();
@@ -96,12 +106,14 @@ public class PromotionEngine {
         BigDecimal totalAmountDiscount = calculateTotalAmountDiscount(amountDiscounts);
         BigDecimal bestDiscountRate = calculateBestDiscountRate(amountDiscounts);
 
-        // 产出规范中间形式：FREE_RANGE 时段 + 未时段化 FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量。
-        // FREE_MINUTES 时段化、PromotionUsage 由策略侧产出（TODO-20260702-004）。
+        // 产出规范中间形式：FREE_RANGE 时段 + 未时段化 FREE_MINUTES / SMART_FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量。
+        // FREE_MINUTES 时段化、SMART_FREE_MINUTES 优先高价分配、PromotionUsage 由策略侧产出。
+        // TODO-20260706-002 阶段5：SMART_FREE_MINUTES 标量透传，仅 DurationGlobalStrategy 消费。
         return PromotionAggregate.builder()
                 .freeTimeRanges(explicitFreeRanges)
                 .freeMinutes(totalFreeMinutes)
                 .freeMinutesList(freeMinutesPromotions)
+                .smartFreeMinutesList(smartFreeMinutesPromotions)
                 .amountDiscounts(amountDiscounts.isEmpty() ? null : amountDiscounts)
                 .totalAmountDiscount(totalAmountDiscount)
                 .bestDiscountRate(bestDiscountRate)

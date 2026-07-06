@@ -26,6 +26,7 @@ public class PromotionAggregate {
     List<FreeTimeRange> freeTimeRanges;     // 仅 FREE_RANGE（已合并）；FREE_MINUTES 不在此处时段化
     long freeMinutes;                       // 同化后的总免费分钟（= freeMinutesList 求和，简化计算判定用）
     List<FreeMinutes> freeMinutesList;      // 未时段化的 FREE_MINUTES 列表（TODO-20260702-004：时段化下放到策略侧）
+    List<FreeMinutes> smartFreeMinutesList; // 未时段化的 SMART_FREE_MINUTES 列表（TODO-20260706-002 阶段5：标量透传，仅 DurationGlobalStrategy 消费）
 
     // —— 可选：等效金额（仅统计，不参与计费） ——
     BigDecimal equivalentAmount;
@@ -57,6 +58,7 @@ public class PromotionAggregate {
         return (freeTimeRanges == null || freeTimeRanges.isEmpty())
                 && freeMinutes <= 0
                 && (freeMinutesList == null || freeMinutesList.isEmpty())
+                && (smartFreeMinutesList == null || smartFreeMinutesList.isEmpty())
                 && (amountDiscounts == null || amountDiscounts.isEmpty());
     }
 
@@ -74,6 +76,9 @@ public class PromotionAggregate {
         }
         if (freeMinutes > 0) {
             types.add(BConstants.PromotionType.FREE_MINUTES);
+        }
+        if (smartFreeMinutesList != null && !smartFreeMinutesList.isEmpty()) {
+            types.add(BConstants.PromotionType.SMART_FREE_MINUTES);
         }
         if (amountDiscounts != null && !amountDiscounts.isEmpty()) {
             for (AmountDiscount ad : amountDiscounts) {
@@ -100,6 +105,9 @@ public class PromotionAggregate {
         }
         if (freeMinutes > 0) {
             types.add(BConstants.PromotionType.FREE_MINUTES);
+        }
+        if (smartFreeMinutesList != null && !smartFreeMinutesList.isEmpty()) {
+            types.add(BConstants.PromotionType.SMART_FREE_MINUTES);
         }
         if (amountDiscounts != null && !amountDiscounts.isEmpty()) {
             for (AmountDiscount ad : amountDiscounts) {

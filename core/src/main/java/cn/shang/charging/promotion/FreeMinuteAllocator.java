@@ -119,7 +119,9 @@ public class FreeMinuteAllocator {
                         currentPromotionUsage = new PromotionUsage().setPromotionId(currentFreeMinutes.getId())
                                 .setType(BConstants.PromotionType.FREE_MINUTES)
                                 .setGrantedMinutes(currentFreeMinutes.getMinutes())
-                                .setUsedMinutes(0);
+                                .setUsedMinutes(0)
+                                .setUsedFrom(cursor)
+                                .setUsedTo(cursor);
                         promotionUsages.add(currentPromotionUsage);
                     }
                     // 计算这个范围内的分钟数
@@ -138,6 +140,7 @@ public class FreeMinuteAllocator {
                                 .setPromotionType(BConstants.PromotionType.FREE_MINUTES));
                         // 更新已使用分钟数
                         currentPromotionUsage.setUsedMinutes(currentPromotionUsage.getUsedMinutes() + gapMinutes);
+                        currentPromotionUsage.setUsedTo(allocateEndTime);
                         // 游标前进
                         cursor = nextCursorTime;
                         if (remainFreeMinutes == 0) {
@@ -157,6 +160,7 @@ public class FreeMinuteAllocator {
 
                         // 更新已使用分钟数
                         currentPromotionUsage.setUsedMinutes(currentPromotionUsage.getGrantedMinutes());
+                        currentPromotionUsage.setUsedTo(newRangeEndTime);
 
                         currentFreeMinutes = null; // 下次计算用下一份免费分钟数
                         currentPromotionUsage = null; // 下次计算用下一份免费分钟数

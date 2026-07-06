@@ -85,7 +85,7 @@ public class PromotionEquivalentCalculator {
 
     /**
      * 提取所有优惠时间段并按开始时间排序
-     * 包括 FREE_RANGE 和 FREE_MINUTES 转换后的时间段
+     * 包括 FREE_RANGE / FREE_MINUTES / SMART_FREE_MINUTES 转换后的时间段
      */
     private List<FreeTimeRange> extractAndSortRanges(BillingResult result) {
         if (result.getPromotionUsages() == null) {
@@ -94,7 +94,8 @@ public class PromotionEquivalentCalculator {
 
         return result.getPromotionUsages().stream()
             .filter(u -> u.getType() == BConstants.PromotionType.FREE_RANGE
-                      || u.getType() == BConstants.PromotionType.FREE_MINUTES)
+                      || u.getType() == BConstants.PromotionType.FREE_MINUTES
+                      || u.getType() == BConstants.PromotionType.SMART_FREE_MINUTES)
             .filter(u -> u.getUsedFrom() != null && u.getUsedTo() != null)
             .map(u -> FreeTimeRange.builder()
                 .id(u.getPromotionId())
