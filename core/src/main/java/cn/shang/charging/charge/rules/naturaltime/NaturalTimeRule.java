@@ -4,9 +4,13 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.charge.rules.BillingRule;
+import cn.shang.charging.charge.rules.DurationGlobalStrategy;
+import cn.shang.charging.charge.rules.DurationPeriodStrategy;
+import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -21,14 +25,20 @@ import java.util.Set;
  * 按 {@link BConstants.CalculationMode} 分派到独立策略实现，自身只分派不扛计费逻辑：
  * <ul>
  *   <li>CONTINUOUS → {@link NaturalTimeContinuousStrategy}（边界驱动切断）</li>
+ *   <li>DURATION_PERIOD → {@link DurationPeriodStrategy}（通用时长 PERIOD 策略）</li>
+ *   <li>DURATION_GLOBAL → {@link DurationGlobalStrategy}（通用时长 GLOBAL 策略）</li>
  * </ul>
- * 一个 {@code naturalTime} type 注册本门面。时长模式待阶段 4 接入。
+ * 一个 {@code naturalTime} type 注册本门面。
  * <p>
  * TODO-20260706-002 阶段2b：CONTINUOUS 逻辑下沉到 NaturalTimeContinuousStrategy，门面回归纯分派。
+ * TODO-20260706-002 阶段4：声明支持时长模式，规则族语义由 {@link NaturalTimeSemantics} 注入。
  */
 public class NaturalTimeRule implements BillingRule<NaturalTimeConfig> {
 
+    private static final int MINUTES_PER_CYCLE = 1440;
+
     private final NaturalTimeContinuousStrategy continuousStrategy = new NaturalTimeContinuousStrategy();
+    private final NaturalTimeSemantics naturalTimeSemantics = new NaturalTimeSemantics();
 
     @Override
     public Class<NaturalTimeConfig> configClass() {
@@ -37,13 +47,59 @@ public class NaturalTimeRule implements BillingRule<NaturalTimeConfig> {
 
     @Override
     public Set<BConstants.CalculationMode> supportedCalculationModes() {
-        return EnumSet.of(BConstants.CalculationMode.CONTINUOUS);
+        return EnumSet.of(BConstants.CalculationMode.CONTINUOUS,
+                BConstants.CalculationMode.DURATION_PERIOD, BConstants.CalculationMode.DURATION_GLOBAL);
     }
 
     @Override
     public BillingSegmentResult calculate(BillingContext context,
                                           NaturalTimeConfig config,
                                           PromotionAggregate promotionAggregate) {
-        return continuousStrategy.calculate(context, config, promotionAggregate);
+        BConstants.CalculationMode mode = context.getCalculationMode();
+        if (mode == null) mode = BConstants.CalculationMode.CONTINUOUS;
+        return switch (mode) {
+            case DURATION_PERIOD -> {
+                validateConfig(config);
+                yield DurationPeriodStrategy.calculate(naturalTimeSemantics, context, config, promotionAggregate);
+            }
+            case DURATION_GLOBAL -> {
+                validateConfig(config);
+                yield DurationGlobalStrategy.calculate(naturalTimeSemantics, context, config, promotionAggregate);
+            }
+            default -> continuousStrategy.calculate(context, config, promotionAggregate);
+        };
+    }
+
+    /**
+     * 时长模式配置校验（与 {@link NaturalTimeContinuousStrategy} 一致）。
+     */
+    private void validateConfig(NaturalTimeConfig config) {
+        if (config.getPeriods() == null || config.getPeriods().isEmpty()) {
+            throw new IllegalArgumentException("periods 不能为空");
+        }
+        if (config.getUnitMinutes() <= 0) {
+            throw new IllegalArgumentException("unitMinutes 必须大于 0");
+        }
+        validatePeriodsCoverage(config.getPeriods());
+    }
+
+    private void validatePeriodsCoverage(List<NaturalPeriod> periods) {
+        int totalCovered = 0;
+        int prevEnd = 0;
+        for (int i = 0; i < periods.size(); i++) {
+            NaturalPeriod period = periods.get(i);
+            if (i > 0 && period.getBeginMinute() != prevEnd) {
+                throw new IllegalArgumentException("时段不连续");
+            }
+            if (period.getBeginMinute() < period.getEndMinute()) {
+                totalCovered += period.getEndMinute() - period.getBeginMinute();
+            } else {
+                totalCovered += (MINUTES_PER_CYCLE - period.getBeginMinute()) + period.getEndMinute();
+            }
+            prevEnd = period.getEndMinute();
+        }
+        if (totalCovered != MINUTES_PER_CYCLE) {
+            throw new IllegalArgumentException("时段未覆盖全天");
+        }
     }
 }

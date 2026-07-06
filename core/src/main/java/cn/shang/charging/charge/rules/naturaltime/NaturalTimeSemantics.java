@@ -2,11 +2,15 @@ package cn.shang.charging.charge.rules.naturaltime;
 
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
+import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.RuleSemantics;
+import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
+import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * `naturalTime` 规则族语义：滑动 24h 窗口周期 + 全局单元 + 每日封顶。
@@ -16,10 +20,14 @@ import java.time.LocalDateTime;
  * 切换后 dayStart 跳到 seg.endTime。cap 标记 "CYCLE_CAP"。
  * <p>
  * TODO-20260706-002 阶段3。
+ * TODO-20260706-002 阶段4：加 priceAt / periodBoundaryProvider，时长模式通用化。
  */
 final class NaturalTimeSemantics implements RuleSemantics<NaturalTimeConfig> {
 
     private static final int MINUTES_PER_CYCLE = 1440;
+
+    private final NaturalTimePeriodResolver periodResolver = new NaturalTimePeriodResolver();
+    private final NaturalTimeCrossPeriodPriceResolver priceResolver = new NaturalTimeCrossPeriodPriceResolver();
 
     @Override
     public LocalDateTime cycleOrigin(BillingContext context) {
@@ -48,6 +56,29 @@ final class NaturalTimeSemantics implements RuleSemantics<NaturalTimeConfig> {
     @Override
     public int unitMinutes(LocalDateTime time, NaturalTimeConfig config, LocalDateTime cycleOrigin) {
         return config.getUnitMinutes();
+    }
+
+    @Override
+    public BigDecimal priceAt(LocalDateTime begin, LocalDateTime end, NaturalTimeConfig config, LocalDateTime cycleOrigin) {
+        return priceResolver.calculateUnitPrice(begin, end, config.getPeriods(), config.getCrossPeriodMode());
+    }
+
+    /**
+     * 自然时段边界 provider：从当前自然日内分钟算到下一个 period.endMinute。
+     * 从原 NaturalTimeContinuousStrategy.calculate 的 period 边界 lambda 搬来。
+     */
+    @Override
+    public BoundaryProvider periodBoundaryProvider(NaturalTimeConfig config, LocalDateTime cycleOrigin) {
+        List<NaturalPeriod> periods = config.getPeriods();
+        return (current, end) -> {
+            int currentMinute = current.getHour() * 60 + current.getMinute();
+            int periodEnd = periodResolver.findNextPeriodBoundary(currentMinute, periods);
+            LocalDateTime periodBoundary = current.plusMinutes(periodEnd - currentMinute);
+            if (periodBoundary.isAfter(current) && !periodBoundary.isAfter(end)) {
+                return List.of(periodBoundary);
+            }
+            return List.of();
+        };
     }
 
     @Override

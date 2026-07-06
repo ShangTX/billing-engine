@@ -6,6 +6,7 @@ import cn.shang.charging.billing.pojo.RuleConfig;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 规则族语义接口（层 0）：描述规则族"是什么"，不含计算逻辑。
@@ -13,8 +14,11 @@ import java.time.LocalDateTime;
  * 由各规则族实现（DayNightSemantics / RelativeTimeSemantics / ...），封装周期模型、时段结构、
  * 价格、封顶等语义差异。通用 {@link ContinuousStrategy}（层 2）消费语义，实现 CONTINUOUS 模式
  * 的边界驱动切断 + 封顶 + 累计 + 简化，消除 4 份 applyCapAndAccumulate 重复。
+ * 通用 {@link DurationPeriodStrategy} / {@link DurationGlobalStrategy}（层 2）消费语义，
+ * 实现时长模式（PERIOD/GLOBAL）的边界驱动切断 + 时段封顶 + 周期封顶，消除 4 份时长策略重复。
  * <p>
  * TODO-20260706-002 阶段3：引入 RuleSemantics，正交解耦规则族语义与模式行为。
+ * TODO-20260706-002 阶段4：加 priceAt / periodBoundaryProvider / periodLabel，时长模式通用化。
  */
 public interface RuleSemantics<C extends RuleConfig> {
 
@@ -83,6 +87,39 @@ public interface RuleSemantics<C extends RuleConfig> {
     default String periodKey(LocalDateTime time, C config, LocalDateTime cycleOrigin) {
         return "default";
     }
+
+    /**
+     * 时长模式下该时间点所在时段的人类可读标签（如 "day"/"night"/"period-1"）。
+     * 默认与 {@link #periodKey} 一致；DayNight 等需人类可读标签的规则族覆盖。
+     */
+    default String periodLabel(LocalDateTime time, C config, LocalDateTime cycleOrigin) {
+        return periodKey(time, config, cycleOrigin);
+    }
+
+    // ==================== 价格（时长模式用） ====================
+
+    /**
+     * 时长模式下指定区间 [begin, end) 的单元单价。
+     * <p>
+     * 时长模式不按单元对齐切断（同质段由边界 provider 切断），故单价基于区间端点解析：
+     * 同价段直接返回该单价；跨价段按规则族 crossPeriodMode 解析（如 BEGIN_TIME_PRICE / PROPORTIONAL）。
+     * 由各规则族委托自家 priceResolver 实现。
+     *
+     * @param cycleOrigin 周期起点（RelativeTime/CompositeTime 按 cycleOrigin 算周期内偏移定位 period；
+     *                    DayNight/NaturalTime 用自然日内分钟，不依赖此参数）
+     */
+    BigDecimal priceAt(LocalDateTime begin, LocalDateTime end, C config, LocalDateTime cycleOrigin);
+
+    /**
+     * 时长模式下时段结构边界 provider（PERIOD/GLOBAL 共用）。
+     * <p>
+     * 返回的边界用于边界驱动循环切断同质段（如日夜边界、relativeTime period 结束、naturalTime 时段边界）。
+     * provider 自行保证返回的边界严格大于 current、不大于 calcEnd。
+     *
+     * @param config      规则配置
+     * @param cycleOrigin 周期起点（用于按周期内偏移定位 period 边界）
+     */
+    BoundaryProvider periodBoundaryProvider(C config, LocalDateTime cycleOrigin);
 
     // ==================== 封顶 ====================
 
