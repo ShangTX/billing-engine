@@ -209,6 +209,53 @@ class DurationBillingModeTest {
         assertEquals(180, totalCharged);
     }
 
+    /** GLOBAL 模式 + FREE_MINUTES：时段化后免费段独立，DurationSegment 同质（TODO-20260706-001） */
+    @Test
+    void globalMode_freeMinutesMaterialization_homogeneousSegments() {
+        DayNightConfig config = dayNightConfig("global-fm-mat", new BigDecimal("1000.00"));
+        BillingService service = createService(config, BConstants.DurationMode.GLOBAL);
+
+        // 10:00-14:00 全日段（4h=240min，2元/h），FREE_MINUTES=60min
+        BillingRequest req = request(
+                LocalDateTime.of(2026, 1, 1, 10, 0),
+                LocalDateTime.of(2026, 1, 1, 14, 0));
+        req.setExternalPromotions(List.of(
+                PromotionGrant.builder()
+                        .id("fm-60")
+                        .type(BConstants.PromotionType.FREE_MINUTES)
+                        .freeMinutes(60)
+                        .priority(1)
+                        .build()
+        ));
+
+        BillingResult result = service.calculate(req);
+
+        // 4h - 1h 免费 = 3h × 2 = 6 元
+        assertEquals(0, new BigDecimal("6.00").compareTo(result.getFinalAmount()));
+
+        List<DurationSegment> segs = result.getDurationSegments();
+        assertNotNull(segs);
+        assertFalse(segs.isEmpty());
+
+        // 同质性：每段要么全免费（chargedMinutes=0），要么全收费（chargedMinutes=段时长）
+        // 改前 GLOBAL 不时段化，免费段"揉进"收费段，chargedMinutes 介于 0 和段时长之间
+        for (DurationSegment seg : segs) {
+            int spanMinutes = (int) Duration.between(seg.beginTime(), seg.endTime()).toMinutes();
+            assertTrue(seg.chargedMinutes() == 0 || seg.chargedMinutes() == spanMinutes,
+                    "段非同质: " + seg.beginTime() + "-" + seg.endTime()
+                            + " chargedMinutes=" + seg.chargedMinutes() + " span=" + spanMinutes);
+        }
+
+        // 免费段独立存在
+        assertTrue(segs.stream().anyMatch(s -> s.chargedMinutes() == 0));
+        // 收费段总分钟 = 180（240 - 60）
+        int totalCharged = segs.stream()
+                .filter(s -> s.chargedMinutes() > 0)
+                .mapToInt(DurationSegment::chargedMinutes)
+                .sum();
+        assertEquals(180, totalCharged);
+    }
+
     /** 不支持时长模式的规则传 PERIOD 抛异常 */
     @Test
     void unsupportedDurationMode_throws() {
