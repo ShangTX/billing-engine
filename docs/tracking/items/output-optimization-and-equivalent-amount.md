@@ -8,7 +8,7 @@ status: done
 source_git: 82da1af
 created_at: 2026-07-06
 completed_at: 2026-07-06
-completed_git: <pending>
+completed_git: 87e5ef9
 ---
 
 ## 背景
