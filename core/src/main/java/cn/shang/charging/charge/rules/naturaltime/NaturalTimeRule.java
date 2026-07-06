@@ -139,8 +139,6 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        LocalDateTime feeEffectiveStart = calculateEffectiveFrom(billingUnits);
-        LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
 
         // 状态续算已下线（CONTINUE 移除），单次计算周期跟踪从 calcBegin 初始化
 
@@ -153,8 +151,6 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
                 .chargedAmount(totalAmount)
                 .billingUnits(billingUnits)
                 .promotionAggregate(promotionAggregate)
-                .feeEffectiveStart(feeEffectiveStart)
-                .feeEffectiveEnd(feeEffectiveEnd)
                 .build();
     }
 
@@ -382,48 +378,6 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
         return null;
     }
 
-    // ==================== 费用稳定时间窗口计算 ====================
-
-    private LocalDateTime calculateEffectiveFrom(List<BillingUnit> billingUnits) {
-        if (billingUnits == null || billingUnits.isEmpty()) {
-            return null;
-        }
-        return billingUnits.get(billingUnits.size() - 1).getBeginTime();
-    }
-
-    private LocalDateTime calculateEffectiveTo(List<BillingUnit> billingUnits,
-                                                List<FreeTimeRange> freeTimeRanges,
-                                                LocalDateTime calcBegin,
-                                                LocalDateTime calcEnd) {
-        if (billingUnits == null || billingUnits.isEmpty()) {
-            return null;
-        }
-
-        BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
-        LocalDateTime effectiveEnd = lastUnit.getEndTime();
-
-        // 如果最后单元在免费时段内，延伸到免费时段结束
-        if (lastUnit.isFree() && freeTimeRanges != null) {
-            for (FreeTimeRange range : freeTimeRanges) {
-                if (range.getEndTime().isAfter(effectiveEnd)) {
-                    effectiveEnd = range.getEndTime();
-                }
-            }
-        }
-
-        // 下一个周期边界
-        LocalDateTime nextCycleBoundary = calcBegin.plusMinutes(MINUTES_PER_DAY);
-        if (nextCycleBoundary.isBefore(effectiveEnd)) {
-            effectiveEnd = nextCycleBoundary;
-        }
-
-        // 不能超过分段结束时间
-        if (calcEnd.isBefore(effectiveEnd)) {
-            effectiveEnd = calcEnd;
-        }
-
-        return effectiveEnd;
-    }
 
     // ==================== 内部类 ====================
 

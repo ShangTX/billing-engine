@@ -278,8 +278,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
-        LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, calcEnd);
 
         // 标记最后一个单元是否被截断
         if (!allUnits.isEmpty()) {
@@ -320,8 +318,6 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
                 .billingUnits(allUnits)
                 .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)
-                .feeEffectiveStart(feeEffectiveStart)
-                .feeEffectiveEnd(feeEffectiveEnd)
                 .build();
     }
 
@@ -919,25 +915,7 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
         cycle.accumulatedBeforeCap = maxCharge;
     }
 
-    /**
-     * 计算费用确定开始时间
-     */
-    private LocalDateTime calculateEffectiveFrom(List<BillingUnit> billingUnits) {
-        if (billingUnits == null || billingUnits.isEmpty()) {
-            return null;
-        }
-        return billingUnits.get(billingUnits.size() - 1).getBeginTime();
-    }
 
-    /**
-     * 计算费用稳定结束时间
-     */
-    private LocalDateTime calculateEffectiveTo(List<BillingUnit> billingUnits, LocalDateTime calcEnd) {
-        if (billingUnits == null || billingUnits.isEmpty()) {
-            return null;
-        }
-        return billingUnits.get(billingUnits.size() - 1).getEndTime();
-    }
 
     /**
      * 查找下一个相对时间段边界

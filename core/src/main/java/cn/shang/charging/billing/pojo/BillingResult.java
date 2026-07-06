@@ -27,8 +27,6 @@ public class BillingResult {
     private List<SettlementAdjustment> settlementAdjustments; // 结算情况
     private BigDecimal finalAmount;
     // 价格的有效时间
-    private LocalDateTime effectiveFrom;
-    private LocalDateTime effectiveTo;
 
     /**
      * 实际计算到的时间点（延伸后，用于缓存有效性判断）

@@ -299,7 +299,6 @@ starter 的自动装配范围见能力文档。复杂注册需求仍可手动装
 | `promotionUsages` | 优惠使用记录 |
 | `settlementAdjustments` | 结算调整记录 |
 | `finalAmount` | 最终应收金额 |
-| `effectiveFrom` / `effectiveTo` | 结果稳定时间窗口 |
 | `calculationEndTime` | 实际计算到的时间 |
 
 ### `BillingUnit`

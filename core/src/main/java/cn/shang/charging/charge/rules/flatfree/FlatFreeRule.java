@@ -63,8 +63,6 @@ public class FlatFreeRule implements BillingRule<FlatFreeConfig> {
                 .billingUnits(List.of(unit))
                 .promotionUsages(List.of())
                 .promotionAggregate(promotionAggregate)
-                .feeEffectiveStart(calcBegin)
-                .feeEffectiveEnd(calcEnd)
                 .build();
     }
 }

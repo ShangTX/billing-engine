@@ -284,7 +284,7 @@ schemeChanges -> multiple BillingSegment
 - 合并 `DurationSegment`（时长模式）。
 - 合并 `PromotionUsage`。
 - 计算最终金额：统一为各分段 `chargedAmount` 之和。
-- 计算 `effectiveFrom`、`effectiveTo` 和 `calculationEndTime`。
+- 计算 `calculationEndTime`。
 
 输出为 `BillingResult`。
 

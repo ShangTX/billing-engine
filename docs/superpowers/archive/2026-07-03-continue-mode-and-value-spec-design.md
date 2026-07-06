@@ -297,3 +297,47 @@ CONTINUE 续算                      投影查询
 - `docs/superpowers/specs/2026-04-20-unit-value-spec-design.md` ValueSpec 设计
 - `docs/superpowers/specs/2026-03-31-continue-mode-accumulated-amount-design.md` CONTINUE 累计金额设计
 - `docs/superpowers/specs/2026-04-01-query-summary-design.md` 查询摘要设计
+
+---
+
+## 9. 费用稳定窗口（已删除，补充记录）
+
+### 机制
+
+`BillingSegmentResult.feeEffectiveStart` / `feeEffectiveEnd` 和 `BillingResult.effectiveFrom` / `effectiveTo` 构成"费用稳定窗口"：
+
+- `feeEffectiveEnd`：最后一个单元结束后，费用不会变化的时间点。计算逻辑：取最后单元 endTime → 若在免费段内则延伸到免费段结束 → 检查 24h 周期边界 → 不超过 calcEnd。
+- `feeEffectiveStart`：最后单元的开始时间。
+- `effectiveFrom` / `effectiveTo`：从段级聚合，`effectiveTo` = 各段 `feeEffectiveEnd` 的最小值（保守策略）。
+
+### 原始用途
+
+1. **投影查询缓存**：`calculateWithQuery` 算全段后，queryTime ≤ effectiveTo 时费用不变，无需重算。
+2. **CONTINUE 续算判断**：调用方用 `effectiveTo` 判断"是否需要重新计算"（新 endTime > effectiveTo 时需要）。
+3. **缓存有效性**：调用方缓存结果，effectiveTo 内无需重算。
+
+### 删除原因
+
+去掉 CONTINUE 和投影查询后：
+- 用途 1、2 消失（投影查询和 CONTINUE 已删）。
+- 用途 3（缓存有效性）由 `calculationEndTime` 覆盖——调用方判断"新 endTime > calculationEndTime 时需重算"即可，不需要"费用稳定窗口"。
+- `effectiveTo` 在 billing-api 和 bill-test 中**零消费**（grep 确认无读取）。
+- `feeEffectiveEnd` 的计算逻辑（免费段延伸、24h 周期边界检查）增加了代码复杂度，但无消费者。
+
+### 删除范围
+
+- `BillingSegmentResult.feeEffectiveStart` / `feeEffectiveEnd` 字段
+- `BillingResult.effectiveFrom` / `effectiveTo` 字段
+- 各策略的 `calculateEffectiveFrom` / `calculateEffectiveTo` 方法（ContinuousStrategy ~40 行、CompositeTimeRule ~20 行、DayNightUnitBasedStrategy、NaturalTimeRule、RelativeTimeRule）
+- `ResultAssembler` 的 `calculateEffectiveFrom` / `calculateEffectiveTo` 方法
+
+### 保留
+
+- `calculationEndTime`：标识计算终点，调用方用于判断是否需要重算（新 endTime > calculationEndTime 时需重算）。
+
+### 未来参考
+
+如果未来重新实现"继续计算"或"查询时点金额"，可能需要恢复费用稳定窗口：
+- 用于缓存优化（避免重复计算）
+- 用于查询投影（queryTime 在窗口内时费用不变）
+- 计算逻辑参考本节描述（最后单元 endTime + 免费段延伸 + 周期边界）

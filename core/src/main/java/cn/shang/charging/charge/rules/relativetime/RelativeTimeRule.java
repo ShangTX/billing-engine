@@ -130,69 +130,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
         }
     }
 
-    private LocalDateTime calculateEffectiveFrom(List<BillingUnit> billingUnits) {
-        if (billingUnits == null || billingUnits.isEmpty()) {
-            return null;
-        }
-        return billingUnits.get(billingUnits.size() - 1).getBeginTime();
-    }
-
-    /**
-     * 计算费用稳定结束时间
-     */
-    private LocalDateTime calculateEffectiveTo(List<BillingUnit> billingUnits,
-                                                List<FreeTimeRange> freeTimeRanges,
-                                                LocalDateTime calcBegin,
-                                                LocalDateTime calcEnd) {
-        if (billingUnits == null || billingUnits.isEmpty()) {
-            return null;
-        }
-
-        BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
-        LocalDateTime effectiveTo = lastUnit.getEndTime();
-
-        // 如果最后一个单元在免费时段内，延伸到免费时段结束
-        if (lastUnit.isFree() && lastUnit.getFreePromotionId() != null) {
-            FreeTimeRange coveringRange = findFreeTimeRangeById(lastUnit.getFreePromotionId(), freeTimeRanges);
-            if (coveringRange != null && coveringRange.getEndTime().isAfter(effectiveTo)) {
-                effectiveTo = coveringRange.getEndTime();
-            }
-        }
-
-        // 检查下一个周期边界
-        LocalDateTime currentCycleEnd = calcBegin;
-        while (!currentCycleEnd.isAfter(effectiveTo)) {
-            LocalDateTime nextCycleEnd = currentCycleEnd.plusMinutes(MINUTES_PER_CYCLE);
-            if (nextCycleEnd.isAfter(effectiveTo)) {
-                effectiveTo = nextCycleEnd.isBefore(effectiveTo) ? nextCycleEnd : effectiveTo;
-                break;
-            }
-            currentCycleEnd = nextCycleEnd;
-        }
-
-        // 不超过分段结束时间
-        if (calcEnd != null && effectiveTo.isAfter(calcEnd)) {
-            effectiveTo = calcEnd;
-        }
-
-        return effectiveTo;
-    }
-
-    /**
-     * 根据ID查找免费时段
-     */
-    private FreeTimeRange findFreeTimeRangeById(String id, List<FreeTimeRange> freeTimeRanges) {
-        if (freeTimeRanges == null || id == null) {
-            return null;
-        }
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (id.equals(range.getId())) {
-                return range;
-            }
-        }
-        return null;
-    }
-
     /**
      * CONTINUOUS 模式计算
      * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
@@ -296,8 +233,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        LocalDateTime feeEffectiveStart = calculateEffectiveFrom(allUnits);
-        LocalDateTime feeEffectiveEnd = calculateEffectiveTo(allUnits, freeTimeRanges, calcBegin, calcEnd);
 
         // 标记最后一个单元是否被截断
         if (!allUnits.isEmpty()) {
@@ -341,8 +276,6 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
                 .billingUnits(allUnits)
                 .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)
-                .feeEffectiveStart(feeEffectiveStart)
-                .feeEffectiveEnd(feeEffectiveEnd)
                 .build();
     }
 

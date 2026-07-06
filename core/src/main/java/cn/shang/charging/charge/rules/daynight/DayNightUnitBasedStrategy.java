@@ -157,8 +157,6 @@ final class DayNightUnitBasedStrategy {
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        LocalDateTime feeEffectiveStart = calculateEffectiveFrom(billingUnits);
-        LocalDateTime feeEffectiveEnd = calculateEffectiveTo(billingUnits, freeTimeRanges, calcBegin, calcEnd);
 
         // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 从 BillingUnit.originalAmount 聚合）
         List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
@@ -182,8 +180,6 @@ final class DayNightUnitBasedStrategy {
                 .billingUnits(billingUnits)
                 .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)
-                .feeEffectiveStart(feeEffectiveStart)
-                .feeEffectiveEnd(feeEffectiveEnd)
                 .build();
     }
 
@@ -217,30 +213,5 @@ final class DayNightUnitBasedStrategy {
             }
         }
         return null;
-    }
-
-    private LocalDateTime calculateEffectiveFrom(List<BillingUnit> billingUnits) {
-        if (billingUnits == null || billingUnits.isEmpty()) return null;
-        return billingUnits.get(billingUnits.size() - 1).getBeginTime();
-    }
-
-    private LocalDateTime calculateEffectiveTo(List<BillingUnit> billingUnits,
-                                                List<FreeTimeRange> freeTimeRanges,
-                                                LocalDateTime calcBegin,
-                                                LocalDateTime calcEnd) {
-        if (billingUnits == null || billingUnits.isEmpty()) return null;
-        BillingUnit lastUnit = billingUnits.get(billingUnits.size() - 1);
-        LocalDateTime effectiveEnd = lastUnit.getEndTime();
-        if (lastUnit.isFree() && freeTimeRanges != null) {
-            for (FreeTimeRange range : freeTimeRanges) {
-                if (range.getEndTime().isAfter(effectiveEnd)) {
-                    effectiveEnd = range.getEndTime();
-                }
-            }
-        }
-        LocalDateTime nextCycleBoundary = calcBegin.plusMinutes(MINUTES_PER_DAY);
-        if (nextCycleBoundary.isBefore(effectiveEnd)) effectiveEnd = nextCycleBoundary;
-        if (calcEnd.isBefore(effectiveEnd)) effectiveEnd = calcEnd;
-        return effectiveEnd;
     }
 }

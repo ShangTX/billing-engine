@@ -181,8 +181,6 @@ final class DayNightDurationStrategy {
                 .cycleCapApplied(durationResult.cycleCapApplied)
                 .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)
-                .feeEffectiveStart(calcBegin)
-                .feeEffectiveEnd(calcEnd)
                 .build();
     }
 
