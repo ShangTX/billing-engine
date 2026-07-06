@@ -29,8 +29,8 @@ public class FlatFreeRule implements BillingRule<FlatFreeConfig> {
     }
 
     @Override
-    public Set<BConstants.BillingMode> supportedModes() {
-        return Set.of(BConstants.BillingMode.CONTINUOUS, BConstants.BillingMode.UNIT_BASED);
+    public Set<BConstants.CalculationMode> supportedCalculationModes() {
+        return Set.of(BConstants.CalculationMode.CONTINUOUS, BConstants.CalculationMode.UNIT_BASED);
     }
 
     @Override

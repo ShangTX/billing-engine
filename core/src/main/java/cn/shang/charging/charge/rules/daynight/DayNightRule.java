@@ -12,14 +12,13 @@ import java.util.Set;
 /**
  * 日夜分时段计费规则门面。
  * <p>
- * 按 {@link BConstants.BillingMode}（CONTINUOUS/UNIT_BASED）和 {@link BConstants.DurationMode}
- * （PERIOD/GLOBAL）分派到独立策略实现，自身只分派不扛计费逻辑：
+ * 按 {@link BConstants.CalculationMode} 分派到独立策略实现，自身只分派不扛计费逻辑：
  * <ul>
- *   <li>DurationMode ≠ NONE → {@link DayNightDurationStrategy}（时长计费类）</li>
- *   <li>BillingMode = UNIT_BASED → {@link DayNightUnitBasedStrategy}（固定单元对齐）</li>
- *   <li>BillingMode = CONTINUOUS → {@link ContinuousStrategy}（边界驱动切断）</li>
+ *   <li>DURATION_PERIOD / DURATION_GLOBAL → {@link DayNightDurationStrategy}（时长计费类）</li>
+ *   <li>UNIT_BASED → {@link DayNightUnitBasedStrategy}（固定单元对齐）</li>
+ *   <li>CONTINUOUS → {@link ContinuousStrategy}（边界驱动切断）</li>
  * </ul>
- * 一个 {@code dayNight} type 注册本门面，支持 CONTINUOUS/UNIT_BASED/时长多模式，不需覆盖注册。
+ * 一个 {@code dayNight} type 注册本门面，支持四种计算模式，不需覆盖注册。
  * <p>
  * TODO-20260702-002 阶段4：CONTINUOUS 逻辑下沉到 ContinuousStrategy，门面回归纯分派。
  */
@@ -35,27 +34,20 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
     }
 
     @Override
-    public Set<BConstants.BillingMode> supportedModes() {
-        return EnumSet.of(BConstants.BillingMode.CONTINUOUS, BConstants.BillingMode.UNIT_BASED);
-    }
-
-    @Override
-    public Set<BConstants.DurationMode> supportedDurationModes() {
-        return EnumSet.of(BConstants.DurationMode.PERIOD, BConstants.DurationMode.GLOBAL);
+    public Set<BConstants.CalculationMode> supportedCalculationModes() {
+        return EnumSet.of(BConstants.CalculationMode.CONTINUOUS, BConstants.CalculationMode.UNIT_BASED,
+                BConstants.CalculationMode.DURATION_PERIOD, BConstants.CalculationMode.DURATION_GLOBAL);
     }
 
     @Override
     public BillingSegmentResult calculate(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
-        // 时长计费类：委托 DurationStrategy
-        BConstants.DurationMode durationMode = context.getDurationMode();
-        if (durationMode != null && durationMode != BConstants.DurationMode.NONE) {
-            return durationStrategy.calculate(context, config, promotionAggregate, durationMode);
-        }
-        // 单元计费类 UNIT_BASED：委托 UnitBasedStrategy
-        if (context.getBillingMode() == BConstants.BillingMode.UNIT_BASED) {
-            return unitBasedStrategy.calculate(context, config, promotionAggregate);
-        }
-        // 单元计费类 CONTINUOUS：委托 ContinuousStrategy
-        return continuousStrategy.calculate(context, config, promotionAggregate);
+        BConstants.CalculationMode mode = context.getCalculationMode();
+        if (mode == null) mode = BConstants.CalculationMode.CONTINUOUS;
+        return switch (mode) {
+            case DURATION_PERIOD, DURATION_GLOBAL ->
+                    durationStrategy.calculate(context, config, promotionAggregate, mode);
+            case UNIT_BASED -> unitBasedStrategy.calculate(context, config, promotionAggregate);
+            case CONTINUOUS -> continuousStrategy.calculate(context, config, promotionAggregate);
+        };
     }
 }

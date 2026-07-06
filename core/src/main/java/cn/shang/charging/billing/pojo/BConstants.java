@@ -10,39 +10,16 @@ public class BConstants {
      */
 
     /**
-     * 计费模式（计费单位如何划分）
-     */
-    public enum BillingMode {
-        CONTINUOUS, // 连续时间计费模式
-        UNIT_BASED  // 计费单位模式
-    }
-
-    /**
-     * 时长计费模式（Duration-Based Billing Mode）
+     * 计算模式（计费如何计算）
      * <p>
-     * 将时间轴视为连续的分钟流，按分钟数计费，而非按单元计费。
-     * 仅在结果输出阶段区分，边界驱动循环完全复用。
+     * 合并自原 BillingMode（CONTINUOUS/UNIT_BASED）与 DurationMode（PERIOD/GLOBAL），
+     * 四种模式平级、互斥分派。TODO-20260706-002 阶段1。
      */
-    public enum DurationMode {
-        /**
-         * 不使用时长模式
-         */
-        NONE,
-
-        /**
-         * 周期内时长模式
-         * 每个周期内按时长计费，周期封顶
-         * 时段封顶按每个周期独立计算
-         */
-        PERIOD,
-
-        /**
-         * 全局时长模式
-         * 不关心周期边界，全局按时长计费
-         * 时段封顶 = period.maxCharge × 周期数
-         * 周期封顶 = maxChargeOneCycle × 周期数
-         */
-        GLOBAL
+    public enum CalculationMode {
+        CONTINUOUS,       // 连续时间计费（边界驱动切断）
+        UNIT_BASED,       // 固定单元对齐计费
+        DURATION_PERIOD,  // 周期内时长计费
+        DURATION_GLOBAL   // 全局时长计费
     }
 
     /**

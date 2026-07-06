@@ -34,8 +34,8 @@ import java.util.Set;
 public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
 
     private static final int MINUTES_PER_DAY = 1440;
-    private static final Set<BConstants.BillingMode> SUPPORTED_MODES = Set.of(
-            BConstants.BillingMode.CONTINUOUS
+    private static final Set<BConstants.CalculationMode> SUPPORTED_MODES = Set.of(
+            BConstants.CalculationMode.CONTINUOUS
     );
 
     private final NaturalTimeContinuousCalculator continuousCalculator = new NaturalTimeContinuousCalculator();
@@ -46,7 +46,7 @@ public class NaturalTimeRule extends AbstractTimeBasedRule<NaturalTimeConfig> {
     }
 
     @Override
-    public Set<BConstants.BillingMode> supportedModes() {
+    public Set<BConstants.CalculationMode> supportedCalculationModes() {
         return SUPPORTED_MODES;
     }
 

@@ -90,12 +90,8 @@ public class BillingService {
                             window.getCalculationEnd(),
                             contextParam);
 
-            // 解析计费模式
-            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(
-                    segment.getSchemeId(), contextParam);
-
-            // 解析时长计费模式
-            BConstants.DurationMode durationMode = billingConfigResolver.resolveDurationMode(
+            // 解析计算模式
+            BConstants.CalculationMode calculationMode = billingConfigResolver.resolveCalculationMode(
                     segment.getSchemeId(), contextParam);
 
             // 2.3 构建 BillingContext（只读）
@@ -108,8 +104,7 @@ public class BillingService {
                     .chargingRule(chargingRule)
                     .promotionRules(promotionRules)
                     .externalPromotions(externalPool.remaining())
-                    .billingMode(billingMode)
-                    .durationMode(durationMode)
+                    .calculationMode(calculationMode)
                     .disableSimplification(request.getDisableSimplification())
                     .billingConfigResolver(billingConfigResolver)
                     .build();
@@ -151,8 +146,8 @@ public class BillingService {
         }
         Map<String, Object> contextParam = request.getContext();
         for (BillingSegment segment : segments) {
-            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(segment.getSchemeId(), contextParam);
-            if (billingMode == BConstants.BillingMode.UNIT_BASED) {
+            BConstants.CalculationMode calculationMode = billingConfigResolver.resolveCalculationMode(segment.getSchemeId(), contextParam);
+            if (calculationMode == BConstants.CalculationMode.UNIT_BASED) {
                 throw new IllegalStateException(
                         "UNIT_BASED 与 GLOBAL_ORIGIN 结构性不兼容：单元对齐语义与全局起点截取冲突；"
                                 + "UNIT_BASED 仅支持 SEGMENT_LOCAL。详见 TODO-20260702-001。");
@@ -196,7 +191,7 @@ public class BillingService {
                 window.getCalculationEnd(),
                 contextParam);
 
-            BConstants.BillingMode billingMode = billingConfigResolver.resolveBillingMode(
+            BConstants.CalculationMode calculationMode = billingConfigResolver.resolveCalculationMode(
                 segment.getSchemeId(), contextParam);
 
             BillingContext billingContext = BillingContext.builder()
@@ -208,7 +203,7 @@ public class BillingService {
                 .chargingRule(chargingRule)
                 .promotionRules(promotionRules)
                 .externalPromotions(request.getExternalPromotions())
-                .billingMode(billingMode)
+                .calculationMode(calculationMode)
                 .disableSimplification(request.getDisableSimplification())
                 .billingConfigResolver(billingConfigResolver)
                 .build();

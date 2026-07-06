@@ -895,8 +895,8 @@ public class ComprehensiveBillingTest {
     static BillingService createRelativeTimeServiceWithFreeMinutes(BigDecimal maxCharge, boolean withFreeMinutes) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return BConstants.CalculationMode.CONTINUOUS;
             }
 
             @Override
@@ -947,8 +947,8 @@ public class ComprehensiveBillingTest {
     static BillingService createDayNightServiceWithFreeMinutes(BigDecimal maxCharge, boolean withFreeMinutes) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return BConstants.CalculationMode.CONTINUOUS;
             }
 
             @Override
@@ -985,8 +985,8 @@ public class ComprehensiveBillingTest {
     static BillingService createDayNightServiceWithSimplified(int threshold) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return BConstants.CalculationMode.CONTINUOUS;
             }
 
             @Override
@@ -1020,8 +1020,8 @@ public class ComprehensiveBillingTest {
     static BillingService createCompositeTimeService(BigDecimal maxCharge) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return BConstants.CalculationMode.CONTINUOUS;
             }
 
             @Override

@@ -56,8 +56,8 @@ public class BillingSegmentResult {
     /** 时长计费段明细（仅在时长计费模式下填充） */
     private List<DurationSegment> durationSegments;
 
-    /** 时长计费模式标记（NONE 表示非时长模式） */
-    private BConstants.DurationMode durationMode;
+    /** 计算模式标记 */
+    private BConstants.CalculationMode calculationMode;
 
     /** 周期封顶金额（时长模式下填充，null=无封顶或未配置） */
     private BigDecimal cycleCapApplied;

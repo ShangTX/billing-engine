@@ -15,21 +15,21 @@ import java.util.Map;
 public interface BillingConfigResolver {
 
     /**
-     * 获取计费模式
+     * 获取计算模式
      * @param schemeId 方案id
-     * @return 计费模式
+     * @return 计算模式
      */
-    default BConstants.BillingMode resolveBillingMode(String schemeId) {
-        return resolveBillingMode(schemeId, Collections.emptyMap());
+    default BConstants.CalculationMode resolveCalculationMode(String schemeId) {
+        return resolveCalculationMode(schemeId, Collections.emptyMap());
     }
 
     /**
-     * 获取计费模式（带上下文参数）
+     * 获取计算模式（带上下文参数）
      * @param schemeId 方案id
      * @param context 上下文参数
-     * @return 计费模式
+     * @return 计算模式
      */
-    BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context);
+    BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context);
 
     /**
      * 获取计费规则配置
@@ -89,15 +89,5 @@ public interface BillingConfigResolver {
      */
     default int getSimplifiedCycleThreshold() {
         return 0; // 默认禁用
-    }
-
-    /**
-     * 获取时长计费模式
-     * @param schemeId 方案id
-     * @param context 上下文参数
-     * @return 时长计费模式，默认 NONE（不使用时长模式）
-     */
-    default BConstants.DurationMode resolveDurationMode(String schemeId, Map<String, Object> context) {
-        return BConstants.DurationMode.NONE;
     }
 }

@@ -50,7 +50,7 @@ class CompositeTimePeriodCapTest {
         BillingSegmentResult result = rule.calculate(
                 createContext(LocalDateTime.of(2026, 1, 1, 8, 0),
                         LocalDateTime.of(2026, 1, 1, 11, 0),
-                        BConstants.BillingMode.CONTINUOUS),
+                        BConstants.CalculationMode.CONTINUOUS),
                 config,
                 PromotionAggregate.builder().build());
 
@@ -95,7 +95,7 @@ class CompositeTimePeriodCapTest {
         BillingSegmentResult result = rule.calculate(
                 createContext(LocalDateTime.of(2026, 1, 1, 8, 0),
                         LocalDateTime.of(2026, 1, 1, 12, 0),
-                        BConstants.BillingMode.CONTINUOUS),
+                        BConstants.CalculationMode.CONTINUOUS),
                 config,
                 PromotionAggregate.builder().build());
 
@@ -103,7 +103,7 @@ class CompositeTimePeriodCapTest {
                 "两时段：第一时段封顶3元 + 第二时段2元 = 5元");
     }
 
-    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.BillingMode mode) {
+    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.CalculationMode mode) {
         CalculationWindow window = new CalculationWindow();
         window.setCalculationBegin(begin);
         window.setCalculationEnd(end);
@@ -115,7 +115,7 @@ class CompositeTimePeriodCapTest {
         return BillingContext.builder()
                 .beginTime(begin)
                 .endTime(end)
-                .billingMode(mode)
+                .calculationMode(mode)
                 .segment(segment)
                 .window(window)
                 .build();

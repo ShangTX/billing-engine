@@ -70,8 +70,8 @@ public class RelativeTimeRule extends AbstractTimeBasedRule<RelativeTimeConfig> 
     }
 
     @Override
-    public Set<BConstants.BillingMode> supportedModes() {
-        return EnumSet.of(BConstants.BillingMode.CONTINUOUS);
+    public Set<BConstants.CalculationMode> supportedCalculationModes() {
+        return EnumSet.of(BConstants.CalculationMode.CONTINUOUS);
     }
 
     @Override

@@ -102,8 +102,8 @@ class DayNightUnitBasedRuleTest {
                                             LocalDateTime begin, LocalDateTime end) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> ctx) {
-                return BConstants.BillingMode.UNIT_BASED;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> ctx) {
+                return BConstants.CalculationMode.UNIT_BASED;
             }
             @Override
             public RuleConfig resolveChargingRule(String schemeId, LocalDateTime s, LocalDateTime e, Map<String, Object> ctx) {

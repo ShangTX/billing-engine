@@ -93,7 +93,7 @@ public class RelativeTimeTest {
                     .build();
 
             var rule = new RelativeTimeRule();
-            var context = createTestContext(BConstants.BillingMode.CONTINUOUS);
+            var context = createTestContext(BConstants.CalculationMode.CONTINUOUS);
             rule.calculate(context, config, null);
 
             System.out.println("失败: 应该抛出异常");
@@ -120,7 +120,7 @@ public class RelativeTimeTest {
                     .build();
 
             var rule = new RelativeTimeRule();
-            var context = createTestContext(BConstants.BillingMode.CONTINUOUS);
+            var context = createTestContext(BConstants.CalculationMode.CONTINUOUS);
             rule.calculate(context, config, null);
 
             System.out.println("失败: 应该抛出异常");
@@ -434,14 +434,14 @@ public class RelativeTimeTest {
         System.out.println();
 
         // CONTINUOUS 模式
-        var continuousService = getBillingService(DEFAULT_CAP, false, BConstants.BillingMode.CONTINUOUS);
+        var continuousService = getBillingService(DEFAULT_CAP, false, BConstants.CalculationMode.CONTINUOUS);
         var continuousResult = continuousService.calculate(request);
         System.out.println("CONTINUOUS 模式: finalAmount = " + continuousResult.getFinalAmount());
         System.out.println("  计费单元数: " + continuousResult.getUnits().size());
         System.out.println("  calculationEndTime: " + continuousResult.getCalculationEndTime());
 
         // UNIT_BASED 模式
-        var unitBasedService = getBillingService(DEFAULT_CAP, false, BConstants.BillingMode.CONTINUOUS);
+        var unitBasedService = getBillingService(DEFAULT_CAP, false, BConstants.CalculationMode.CONTINUOUS);
         var unitBasedResult = unitBasedService.calculate(request);
         System.out.println("UNIT_BASED 模式: finalAmount = " + unitBasedResult.getFinalAmount());
         System.out.println("  计费单元数: " + unitBasedResult.getUnits().size());
@@ -455,13 +455,13 @@ public class RelativeTimeTest {
     // ==================== 辅助方法 ====================
 
     static BillingService getBillingService(BigDecimal maxCharge, boolean withFreeMinutes) {
-        return getBillingService(maxCharge, withFreeMinutes, BConstants.BillingMode.CONTINUOUS);
+        return getBillingService(maxCharge, withFreeMinutes, BConstants.CalculationMode.CONTINUOUS);
     }
 
-    static BillingService getBillingService(BigDecimal maxCharge, boolean withFreeMinutes, BConstants.BillingMode mode) {
+    static BillingService getBillingService(BigDecimal maxCharge, boolean withFreeMinutes, BConstants.CalculationMode mode) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
                 return mode;
             }
 
@@ -555,7 +555,7 @@ public class RelativeTimeTest {
         }
     }
 
-    static BillingContext createTestContext(BConstants.BillingMode mode) {
+    static BillingContext createTestContext(BConstants.CalculationMode mode) {
         CalculationWindow window = new CalculationWindow();
         window.setCalculationBegin(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0));
         window.setCalculationEnd(LocalDateTime.of(2026, Month.MARCH, 10, 10, 0));
@@ -566,7 +566,7 @@ public class RelativeTimeTest {
         segment.setSchemeId("test");
 
         return BillingContext.builder()
-                .billingMode(mode)
+                .calculationMode(mode)
                 .window(window)
                 .segment(segment)
                 .build();

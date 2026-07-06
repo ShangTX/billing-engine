@@ -40,7 +40,7 @@ class DurationBillingModeTest {
     @Test
     void periodMode_basicDaySegment() {
         DayNightConfig config = dayNightConfig("period-basic", new BigDecimal("100.00"));
-        BillingService service = createService(config, BConstants.DurationMode.PERIOD);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_PERIOD);
 
         BillingResult result = service.calculate(request(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
@@ -63,7 +63,7 @@ class DurationBillingModeTest {
     @Test
     void periodMode_dayNightLabelSwitch() {
         DayNightConfig config = dayNightConfig("period-label", new BigDecimal("100.00"));
-        BillingService service = createService(config, BConstants.DurationMode.PERIOD);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_PERIOD);
 
         // 18:00-22:00：2h 日段 + 2h 夜段
         BillingResult result = service.calculate(request(
@@ -83,7 +83,7 @@ class DurationBillingModeTest {
     void periodMode_cycleCapTriggered() {
         // 封顶 10 元/天，日段 2 元/h × 8h = 16 元 > 10 元 → 实收 10 元
         DayNightConfig config = dayNightConfig("period-cap", new BigDecimal("10.00"));
-        BillingService service = createService(config, BConstants.DurationMode.PERIOD);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_PERIOD);
 
         BillingResult result = service.calculate(request(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
@@ -109,7 +109,7 @@ class DurationBillingModeTest {
     void periodMode_multiCycleCap() {
         // 封顶 10 元/天，停 48h（2 整天）：每天 36元 → 每天封顶 10 → 2×10=20
         DayNightConfig config = dayNightConfig("period-multi", new BigDecimal("10.00"));
-        BillingService service = createService(config, BConstants.DurationMode.PERIOD);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_PERIOD);
 
         LocalDateTime begin = LocalDateTime.of(2026, 1, 1, 8, 0);
         BillingResult result = service.calculate(request(begin, begin.plusHours(48)));
@@ -122,7 +122,7 @@ class DurationBillingModeTest {
     @Test
     void globalMode_cycleCountCeil() {
         DayNightConfig config = dayNightConfig("global-ceil", new BigDecimal("100.00"));
-        BillingService service = createService(config, BConstants.DurationMode.GLOBAL);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
 
         // 47h = 2820min，ceil(2820/1440) = 2 周期
         LocalDateTime begin = LocalDateTime.of(2026, 1, 1, 8, 0);
@@ -142,7 +142,7 @@ class DurationBillingModeTest {
         // 第1天 8:00-20:00 日段12h=24元 + 夜段12h=12元 = 36元
         // 第2天同上 36元，总 72 元 > 封顶 2×10=20 → 实收 20
         DayNightConfig config = dayNightConfig("global-cap", new BigDecimal("10.00"));
-        BillingService service = createService(config, BConstants.DurationMode.GLOBAL);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
 
         LocalDateTime begin = LocalDateTime.of(2026, 1, 1, 8, 0);
         BillingResult result = service.calculate(request(begin, begin.plusHours(48)));
@@ -161,7 +161,7 @@ class DurationBillingModeTest {
     @Test
     void globalMode_periodLabelAcrossCycles() {
         DayNightConfig config = dayNightConfig("global-label", new BigDecimal("1000.00"));
-        BillingService service = createService(config, BConstants.DurationMode.GLOBAL);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
 
         LocalDateTime begin = LocalDateTime.of(2026, 1, 1, 8, 0);
         BillingResult result = service.calculate(request(begin, begin.plusHours(48)));
@@ -176,7 +176,7 @@ class DurationBillingModeTest {
     @Test
     void periodMode_freeRangeDeduction() {
         DayNightConfig config = dayNightConfig("period-free", new BigDecimal("100.00"));
-        BillingService service = createService(config, BConstants.DurationMode.PERIOD);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_PERIOD);
 
         // 8:00-12:00，10:00-11:00 免费
         BillingRequest req = request(
@@ -213,7 +213,7 @@ class DurationBillingModeTest {
     @Test
     void globalMode_freeMinutesMaterialization_homogeneousSegments() {
         DayNightConfig config = dayNightConfig("global-fm-mat", new BigDecimal("1000.00"));
-        BillingService service = createService(config, BConstants.DurationMode.GLOBAL);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
 
         // 10:00-14:00 全日段（4h=240min，2元/h），FREE_MINUTES=60min
         BillingRequest req = request(
@@ -261,12 +261,12 @@ class DurationBillingModeTest {
     void unsupportedDurationMode_throws() {
         // 用一个不支持时长模式的规则（这里借 NaturalTime，但需要注册）
         // DayNightRule 支持 PERIOD/GLOBAL，要测不支持的场景，用一个 stub resolver 返回 PERIOD
-        // 但规则不检查——实际由 BillingCalculator 校验 supportedDurationModes
+        // 但规则不检查——实际由 BillingCalculator 校验 supportedCalculationModes
         // DayNightRule 支持，所以这里测一个不支持的：构造一个仅 NONE 的规则
         // 简化：直接验证 DayNightRule 声明了支持
         DayNightRule rule = new DayNightRule();
-        assertTrue(rule.supportedDurationModes().contains(BConstants.DurationMode.PERIOD));
-        assertTrue(rule.supportedDurationModes().contains(BConstants.DurationMode.GLOBAL));
+        assertTrue(rule.supportedCalculationModes().contains(BConstants.CalculationMode.DURATION_PERIOD));
+        assertTrue(rule.supportedCalculationModes().contains(BConstants.CalculationMode.DURATION_GLOBAL));
     }
 
     // ==================== 辅助方法 ====================
@@ -300,13 +300,8 @@ class DurationBillingModeTest {
         return null;
     }
 
-    private BillingService createService(DayNightConfig config, BConstants.DurationMode durationMode) {
+    private BillingService createService(DayNightConfig config, BConstants.CalculationMode calculationMode) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
-            @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
-            }
-
             @Override
             public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return config;
@@ -318,8 +313,8 @@ class DurationBillingModeTest {
             }
 
             @Override
-            public BConstants.DurationMode resolveDurationMode(String schemeId, Map<String, Object> context) {
-                return durationMode;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return calculationMode;
             }
         };
 

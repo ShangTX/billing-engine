@@ -57,7 +57,7 @@ public class DayNightTest {
     static void testSingleCycle() {
         System.out.println("=== 测试1: 单周期计费 ===");
 
-        var billingService = getBillingService(BConstants.BillingMode.CONTINUOUS);
+        var billingService = getBillingService(BConstants.CalculationMode.CONTINUOUS);
         var request = new BillingRequest();
         request.setId("test-1");
         // 计费时间: 08:00 - 14:00 (6小时)
@@ -86,7 +86,7 @@ public class DayNightTest {
     static void testCrossCycle() {
         System.out.println("=== 测试2: 跨周期计费 ===");
 
-        var billingService = getBillingService(BConstants.BillingMode.CONTINUOUS);
+        var billingService = getBillingService(BConstants.CalculationMode.CONTINUOUS);
         var request = new BillingRequest();
         request.setId("test-2");
         // 计费时间: 08:00 - 次日 10:00 (26小时)
@@ -114,7 +114,7 @@ public class DayNightTest {
     static void testCap() {
         System.out.println("=== 测试3: 封顶逻辑 ===");
 
-        var billingService = getBillingServiceWithCap(BConstants.BillingMode.CONTINUOUS);
+        var billingService = getBillingServiceWithCap(BConstants.CalculationMode.CONTINUOUS);
         var request = new BillingRequest();
         request.setId("test-3");
         // 计费时间: 08:00 - 20:00 (12小时)
@@ -142,7 +142,7 @@ public class DayNightTest {
     static void testFreeTimeRange() {
         System.out.println("=== 测试4: 免费时段优惠 ===");
 
-        var billingService = getBillingService(BConstants.BillingMode.CONTINUOUS);
+        var billingService = getBillingService(BConstants.CalculationMode.CONTINUOUS);
         var request = new BillingRequest();
         request.setId("test-4");
         // 计费时间: 08:00 - 14:00 (6小时)
@@ -181,7 +181,7 @@ public class DayNightTest {
     static void testPartialUnit() {
         System.out.println("=== 测试5: 不足一个单元收全额 ===");
 
-        var billingService = getBillingService(BConstants.BillingMode.CONTINUOUS);
+        var billingService = getBillingService(BConstants.CalculationMode.CONTINUOUS);
         var request = new BillingRequest();
         request.setId("test-5");
         // 计费时间: 08:00 - 08:30 (30分钟，不足60分钟单元)
@@ -224,7 +224,7 @@ public class DayNightTest {
                 .build());
 
         // CONTINUOUS 模式
-        var billingServiceContinuous = getBillingService(BConstants.BillingMode.CONTINUOUS);
+        var billingServiceContinuous = getBillingService(BConstants.CalculationMode.CONTINUOUS);
         var requestContinuous = new BillingRequest();
         requestContinuous.setId("test-continuous");
         requestContinuous.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 5, 0, 0));
@@ -244,7 +244,7 @@ public class DayNightTest {
         System.out.println();
 
         // UNIT_BASED 模式
-        var billingServiceUnitBased = getBillingService(BConstants.BillingMode.CONTINUOUS);
+        var billingServiceUnitBased = getBillingService(BConstants.CalculationMode.CONTINUOUS);
         var requestUnitBased = new BillingRequest();
         requestUnitBased.setId("test-unit-based");
         requestUnitBased.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 5, 0, 0));
@@ -273,11 +273,11 @@ public class DayNightTest {
     /**
      * 基础服务（带免费分钟数规则）
      */
-    static BillingService getBillingService(BConstants.BillingMode billingMode) {
+    static BillingService getBillingService(BConstants.CalculationMode calculationMode) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return billingMode;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return calculationMode;
             }
 
             @Override
@@ -331,11 +331,11 @@ public class DayNightTest {
     /**
      * 带封顶的服务
      */
-    static BillingService getBillingServiceWithCap(BConstants.BillingMode billingMode) {
+    static BillingService getBillingServiceWithCap(BConstants.CalculationMode calculationMode) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return billingMode;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return calculationMode;
             }
 
             @Override

@@ -82,8 +82,8 @@ public class BillingTestCaseGenerator {
         String ruleType = generationRequest.getChargeRuleType();
         RuleConfig ruleConfig = createRuleConfig(ruleType, features, index);
         List<PromotionRuleConfig> promotionConfigs = createPromotionConfigs(features, index);
-        BConstants.BillingMode billingMode = selectBillingMode(features);
-        BillingService billingService = createBillingService(ruleType, ruleConfig, promotionConfigs, billingMode, features);
+        BConstants.CalculationMode calculationMode = selectBillingMode(features);
+        BillingService billingService = createBillingService(ruleType, ruleConfig, promotionConfigs, calculationMode, features);
 
         BillingRequest request = createRequest("case-" + (index + 1), features, index, random);
         BillingResult result = billingService.calculate(request);
@@ -424,9 +424,9 @@ public class BillingTestCaseGenerator {
             String ruleType,
             RuleConfig ruleConfig,
             List<PromotionRuleConfig> promotionConfigs,
-            BConstants.BillingMode billingMode,
+            BConstants.CalculationMode calculationMode,
             Set<TestFeature> features) {
-        BillingConfigResolver resolver = new StaticResolver(ruleConfig, promotionConfigs, billingMode, features);
+        BillingConfigResolver resolver = new StaticResolver(ruleConfig, promotionConfigs, calculationMode, features);
 
         PromotionRuleRegistry promotionRegistry = new PromotionRuleRegistry();
         promotionRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
@@ -448,8 +448,8 @@ public class BillingTestCaseGenerator {
      * UNIT_BASED 已降级为独立规则类型，普通规则只支持 CONTINUOUS；
      * 生成器统一产出 CONTINUOUS 用例（TestFeature.UNIT_BASED 保留为兼容标记，按 CONTINUOUS 生成）。
      */
-    private BConstants.BillingMode selectBillingMode(Set<TestFeature> features) {
-        return BConstants.BillingMode.CONTINUOUS;
+    private BConstants.CalculationMode selectBillingMode(Set<TestFeature> features) {
+        return BConstants.CalculationMode.CONTINUOUS;
     }
 
     /**
@@ -485,23 +485,23 @@ public class BillingTestCaseGenerator {
     private static class StaticResolver implements BillingConfigResolver {
         private final RuleConfig ruleConfig;
         private final List<PromotionRuleConfig> promotionConfigs;
-        private final BConstants.BillingMode billingMode;
+        private final BConstants.CalculationMode calculationMode;
         private final Set<TestFeature> features;
 
         StaticResolver(
                 RuleConfig ruleConfig,
                 List<PromotionRuleConfig> promotionConfigs,
-                BConstants.BillingMode billingMode,
+                BConstants.CalculationMode calculationMode,
                 Set<TestFeature> features) {
             this.ruleConfig = ruleConfig;
             this.promotionConfigs = promotionConfigs;
-            this.billingMode = billingMode;
+            this.calculationMode = calculationMode;
             this.features = features;
         }
 
         @Override
-        public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-            return billingMode;
+        public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+            return calculationMode;
         }
 
         @Override

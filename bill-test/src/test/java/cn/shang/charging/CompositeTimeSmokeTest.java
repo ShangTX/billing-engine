@@ -30,7 +30,7 @@ class CompositeTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 8, 0),
                         LocalDateTime.of(2026, 1, 1, 10, 0),
-                        BConstants.BillingMode.UNIT_BASED
+                        BConstants.CalculationMode.UNIT_BASED
                 ),
                 createSinglePeriodConfig(CrossPeriodMode.BLOCK_WEIGHT, BigDecimal.ONE, BigDecimal.valueOf(50)),
                 PromotionAggregate.builder().build()
@@ -65,7 +65,7 @@ class CompositeTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 19, 30),
                         LocalDateTime.of(2026, 1, 1, 20, 30),
-                        BConstants.BillingMode.UNIT_BASED
+                        BConstants.CalculationMode.UNIT_BASED
                 ),
                 config,
                 PromotionAggregate.builder().build()
@@ -82,7 +82,7 @@ class CompositeTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 8, 0),
                         LocalDateTime.of(2026, 1, 1, 12, 0),
-                        BConstants.BillingMode.CONTINUOUS
+                        BConstants.CalculationMode.CONTINUOUS
                 ),
                 createSinglePeriodConfig(CrossPeriodMode.BLOCK_WEIGHT, BigDecimal.ONE, BigDecimal.valueOf(3)),
                 PromotionAggregate.builder().build()
@@ -112,7 +112,7 @@ class CompositeTimeSmokeTest {
                 .build();
     }
 
-    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.BillingMode mode) {
+    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.CalculationMode mode) {
         CalculationWindow window = new CalculationWindow();
         window.setCalculationBegin(begin);
         window.setCalculationEnd(end);
@@ -124,7 +124,7 @@ class CompositeTimeSmokeTest {
         return BillingContext.builder()
                 .beginTime(begin)
                 .endTime(end)
-                .billingMode(mode)
+                .calculationMode(mode)
                 .segment(segment)
                 .window(window)
                 .build();

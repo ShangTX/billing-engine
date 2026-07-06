@@ -65,8 +65,8 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
      * 此方法为接口契约所需，不被 Calculator 直接调用（Calculator 校验门面的 supportedModes）。
      */
     @Override
-    public Set<BConstants.BillingMode> supportedModes() {
-        return EnumSet.of(BConstants.BillingMode.CONTINUOUS);
+    public Set<BConstants.CalculationMode> supportedCalculationModes() {
+        return EnumSet.of(BConstants.CalculationMode.CONTINUOUS);
     }
 
     /**

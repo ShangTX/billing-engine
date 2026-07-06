@@ -197,8 +197,8 @@ class CompactParityAndConsistencyTest {
     private BillingService service(RuleConfig config, String ruleType, cn.shang.charging.charge.rules.BillingRule<?> rule) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> ctx) {
-                return BConstants.BillingMode.CONTINUOUS;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> ctx) {
+                return BConstants.CalculationMode.CONTINUOUS;
             }
 
             @Override

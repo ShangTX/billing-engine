@@ -68,8 +68,8 @@ public class DebugTest {
     static BillingService getBillingService() {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;  // UNIT_BASED 模式
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return BConstants.CalculationMode.CONTINUOUS;  // UNIT_BASED 模式
             }
 
             @Override

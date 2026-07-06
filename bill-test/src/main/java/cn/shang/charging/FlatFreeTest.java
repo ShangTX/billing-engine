@@ -52,7 +52,7 @@ public class FlatFreeTest {
     static void testContinuousMode() {
         System.out.println("=== 测试1: CONTINUOUS 模式 ===");
 
-        var billingService = getBillingService(BConstants.BillingMode.CONTINUOUS);
+        var billingService = getBillingService(BConstants.CalculationMode.CONTINUOUS);
         var request = new BillingRequest();
         request.setId("test-1");
         request.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
@@ -84,7 +84,7 @@ public class FlatFreeTest {
     static void testUnitBasedMode() {
         System.out.println("=== 测试2: UNIT_BASED 模式 ===");
 
-        var billingService = getBillingService(BConstants.BillingMode.CONTINUOUS);
+        var billingService = getBillingService(BConstants.CalculationMode.CONTINUOUS);
         var request = new BillingRequest();
         request.setId("test-2");
         request.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
@@ -119,7 +119,7 @@ public class FlatFreeTest {
     static void testWithPromotionsIgnored() {
         System.out.println("=== 测试4: 外部优惠被忽略 ===");
 
-        var billingService = getBillingService(BConstants.BillingMode.CONTINUOUS);
+        var billingService = getBillingService(BConstants.CalculationMode.CONTINUOUS);
         var request = new BillingRequest();
         request.setId("test-4");
         request.setBeginTime(LocalDateTime.of(2026, Month.MARCH, 10, 8, 0, 0));
@@ -155,11 +155,11 @@ public class FlatFreeTest {
 
     // ==================== 辅助方法 ====================
 
-    static BillingService getBillingService(BConstants.BillingMode billingMode) {
+    static BillingService getBillingService(BConstants.CalculationMode calculationMode) {
         var billingConfigResolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return billingMode;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return calculationMode;
             }
 
             @Override

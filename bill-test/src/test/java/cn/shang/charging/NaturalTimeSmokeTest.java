@@ -29,7 +29,7 @@ class NaturalTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 8, 0),
                         LocalDateTime.of(2026, 1, 1, 10, 0),
-                        BConstants.BillingMode.CONTINUOUS
+                        BConstants.CalculationMode.CONTINUOUS
                 ),
                 createSinglePeriodConfig(CrossPeriodMode.BEGIN_TIME_TRUNCATE, BigDecimal.ONE, null),
                 PromotionAggregate.builder().build()
@@ -56,7 +56,7 @@ class NaturalTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 6, 0),
                         LocalDateTime.of(2026, 1, 1, 10, 0),
-                        BConstants.BillingMode.CONTINUOUS
+                        BConstants.CalculationMode.CONTINUOUS
                 ),
                 config,
                 PromotionAggregate.builder().build()
@@ -79,7 +79,7 @@ class NaturalTimeSmokeTest {
                 .build();
     }
 
-    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.BillingMode mode) {
+    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.CalculationMode mode) {
         CalculationWindow window = new CalculationWindow();
         window.setCalculationBegin(begin);
         window.setCalculationEnd(end);
@@ -91,7 +91,7 @@ class NaturalTimeSmokeTest {
         return BillingContext.builder()
                 .beginTime(begin)
                 .endTime(end)
-                .billingMode(mode)
+                .calculationMode(mode)
                 .segment(segment)
                 .window(window)
                 .build();

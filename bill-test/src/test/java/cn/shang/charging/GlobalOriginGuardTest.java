@@ -41,7 +41,7 @@ class GlobalOriginGuardTest {
 
     @Test
     void globalOriginMultipleSegmentsThrows() {
-        BillingService service = createService(BConstants.BillingMode.CONTINUOUS);
+        BillingService service = createService(BConstants.CalculationMode.CONTINUOUS);
         BillingRequest request = createRequest(
                 LocalDateTime.of(2026, 4, 15, 8, 0),
                 LocalDateTime.of(2026, 4, 25, 8, 0),
@@ -60,7 +60,7 @@ class GlobalOriginGuardTest {
 
     @Test
     void globalOriginSingleSegmentOk() {
-        BillingService service = createService(BConstants.BillingMode.CONTINUOUS);
+        BillingService service = createService(BConstants.CalculationMode.CONTINUOUS);
         BillingRequest request = createRequest(
                 LocalDateTime.of(2026, 4, 15, 8, 0),
                 LocalDateTime.of(2026, 4, 16, 8, 0),
@@ -73,7 +73,7 @@ class GlobalOriginGuardTest {
 
     @Test
     void unitBasedWithGlobalOriginThrows() {
-        BillingService service = createService(BConstants.BillingMode.UNIT_BASED);
+        BillingService service = createService(BConstants.CalculationMode.UNIT_BASED);
         BillingRequest request = createRequest(
                 LocalDateTime.of(2026, 4, 15, 8, 0),
                 LocalDateTime.of(2026, 4, 16, 8, 0),
@@ -107,8 +107,8 @@ class GlobalOriginGuardTest {
         return request;
     }
 
-    private static BillingService createService(BConstants.BillingMode billingMode) {
-        BillingConfigResolver resolver = createResolver(billingMode);
+    private static BillingService createService(BConstants.CalculationMode calculationMode) {
+        BillingConfigResolver resolver = createResolver(calculationMode);
         PromotionRuleRegistry promotionRegistry = new PromotionRuleRegistry();
         PromotionEngine promotionEngine = new PromotionEngine(
                 resolver,
@@ -126,11 +126,11 @@ class GlobalOriginGuardTest {
         );
     }
 
-    private static BillingConfigResolver createResolver(BConstants.BillingMode billingMode) {
+    private static BillingConfigResolver createResolver(BConstants.CalculationMode calculationMode) {
         return new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return billingMode;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return calculationMode;
             }
 
             @Override

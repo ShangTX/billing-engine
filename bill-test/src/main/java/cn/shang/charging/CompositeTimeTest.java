@@ -173,7 +173,7 @@ public class CompositeTimeTest {
         return BillingContext.builder()
                 .beginTime(LocalDateTime.of(2026, 1, 1, 8, 0))
                 .endTime(LocalDateTime.of(2026, 1, 1, 10, 0))
-                .billingMode(BConstants.BillingMode.CONTINUOUS)
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
                 .segment(segment)
                 .window(window)
                 .build();
@@ -191,7 +191,7 @@ public class CompositeTimeTest {
         return BillingContext.builder()
                 .beginTime(begin)
                 .endTime(end)
-                .billingMode(BConstants.BillingMode.CONTINUOUS)
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
                 .segment(segment)
                 .window(window)
                 .build();
@@ -829,7 +829,7 @@ public class CompositeTimeTest {
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 10, 0));
         // 设置 CONTINUOUS 模式
-        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+        setCalculationMode(context, BConstants.CalculationMode.CONTINUOUS);
 
         CompositeTimeRule rule = new CompositeTimeRule();
         BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
@@ -864,7 +864,7 @@ public class CompositeTimeTest {
         BillingContext context = createBaseContext(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 11, 0));
-        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+        setCalculationMode(context, BConstants.CalculationMode.CONTINUOUS);
 
         CompositeTimeRule rule = new CompositeTimeRule();
         BillingSegmentResult result = rule.calculate(context, config, promotionAggregate);
@@ -903,7 +903,7 @@ public class CompositeTimeTest {
         BillingContext context = createBaseContext(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 12, 0));
-        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+        setCalculationMode(context, BConstants.CalculationMode.CONTINUOUS);
 
         CompositeTimeRule rule = new CompositeTimeRule();
         BillingSegmentResult result = rule.calculate(context, config, promotionAggregate);
@@ -928,7 +928,7 @@ public class CompositeTimeTest {
         BillingContext context = createBaseContext(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 12, 0));
-        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+        setCalculationMode(context, BConstants.CalculationMode.CONTINUOUS);
 
         CompositeTimeRule rule = new CompositeTimeRule();
         BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
@@ -974,7 +974,7 @@ public class CompositeTimeTest {
         BillingContext context = createBaseContext(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 11, 0));
-        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+        setCalculationMode(context, BConstants.CalculationMode.CONTINUOUS);
 
         CompositeTimeRule rule = new CompositeTimeRule();
         BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.builder().build());
@@ -1009,7 +1009,7 @@ public class CompositeTimeTest {
         BillingContext context = createBaseContext(
                 LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 12, 0));
-        setBillingMode(context, BConstants.BillingMode.CONTINUOUS);
+        setCalculationMode(context, BConstants.CalculationMode.CONTINUOUS);
 
         CompositeTimeRule rule = new CompositeTimeRule();
         BillingSegmentResult result = rule.calculate(context, config, promotionAggregate);
@@ -1020,7 +1020,7 @@ public class CompositeTimeTest {
         System.out.println();
     }
 
-    private static void setBillingMode(BillingContext context, BConstants.BillingMode mode) {
-        context.setBillingMode(mode);
+    private static void setCalculationMode(BillingContext context, BConstants.CalculationMode mode) {
+        context.setCalculationMode(mode);
     }
 }

@@ -75,8 +75,8 @@ public class CompositeTimeRule extends AbstractTimeBasedRule<CompositeTimeConfig
     }
 
     @Override
-    public Set<BConstants.BillingMode> supportedModes() {
-        return Set.of(BConstants.BillingMode.CONTINUOUS);
+    public Set<BConstants.CalculationMode> supportedCalculationModes() {
+        return Set.of(BConstants.CalculationMode.CONTINUOUS);
     }
 
     @Override

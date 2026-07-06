@@ -24,14 +24,9 @@ public class BillingContext {
     private LocalDateTime endTime;
 
     /**
-     * 计费模式：计费单位如何划分
+     * 计算模式：计费如何计算（CONTINUOUS/UNIT_BASED/DURATION_PERIOD/DURATION_GLOBAL）
      */
-    private BConstants.BillingMode billingMode;
-
-    /**
-     * 时长计费模式：是否按分钟流计费
-     */
-    private BConstants.DurationMode durationMode;
+    private BConstants.CalculationMode calculationMode;
 
     /**
      * 分段

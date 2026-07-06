@@ -28,7 +28,7 @@ import java.util.List;
  *   <li>支持每日封顶 maxChargeOneDay</li>
  *   <li>不使用边界驱动公共循环（UNIT_BASED 语义与边界驱动切断模型冲突）</li>
  * </ul>
- * 由 {@link DayNightRule} 门面按 BillingMode=UNIT_BASED 分派调用，不独立注册。
+ * 由 {@link DayNightRule} 门面按 CalculationMode=UNIT_BASED 分派调用，不独立注册。
  * 从 {@code DayNightUnitBasedRule} 重构而来（TODO-20260702-002）。
  */
 final class DayNightUnitBasedStrategy {

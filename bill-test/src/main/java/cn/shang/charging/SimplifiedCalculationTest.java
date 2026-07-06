@@ -324,8 +324,8 @@ public class SimplifiedCalculationTest {
      */
     static BillingService getBillingService(int threshold) {
         var billingConfigResolver = new BillingConfigResolver() {
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return BConstants.CalculationMode.CONTINUOUS;
             }
 
             public int getSimplifiedCycleThreshold() {
@@ -375,8 +375,8 @@ public class SimplifiedCalculationTest {
      */
     static BillingService getBillingServiceWithFreeMinutes(int threshold) {
         var billingConfigResolver = new BillingConfigResolver() {
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return BConstants.CalculationMode.CONTINUOUS;
             }
 
             public int getSimplifiedCycleThreshold() {

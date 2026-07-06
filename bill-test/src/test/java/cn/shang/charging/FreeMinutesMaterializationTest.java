@@ -45,7 +45,7 @@ class FreeMinutesMaterializationTest {
     @Test
     void global_freeMinutes_singleDaySegment() {
         DayNightConfig config = dayNightConfig(new BigDecimal("100.00"));
-        BillingService service = createService(config, BConstants.DurationMode.GLOBAL);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
 
         BillingRequest req = request(LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 12, 0));
@@ -64,7 +64,7 @@ class FreeMinutesMaterializationTest {
     @Test
     void global_freeMinutes_crossDayNightSegment() {
         DayNightConfig config = dayNightConfig(new BigDecimal("100.00"));
-        BillingService service = createService(config, BConstants.DurationMode.GLOBAL);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
 
         BillingRequest req = request(LocalDateTime.of(2026, 1, 1, 18, 0),
                 LocalDateTime.of(2026, 1, 1, 22, 0));
@@ -82,7 +82,7 @@ class FreeMinutesMaterializationTest {
     @Test
     void global_freeMinutes_fullyCoverFirstSegment() {
         DayNightConfig config = dayNightConfig(new BigDecimal("100.00"));
-        BillingService service = createService(config, BConstants.DurationMode.GLOBAL);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
 
         BillingRequest req = request(LocalDateTime.of(2026, 1, 1, 18, 0),
                 LocalDateTime.of(2026, 1, 1, 22, 0));
@@ -103,7 +103,7 @@ class FreeMinutesMaterializationTest {
     @Test
     void period_freeMinutes_materialized() {
         DayNightConfig config = dayNightConfig(new BigDecimal("100.00"));
-        BillingService service = createService(config, BConstants.DurationMode.PERIOD);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_PERIOD);
 
         BillingRequest req = request(LocalDateTime.of(2026, 1, 1, 8, 0),
                 LocalDateTime.of(2026, 1, 1, 12, 0));
@@ -139,7 +139,7 @@ class FreeMinutesMaterializationTest {
     @Test
     void promotionEngine_producesIntermediateForm() {
         DayNightConfig config = dayNightConfig(new BigDecimal("100.00"));
-        BillingConfigResolver resolver = resolver(config, BConstants.DurationMode.GLOBAL);
+        BillingConfigResolver resolver = resolver(config, BConstants.CalculationMode.DURATION_GLOBAL);
         PromotionEngine engine = new PromotionEngine(resolver, new FreeTimeRangeMerger(), new PromotionRuleRegistry());
 
         cn.shang.charging.billing.pojo.CalculationWindow window =
@@ -199,13 +199,8 @@ class FreeMinutesMaterializationTest {
         return r;
     }
 
-    private BillingConfigResolver resolver(DayNightConfig config, BConstants.DurationMode durationMode) {
+    private BillingConfigResolver resolver(DayNightConfig config, BConstants.CalculationMode calculationMode) {
         return new BillingConfigResolver() {
-            @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
-            }
-
             @Override
             public RuleConfig resolveChargingRule(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return config;
@@ -217,14 +212,14 @@ class FreeMinutesMaterializationTest {
             }
 
             @Override
-            public BConstants.DurationMode resolveDurationMode(String schemeId, Map<String, Object> context) {
-                return durationMode;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return calculationMode;
             }
         };
     }
 
-    private BillingService createService(DayNightConfig config, BConstants.DurationMode durationMode) {
-        BillingConfigResolver resolver = resolver(config, durationMode);
+    private BillingService createService(DayNightConfig config, BConstants.CalculationMode calculationMode) {
+        BillingConfigResolver resolver = resolver(config, calculationMode);
         BillingRuleRegistry ruleRegistry = new BillingRuleRegistry();
         ruleRegistry.register(BConstants.ChargeRuleType.DAY_NIGHT, new DayNightRule());
 

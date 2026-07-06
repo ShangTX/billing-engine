@@ -48,7 +48,7 @@ final class DayNightDurationStrategy {
     BillingSegmentResult calculate(BillingContext context,
                                    DayNightConfig config,
                                    PromotionAggregate promotionAggregate,
-                                   BConstants.DurationMode durationMode) {
+                                   BConstants.CalculationMode calculationMode) {
         validateConfig(config);
 
         LocalDateTime calcBegin = context.getWindow().getCalculationBegin();
@@ -80,7 +80,7 @@ final class DayNightDurationStrategy {
 
         // 边界来源
         List<BoundaryProvider> providers = new ArrayList<>();
-        if (durationMode == BConstants.DurationMode.PERIOD) {
+        if (calculationMode == BConstants.CalculationMode.DURATION_PERIOD) {
             // PERIOD 模式：周期边界 + 日夜边界 + 免费段 + calcEnd
             providers.add(BoundaryProviders.cycleEnd(calcBegin, MINUTES_PER_CYCLE));
         }
@@ -128,7 +128,7 @@ final class DayNightDurationStrategy {
         // 转换为 DurationSegment
         long totalMinutes = Duration.between(calcBegin, calcEnd).toMinutes();
         DurationResult durationResult;
-        if (durationMode == BConstants.DurationMode.PERIOD) {
+        if (calculationMode == BConstants.CalculationMode.DURATION_PERIOD) {
             durationResult = buildDurationSegmentsPeriodMode(segments, unitMinutes, maxCharge, periodResolver, config);
         } else {
             durationResult = buildDurationSegmentsGlobalMode(
@@ -159,7 +159,7 @@ final class DayNightDurationStrategy {
                 .chargedAmount(durationResult.chargedAmount)
                 .billingUnits(List.of())  // 时长模式不产出 BillingUnit
                 .durationSegments(durationResult.segments)
-                .durationMode(durationMode)
+                .calculationMode(calculationMode)
                 .cycleCapApplied(durationResult.cycleCapApplied)
                 .promotionUsages(allUsages)
                 .promotionAggregate(promotionAggregate)

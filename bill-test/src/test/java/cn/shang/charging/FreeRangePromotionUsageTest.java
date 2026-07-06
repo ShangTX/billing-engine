@@ -47,25 +47,25 @@ class FreeRangePromotionUsageTest {
 
     @Test
     void continuous_freeRangeProducesUsage() {
-        PromotionUsage usage = findFreeRangeUsage(calculate(BConstants.BillingMode.CONTINUOUS, BConstants.DurationMode.NONE));
+        PromotionUsage usage = findFreeRangeUsage(calculate(BConstants.CalculationMode.CONTINUOUS));
         assertUsage(usage);
     }
 
     @Test
     void unitBased_freeRangeProducesUsage() {
-        PromotionUsage usage = findFreeRangeUsage(calculate(BConstants.BillingMode.UNIT_BASED, BConstants.DurationMode.NONE));
+        PromotionUsage usage = findFreeRangeUsage(calculate(BConstants.CalculationMode.UNIT_BASED));
         assertUsage(usage);
     }
 
     @Test
     void period_freeRangeProducesUsage() {
-        PromotionUsage usage = findFreeRangeUsage(calculate(BConstants.BillingMode.CONTINUOUS, BConstants.DurationMode.PERIOD));
+        PromotionUsage usage = findFreeRangeUsage(calculate(BConstants.CalculationMode.DURATION_PERIOD));
         assertUsage(usage);
     }
 
     @Test
     void global_freeRangeProducesUsage() {
-        PromotionUsage usage = findFreeRangeUsage(calculate(BConstants.BillingMode.CONTINUOUS, BConstants.DurationMode.GLOBAL));
+        PromotionUsage usage = findFreeRangeUsage(calculate(BConstants.CalculationMode.DURATION_GLOBAL));
         assertUsage(usage);
     }
 
@@ -85,8 +85,8 @@ class FreeRangePromotionUsageTest {
                 .findFirst().orElse(null);
     }
 
-    private BillingResult calculate(BConstants.BillingMode billingMode, BConstants.DurationMode durationMode) {
-        BillingService service = createService(billingMode, durationMode);
+    private BillingResult calculate(BConstants.CalculationMode calculationMode) {
+        BillingService service = createService(calculationMode);
         BillingRequest request = new BillingRequest();
         request.setId("free-range-usage-test");
         request.setBeginTime(BEGIN);
@@ -107,8 +107,8 @@ class FreeRangePromotionUsageTest {
         return service.calculate(request);
     }
 
-    private static BillingService createService(BConstants.BillingMode billingMode, BConstants.DurationMode durationMode) {
-        BillingConfigResolver resolver = createResolver(billingMode, durationMode);
+    private static BillingService createService(BConstants.CalculationMode calculationMode) {
+        BillingConfigResolver resolver = createResolver(calculationMode);
         PromotionRuleRegistry promotionRegistry = new PromotionRuleRegistry();
         PromotionEngine promotionEngine = new PromotionEngine(
                 resolver,
@@ -126,16 +126,11 @@ class FreeRangePromotionUsageTest {
         );
     }
 
-    private static BillingConfigResolver createResolver(BConstants.BillingMode billingMode, BConstants.DurationMode durationMode) {
+    private static BillingConfigResolver createResolver(BConstants.CalculationMode calculationMode) {
         return new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return billingMode;
-            }
-
-            @Override
-            public BConstants.DurationMode resolveDurationMode(String schemeId, Map<String, Object> context) {
-                return durationMode;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return calculationMode;
             }
 
             @Override

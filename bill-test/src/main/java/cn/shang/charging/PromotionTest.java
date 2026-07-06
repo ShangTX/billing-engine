@@ -227,8 +227,8 @@ public class PromotionTest {
         var billingConfigResolver = new BillingConfigResolver() {
 
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return BConstants.CalculationMode.CONTINUOUS;
             }
 
             @Override
