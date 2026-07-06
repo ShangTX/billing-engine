@@ -138,8 +138,8 @@ Spring Boot starter 默认自动注册 `dayNight`、`compositeTime`、`relativeT
 public class MyBillingConfigResolver implements BillingConfigResolver {
 
     @Override
-    public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-        return BConstants.BillingMode.UNIT_BASED;
+    public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+        return BConstants.CalculationMode.CONTINUOUS;
     }
 
     @Override
@@ -222,7 +222,7 @@ BillingResult result = billingTemplate.calculate(request);
 ```java
 @Component
 public class MyBillingConfigResolver implements BillingConfigResolver {
-    // 实现 resolveBillingMode、resolveChargingRule、resolvePromotionRules
+    // 实现 resolveCalculationMode、resolveChargingRule、resolvePromotionRules
 }
 ```
 
@@ -361,6 +361,22 @@ PromotionGrant bubbleRange = PromotionGrant.builder()
 ```
 
 `AMOUNT` 和 `DISCOUNT` 当前已作为优惠类型能力接入：会被 `PromotionEngine` 汇总，并由 `AmountDiscountApplier` 作用到结算结果；但它们仍不是独立 `PromotionRuleType`。
+
+### 智能免费分钟数（SMART_FREE_MINUTES）
+
+`SMART_FREE_MINUTES` 与 `FREE_MINUTES` 字段相同（都走 `freeMinutes`），区别在 `type`。它仅在 `DURATION_GLOBAL` 模式下消费——规则侧用自身价格信息按单价降序优先覆盖高价时段；其他模式遇到 `SMART_FREE_MINUTES` 会抛异常。
+
+```java
+PromotionGrant smartFreeMinutes = PromotionGrant.builder()
+        .id("smart-30min")
+        .type(BConstants.PromotionType.SMART_FREE_MINUTES)
+        .source(BConstants.PromotionSource.COUPON)
+        .freeMinutes(30)
+        .priority(1)
+        .build();
+```
+
+同时存在普通 `FREE_MINUTES` 与 `SMART_FREE_MINUTES` 时，按 `priority` 排序各自分配，后分配者跳过已被占用的时段。`SMART_FREE_MINUTES` 不计入简化计算的总免费分钟数判断（仅标量透传到 `DurationGlobalStrategy`）。
 
 ---
 
@@ -503,8 +519,8 @@ public class MyBillingRule implements BillingRule<MyRuleConfig> {
     }
 
     @Override
-    public Set<BConstants.BillingMode> supportedModes() {
-        return Set.of(BConstants.BillingMode.CONTINUOUS);
+    public Set<BConstants.CalculationMode> supportedCalculationModes() {
+        return Set.of(BConstants.CalculationMode.CONTINUOUS);
     }
 }
 ```
@@ -521,19 +537,24 @@ billingRuleRegistry.register("myRule", new MyBillingRule());
 
 ## 16. 常用枚举与常量
 
-### `BillingMode`
+### `CalculationMode`
 
 | 值 | 说明 |
 |------|------|
 | `CONTINUOUS` | 连续时间计费，时间轴可被免费时段和规则边界切分 |
-| `UNIT_BASED` | 固定计费单元模式 |
+| `UNIT_BASED` | 固定计费单元模式（当前仅 `dayNight` 门面下 `DayNightUnitBasedStrategy` 承载） |
+| `DURATION_PERIOD` | 周期内时长计费，周期封顶 + 时段封顶，产出 `DurationSegment` |
+| `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘，产出 `DurationSegment`；唯一消费 `SMART_FREE_MINUTES` 的模式 |
+
+4 个规则族（`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`）通过 `supportedCalculationModes()` 声明支持的模式：`dayNight` 支持 4 种；其余 3 族支持 `CONTINUOUS`/`DURATION_PERIOD`/`DURATION_GLOBAL`（不含 `UNIT_BASED`）。门面按请求模式分派到对应 `ModeStrategy`。
 
 ### `PromotionType`
 
 | 值 | 说明 |
 |------|------|
 | `FREE_RANGE` | 免费时间段 |
-| `FREE_MINUTES` | 免费分钟数 |
+| `FREE_MINUTES` | 免费分钟数（在窗口起点附近分配） |
+| `SMART_FREE_MINUTES` | 智能免费分钟数，仅 `DURATION_GLOBAL` 模式消费，按单价降序优先高价分配；非 GLOBAL 模式报错 |
 | `AMOUNT` | 金额减免，已作为优惠类型能力接入 |
 | `DISCOUNT` | 折扣优惠，已作为优惠类型能力接入 |
 

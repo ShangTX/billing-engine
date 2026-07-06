@@ -2,9 +2,7 @@
 
 This document describes the capabilities that are implemented in the current codebase. It is a working reference for design and implementation discussions, not a historical design note.
 
-> **Note**: This English version is currently out of date. The Chinese version (`docs/billing-engine-capabilities-zh.md`) is the authoritative, up-to-date reference. Updates are pending.
-
-Last reviewed: 2026-05-08
+Last reviewed: 2026-07-06
 
 ---
 
@@ -66,20 +64,63 @@ Segment calculation modes:
 
 ## 4. Billing Modes
 
+`CalculationMode` is a single enum with four peer values (merged from the former `BillingMode` + `DurationMode`):
+
 | Mode | Current meaning |
 |------|-----------------|
-| `CONTINUOUS` | The time axis can be split by free ranges and rule boundaries. Generated units may have variable lengths. |
-| `UNIT_BASED` | Fixed unit length from the calculation origin. A free range must fully cover a unit to make it free. Does not use the boundary-driven loop. |
-| `PERIOD` | Duration billing within a cycle, with cycle cap and period cap. Emits `DurationSegment`. |
-| `GLOBAL` | Global duration billing, caps multiplied by cycle count. Emits `DurationSegment`. |
+| `CONTINUOUS` | The boundary-driven loop is the only calculation path: find the nearest boundary (free-range start/end, period end, cycle end, unit alignment, calcEnd) and jump to it, producing one homogeneous segment per iteration; compact units are a natural byproduct. |
+| `UNIT_BASED` | Fixed unit alignment + full-coverage-free; does not use the boundary-driven loop. Currently carried only by `DayNightUnitBasedStrategy` under the `dayNight` facade. |
+| `DURATION_PERIOD` | Duration billing within a cycle, with cycle cap and period cap. Emits `DurationSegment`. |
+| `DURATION_GLOBAL` | Global duration billing, caps multiplied by cycle count. Emits `DurationSegment`. The only mode that consumes `SMART_FREE_MINUTES`. |
 
-Rules declare supported `BillingMode` (CONTINUOUS/UNIT_BASED) via `BillingRule.supportedModes()` and supported `DurationMode` (PERIOD/GLOBAL) via `supportedDurationModes()`; the two dimensions are symmetric. DurationMode≠NONE routes to a duration strategy, otherwise the BillingMode routes to a unit strategy — naturally mutually exclusive.
+### Mode feature matrix
 
-**Facade + strategy structure** (TODO-20260702-002):
+| Feature | CONTINUOUS | UNIT_BASED | DURATION_PERIOD | DURATION_GLOBAL |
+|---------|-----------|-----------|-----------------|-----------------|
+| Output structure | BillingUnit | BillingUnit | DurationSegment | DurationSegment |
+| Splitting model | Boundary-driven cut | Fixed unit alignment | Boundary-driven minute stream | Boundary-driven minute stream |
+| Shared scheduling layer | Yes | No | Yes | Yes |
+| FREE_MINUTES handling | Pre-materialized (from start) | Pre-materialized (from start) | Pre-materialized (from start) | Pre-materialized (from start) + SMART_FREE_MINUTES |
+| SMART_FREE_MINUTES | Error | Error | Error | Rule-side highest-price-first allocation |
+| compact merge | Yes | No | No | No |
+| Simplified calculation | Global-gap | None | None | None |
+| Cap basis | Per-cycle cap | Daily cap | In-cycle cap | Global cap × cycle count |
 
-- Each rule family has one `ChargeRuleType`, one facade rule (e.g. `DayNightRule`), and one shared config. The facade dispatches to independent strategy implementations by mode and holds no billing logic itself.
-- The `dayNight` facade declares `supportedModes()={CONTINUOUS, UNIT_BASED}` + `supportedDurationModes()={PERIOD, GLOBAL}`, dispatching to `ContinuousStrategy`/`DayNightUnitBasedStrategy`/`DayNightDurationStrategy`.
-- Other rule families (`relativeTime`/`naturalTime`/`compositeTime`) currently support only `CONTINUOUS` and are facade-ized on demand.
+### Four-layer architecture
+
+```
+Layer 0  RuleSemantics (rule-family implementation, describes "what it is")
+         cycle/period/unit boundary providers + price function + PeriodLabeler
+         + cap config + cycle-boundary predicate + incomplete-unit config
+Layer 1  BoundaryDrivenLoop (pure scheduling, zero billing semantics, stable)
+         BoundaryProvider / HomogeneousSegment
+Layer 2  ModeStrategy (4 implementations, describe "how to compute")
+         ContinuousStrategy / DayNightUnitBasedStrategy
+         DurationPeriodStrategy / DurationGlobalStrategy
+         each receives (RuleSemantics, context, aggregate) and reuses Layer 1
+Layer 3  BillingRule facade (pure dispatch)
+         DayNightRule / RelativeTimeRule / ...
+         builds RuleSemantics, delegates to the matching ModeStrategy by calculationMode
+```
+
+Orthogonal benefit: adding a rule family → implement `RuleSemantics` + a facade, all 4 modes become available; adding a mode → implement one `ModeStrategy`, all rule families gain it (N+M implementation points instead of N×M).
+
+Rules declare supported modes via `BillingRule.supportedCalculationModes()`; the facade dispatches by the requested mode:
+
+- `dayNight` declares all 4 modes, dispatching to `DayNightContinuousStrategy` (CONTINUOUS) / `DayNightUnitBasedStrategy` (UNIT_BASED) / `DurationPeriodStrategy` / `DurationGlobalStrategy` (receiving `DayNightSemantics`).
+- `relativeTime` / `naturalTime` / `compositeTime` declare `CONTINUOUS` / `DURATION_PERIOD` / `DURATION_GLOBAL` (no `UNIT_BASED`); each is carried by its `*ContinuousStrategy` + the shared duration strategies.
+- `flatFree` declares `CONTINUOUS` / `UNIT_BASED`.
+
+Boundary-driven framework abstractions:
+
+| Abstraction | Responsibility |
+|-------------|----------------|
+| `BoundaryProvider` | Boundary source interface; rules register their own boundaries (free ranges, period ends, cycle ends, unit alignment, etc.) |
+| `BoundaryProviders` | Boundary source factory + `findNearest` |
+| `HomogeneousSegment` | Homogeneous segment, the minimal product of the boundary-driven loop |
+| `HomogeneousSegmentCalculator` | Homogeneous segment → BillingUnit (with compact merge) |
+| `CompactMerger` | Generic compact merger, merges consecutive identical units across segments |
+| `BoundaryDrivenLoop` | Public loop entry (`run`), pure scheduling; shared by CONTINUOUS and duration strategies; UNIT_BASED does not use it |
 
 ---
 
@@ -87,7 +128,7 @@ Rules declare supported `BillingMode` (CONTINUOUS/UNIT_BASED) via `BillingRule.s
 
 ### `dayNight`
 
-Implemented by the `DayNightRule` facade, dispatching to `ContinuousStrategy` (CONTINUOUS) / `DayNightUnitBasedStrategy` (UNIT_BASED) / `DayNightDurationStrategy` (PERIOD/GLOBAL).
+Implemented by the `DayNightRule` facade, dispatching by `CalculationMode` to `DayNightContinuousStrategy` (CONTINUOUS) / `DayNightUnitBasedStrategy` (UNIT_BASED) / `DurationPeriodStrategy` / `DurationGlobalStrategy` (PERIOD/GLOBAL, receiving `DayNightSemantics`).
 
 Capabilities:
 
@@ -97,6 +138,7 @@ Capabilities:
 - `blockWeight` determines the final price of a mixed day/night unit.
 - `maxChargeOneDay` applies a daily cap.
 - UNIT_BASED semantics are carried by `DayNightUnitBasedStrategy` (a strategy under the facade: fixed unit alignment + full-coverage-free).
+- `DURATION_PERIOD` / `DURATION_GLOBAL` are carried by the shared `DurationPeriodStrategy` / `DurationGlobalStrategy` (declared-on support, no rule-family-private implementation needed).
 
 Important query behavior:
 
@@ -136,7 +178,10 @@ Implemented as a rule that returns a free unit covering the requested billing wi
 
 ### Reserved Rule Constants
 
-Some constants are currently reserved and not implemented as working billing rules, including `times`, `naturalTime`, and `nrTimeMix`.
+| Constant | Status | Notes |
+|----------|--------|-------|
+| `nrTimeMix` | Deprecated | Fully covered by `compositeTime` (CompositePeriod + NaturalPeriod) |
+| `times` | Reserved | Per-occurrence billing for non-time scenarios; needs separate design |
 
 ---
 
@@ -147,7 +192,8 @@ Implemented promotion grant types:
 | Type | Meaning |
 |------|---------|
 | `FREE_RANGE` | Explicit free time range |
-| `FREE_MINUTES` | Free minutes allocated into non-free gaps |
+| `FREE_MINUTES` | Free minutes allocated into non-free gaps (allocated near the window start, pre-materialized) |
+| `SMART_FREE_MINUTES` | Smart free minutes, consumed only in `DURATION_GLOBAL` mode; the rule side allocates them highest-price-first using `RuleSemantics.priceAt`. Non-GLOBAL modes throw. Shares the `freeMinutes` field with `FREE_MINUTES`; multiple grants allocate independently by `priority`. |
 
 Reserved or partially documented promotion types:
 
@@ -185,7 +231,7 @@ Current aggregation stages:
 4. Merge explicit `FREE_RANGE` promotions through `FreeTimeRangeMerger`.
 5. Produce a canonical intermediate form: merged `FREE_RANGE` ranges + unmaterialized `FREE_MINUTES` list (`freeMinutesList`) + `AMOUNT`/`DISCOUNT` scalars.
 
-`FREE_MINUTES` materialization is delegated to strategies (TODO-20260702-004): `PromotionEngine` no longer materializes centrally, avoiding the aggregation layer coupling to "rule + mode" to decide output form. CONTINUOUS/UNIT_BASED/PERIOD strategies materialize via `FreeMinuteAllocator.allocateAndMerge` (merged with `FREE_RANGE`); the GLOBAL strategy does not materialize, deducting `chargedMinutes` by minute, equivalent in final amount to the materialized path. `PromotionUsage` (FREE_MINUTES/FREE_RANGE) and `PromotionCarryOver` are produced strategy-side; `PromotionCarryOver` is built via `PromotionAggregateUtil.buildCarryOver` and written back to the aggregate.
+`FREE_MINUTES` materialization is delegated to strategies (TODO-20260702-004): `PromotionEngine` no longer materializes centrally, avoiding the aggregation layer coupling to "rule + mode" to decide output form. CONTINUOUS/UNIT_BASED/DURATION_PERIOD strategies materialize via `RuleSupport.materializeFreeMinutes` (`FreeMinuteAllocator`), merged with `FREE_RANGE`; the DURATION_GLOBAL strategy also materializes FREE_MINUTES (allocated near the window start) and additionally consumes `SMART_FREE_MINUTES` (highest-price-first allocation using `RuleSemantics.priceAt` to split equal-price windows). `SMART_FREE_MINUTES` is passed through as a scalar (`smartFreeMinutesList`), is not materialized at the aggregate layer, and is not counted in the simplification total-free-minutes check. `PromotionUsage` (FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES) and `PromotionCarryOver` are produced strategy-side; `PromotionCarryOver` is built via `PromotionAggregateUtil.buildCarryOver` and written back to the aggregate. Non-GLOBAL modes throw on `SMART_FREE_MINUTES` (enforced by `BillingCalculator`).
 
 `FreeTimeRangeMerger` preserves range metadata such as priority, source, and range type.
 
@@ -193,7 +239,7 @@ Current aggregation stages:
 
 ## 10. Simplified Calculation
 
-`AbstractTimeBasedRule` supports simplified cycle calculation for long spans.
+`ContinuousStrategy` (the Layer 2 shared skeleton) supports long-span simplified calculation using a "global-gap" implementation: it derives promotion-free gaps directly from `freeTimeRanges` (gaps between free ranges plus head/tail), aligns each gap to cycle boundaries, and counts covered cycles. If a gap covers more cycles than the threshold, a simplified unit is produced (`min(total chargeable, cycleCap × cycle count)`); otherwise normal detail is generated. The legacy splitting model (`splitTimeAxis`/`TimeFragment`/`organizeByCycle`/`CycleFragments`) has been removed.
 
 Simplified units use `ruleData` similar to:
 
@@ -237,8 +283,11 @@ Current known gaps are tracked in `docs/TODO.md` and `docs/tracking/items/`.
 
 Important current gaps include:
 
-- `AMOUNT` and `DISCOUNT` promotion rules are not fully implemented.
-- Reserved rule constants such as `times`, `naturalTime`, and `nrTimeMix` are not implemented.
+- `AMOUNT` and `DISCOUNT` are wired in as promotion-type capabilities but are still not independent `PromotionRuleType` entries.
+- Reserved rule constants such as `times` remain unimplemented; `nrTimeMix` is deprecated and covered by `compositeTime`.
+- Incomplete-unit charge mode config (`IncompleteUnitChargeMode` PROPORTIONAL/FREE/THRESHOLD tiers) is not yet wired into the calculation logic; truncated units are always charged FULL_CHARGE (TODO-20260626-001).
+- `SMART_FREE_MINUTES` is supported only in `DURATION_GLOBAL` mode; other modes throw on it (by design, complexity is confined to GLOBAL).
+- Materialized-index revenue estimation: the engine only provides the implementation surface (producing validMinutes/accumulatedAmount etc.); storage/indexing is up to the business layer (TODO-20260630-002).
 
 ---
 

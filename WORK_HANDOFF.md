@@ -2,11 +2,14 @@
 
 ## 当前分支
 
-`conditional-free-fix`
+`incomplete-unit-charge`
 
 ## 最近提交
 
-- `d70eb72` - feat: 收敛核心引擎职责边界与规则复杂度
+- `02162b6` - refactor: 废弃 AbstractTimeBasedRule 与旧模型（TODO-20260706-002 阶段7）
+- `1fac17d` - refactor: CalculationMode 合并替代双 enum（TODO-20260706-002 阶段1）
+
+> 注：本文为历史交接记录，部分内容（核心引擎重构、测试覆盖）保留作背景。当前架构以四层为准（`RuleSemantics` → `BoundaryDrivenLoop` → `ModeStrategy` → `BillingRule` 门面），详见 `AGENTS.md` 与 `docs/billing-engine-capabilities-zh.md`。
 
 ## 已完成工作
 
@@ -79,54 +82,63 @@
 
 ## 关键文件索引
 
+> 以下为四层架构重构（TODO-20260706-002）后的当前结构。旧 Calculator 类（`*ContinuousCalculator`/`*UnitBasedCalculator`）、`AbstractTimeBasedRule`、`AbstractContinuousCapHandler`、`SimplifiedCycleStateHelper`、`SimplifiedUnitMeta` 均已删除。
+
 ```
-billing/
+charge/
 ├── core/src/main/java/cn/shang/charging/
 │   ├── billing/pojo/
-│   │   ├── BConstants.java          # 常量定义（IncompleteUnitChargeMode 等）
+│   │   ├── BConstants.java          # 常量定义（CalculationMode / PromotionType / IncompleteUnitChargeMode 等）
 │   │   └ (简化单元元数据改由 ruleData Map 承载，见 ContinuousStrategy.buildSimplifiedUnit)
 │   ├── charge/rules/
-│   │   ├── RuleSupport.java            # FREE_MINUTES 时段化公共工具
-│   │   ├── ContinuousStrategy.java     # CONTINUOUS 通用 applyCapAndAccumulate + 不足单元计费 + 简化单元构建
-│   │   ├── AbstractContinuousCapHandler.java
-│   │   ├── SimplifiedCycleStateHelper.java
+│   │   ├── BillingRule.java             # 规则接口（calculate / configClass / supportedCalculationModes）
+│   │   ├── BillingRuleRegistry.java
+│   │   ├── RuleSemantics.java           # 层0 规则族语义接口
+│   │   ├── RuleSupport.java             # FREE_MINUTES 时段化（materializeFreeMinutes）
+│   │   ├── BoundaryDrivenLoop.java      # 层1 公共循环入口（run）
+│   │   ├── BoundaryProvider.java / BoundaryProviders.java
+│   │   ├── HomogeneousSegment.java / HomogeneousSegmentCalculator.java
+│   │   ├── CompactMerger.java
+│   │   ├── ContinuousStrategy.java      # 层2 CONTINUOUS 通用骨架（applyCapAndAccumulate / 简化单元 / 不足单元）
+│   │   ├── DurationPeriodStrategy.java  # 层2 DURATION_PERIOD（接收 RuleSemantics）
+│   │   ├── DurationGlobalStrategy.java  # 层2 DURATION_GLOBAL（接收 RuleSemantics，消费 SMART_FREE_MINUTES）
+│   │   ├── DurationSupport.java         # 时长策略共享工具（segmentCharge / buildPeriodMode / buildGlobalMode）
+│   │   ├── CalculationContext.java
 │   │   ├── daynight/
-│   │   │   ├── DayNightRule.java
+│   │   │   ├── DayNightRule.java           # 层3 门面
 │   │   │   ├── DayNightConfig.java
+│   │   │   ├── DayNightSemantics.java      # 层0 语义实现
+│   │   │   ├── DayNightContinuousStrategy.java  # implements BillingRule，委托通用 ContinuousStrategy
+│   │   │   ├── DayNightUnitBasedStrategy.java   # UNIT_BASED 策略
 │   │   │   ├── DayNightPriceResolver.java
-│   │   │   ├── DayNightUnitBasedCalculator.java
-│   │   │   ├── DayNightContinuousCalculator.java
-│   │   │   └ DayNightCycleStateManager.java
+│   │   │   └ DayNightPeriodType.java
 │   │   ├── relativetime/
 │   │   │   ├── RelativeTimeRule.java
-│   │   │   ├── RelativeTimeConfig.java
-│   │   │   ├── RelativeTimePeriodResolver.java
-│   │   │   ├── RelativeTimeUnitBasedCalculator.java
-│   │   │   ├── RelativeTimeContinuousCalculator.java
-│   │   │   ├── RelativeTimeContinuousCapHandler.java
-│   │   │   └ RelativeTimeSimplifiedCycleStateManager.java
+│   │   │   ├── RelativeTimeConfig.java / RelativeTimePeriod.java
+│   │   │   ├── RelativeTimeSemantics.java
+│   │   │   ├── RelativeTimeContinuousStrategy.java
+│   │   │   └ RelativeTimePeriodResolver.java
 │   │   ├── naturaltime/
 │   │   │   ├── NaturalTimeRule.java
 │   │   │   ├── NaturalTimeConfig.java
-│   │   │   ├── NaturalTimePeriodResolver.java
-│   │   │   ├── NaturalTimeUnitBasedCalculator.java
-│   │   │   ├── NaturalTimeContinuousCalculator.java
+│   │   │   ├── NaturalTimeSemantics.java
+│   │   │   ├── NaturalTimeContinuousStrategy.java
 │   │   │   ├── NaturalTimeCrossPeriodPriceResolver.java
-│   │   │   └ NaturalTimeCycleStateManager.java
+│   │   │   └ NaturalTimePeriodResolver.java
 │   │   └ compositetime/
-│   │   │   ├── CompositeTimeRule.java
-│   │   │   ├── CompositeTimeSimplifiedCycleStateManager.java
-│   │   │   ├── CompositeTimeUnitBasedCalculator.java
-│   │   │   ├── CompositeTimeContinuousCalculator.java
-│   │   │   ├── CompositeTimeCrossPeriodPriceResolver.java
-│   │   │   ├── CompositeTimePeriodResolver.java
-│   │   │   └ CompositeTimeContinuousCapHandler.java
+│   │       ├── CompositeTimeRule.java
+│   │       ├── CompositeTimeConfig.java / CompositePeriod.java / NaturalPeriod.java / CrossPeriodMode.java
+│   │       ├── CompositeTimeSemantics.java
+│   │       ├── CompositeTimeContinuousStrategy.java
+│   │       ├── CompositeTimeCrossPeriodPriceResolver.java
+│   │       └ CompositeTimePeriodResolver.java
 │   ├── promotion/
 │   │   ├── PromotionEngine.java
 │   │   ├── AmountDiscountApplier.java
+│   │   ├── ExternalPromotionPool.java      # 外部优惠跨段共享可用量池（FREE_MINUTES/SMART_FREE_MINUTES）
 │   │   └ pojo/
 │   │       ├── PromotionGrant.java
-│   │       └ PromotionAggregate.java
+│   │       └ PromotionAggregate.java       # 含 smartFreeMinutesList（标量透传）
 ├── bill-test/src/test/java/cn/shang/charging/
 │   ├── DayNightParkingParityTest.java
 │   ├── RelativeTimeParkingParityTest.java
@@ -134,7 +146,7 @@ billing/
 │   ├── NaturalTimeSmokeTest.java
 │   ├── EngineBoundarySmokeTest.java
 │   ├── BillingApiBoundaryTest.java
-│   └ SimplifiedUnitMetaTest.java
+│   └ SimplifiedUnitMetaTest.java          # 简化单元 ruleData Map 契约测试
 ├── docs/
 │   ├── DONE.md
 │   ├── TODO.md

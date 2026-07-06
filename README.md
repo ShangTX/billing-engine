@@ -69,9 +69,12 @@ For a full compilable setup, rule registration, Spring Boot integration, query-t
 ## Current Capability Notes
 
 - Implemented billing rules include `dayNight`, `relativeTime`, `naturalTime`, `compositeTime`, and `flatFree`.
-- Implemented promotion capabilities focus on `FREE_RANGE`, `FREE_MINUTES`, `freeMinutes`, and `startFree`.
+- Implemented promotion capabilities focus on `FREE_RANGE`, `FREE_MINUTES`, `SMART_FREE_MINUTES`, `freeMinutes`, and `startFree`.
+- Four-layer architecture: `RuleSemantics` (layer 0, "what is a rule") → `BoundaryDrivenLoop` (layer 1, pure scheduling) → 4 `ModeStrategy` (layer 2, "how to compute") → `BillingRule` facade (layer 3, pure dispatch).
+- `CalculationMode` has four modes: `CONTINUOUS`, `UNIT_BASED`, `DURATION_PERIOD`, `DURATION_GLOBAL`. The four rule families (`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`) declare `supportedCalculationModes` to opt into the corresponding modes; new rule families get all four modes by implementing `RuleSemantics` + a facade.
 - `CONTINUOUS` mode uses a boundary-driven loop; consecutive identical units merge into compact units, significantly reducing result volume in fine-grained billing scenarios.
-- `UNIT_BASED` mode has been downgraded to an independent billing rule type (`DayNightUnitBasedRule`), leaving `CONTINUOUS` as the only mode for general rules.
+- `UNIT_BASED` mode has been downgraded to an independent billing rule type (`DayNightUnitBasedStrategy` under the `dayNight` facade), leaving `CONTINUOUS` as the only mode for general rules' unit-based path.
+- `SMART_FREE_MINUTES` is consumed only in `DURATION_GLOBAL` mode (allocates free minutes to the highest-price periods first); other modes throw an error.
 - `AMOUNT` and `DISCOUNT` are reserved promotion types; `times` is a reserved billing type (for non-time-based scenarios).
 - Query-time amount is calculated from the hit unit's `valueSpec`; compact units project by sub-unit.
 

@@ -69,9 +69,12 @@ BillingResult result = billingTemplate.calculate(request);
 ## 当前能力说明
 
 - 已实现计费规则包括 `dayNight`、`relativeTime`、`naturalTime`、`compositeTime` 和 `flatFree`。
-- 已实现优惠能力主要包括 `FREE_RANGE`、`FREE_MINUTES`、`freeMinutes` 和 `startFree`。
+- 已实现优惠能力主要包括 `FREE_RANGE`、`FREE_MINUTES`、`SMART_FREE_MINUTES`、`freeMinutes` 和 `startFree`。
+- 四层架构：`RuleSemantics`（层 0，描述"规则是什么"）→ `BoundaryDrivenLoop`（层 1，纯调度）→ 4 个 `ModeStrategy`（层 2，描述"怎么算"）→ `BillingRule` 门面（层 3，纯分派）。
+- `CalculationMode` 含四种模式：`CONTINUOUS`、`UNIT_BASED`、`DURATION_PERIOD`、`DURATION_GLOBAL`。4 个规则族（`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`）通过 `supportedCalculationModes` 声明支持的模式；新增规则族只需实现 `RuleSemantics` + 门面即可获得 4 模式。
 - `CONTINUOUS` 模式采用边界驱动循环，连续相同单元合并为 compact 单元，显著减少细粒度计费场景下的结果体积。
-- `UNIT_BASED` 模式已降级为独立计费规则类型（`DayNightUnitBasedRule`），普通规则只保留 `CONTINUOUS`。
+- `UNIT_BASED` 模式已降级为独立计费规则类型（`dayNight` 门面下的 `DayNightUnitBasedStrategy`），普通规则的单元计费路径只保留 `CONTINUOUS`。
+- `SMART_FREE_MINUTES` 仅在 `DURATION_GLOBAL` 模式下消费（按单价降序优先高价分配免费分钟）；其他模式遇到会报错。
 - `AMOUNT`、`DISCOUNT` 是预留优惠类型，`times` 是预留计费类型（非时间计费场景）。
 - 查询时点金额由命中单元的 `valueSpec` 计算，不再直接读取 `accumulatedAmount`；compact 单元按子单元投影。
 

@@ -88,7 +88,8 @@
 - 可追溯计费过程（完整明细输出）
 - 支持继续计算（从已有结果继续）
 - 支持计费分段（规则可随时间变化）
-- 支持可组合规则和多种优惠类型（FREE_RANGE、FREE_MINUTES）
+- 支持 4 种计算模式（CONTINUOUS/UNIT_BASED/DURATION_PERIOD/DURATION_GLOBAL），4 规则族按 `supportedCalculationModes` 声明即支持
+- 支持可组合规则和多种优惠类型（FREE_RANGE、FREE_MINUTES、SMART_FREE_MINUTES）
 
 ---
 
@@ -127,14 +128,21 @@ BillingService.calculate()
 - `BillingService` - 核心调度入口
 - `BillingRequest` / `BillingResult` - 输入/输出 POJO
 - `BillingContext` - 计算上下文
-- `BillingRule` / `PromotionRule` - 规则接口（新增规则时实现）
-- `PromotionAggregate` - 聚合免费时段
-- `RuleSupport` / `ContinuousStrategy` - CONTINUOUS 策略族共享工具（FREE_MINUTES 时段化 / 不足单元计费 / 简化单元构建）
+- `BillingRule` / `PromotionRule` - 规则接口（新增规则时实现）；`BillingRule.supportedCalculationModes()` 声明支持的模式
+- `PromotionAggregate` - 聚合免费时段与免费分钟（含 `smartFreeMinutesList` 标量透传）
+- `RuleSemantics` - 层 0，规则族语义接口（周期/时段/单元边界 provider + 价格函数 + 封顶配置 + 周期切换判定）；各规则族实现自己的 `*Semantics`
+- `BoundaryDrivenLoop` - 层 1，纯调度原语（`run` 入口），CONTINUOUS 与时长策略共享；UNIT_BASED 不走该层
+- `ContinuousStrategy` / `DurationPeriodStrategy` / `DurationGlobalStrategy` - 层 2 ModeStrategy（共享静态工具，接收 `RuleSemantics`）；`DayNightUnitBasedStrategy` 承载 UNIT_BASED
+- `DayNightContinuousStrategy` / `RelativeTimeContinuousStrategy` / `NaturalTimeContinuousStrategy` / `CompositeTimeContinuousStrategy` - 各规则族 CONTINUOUS 策略（`implements BillingRule`，委托通用 `ContinuousStrategy`）
+- `RuleSupport` - FREE_MINUTES 时段化（`materializeFreeMinutes`），CONTINUOUS 与时长策略共用
+- `DurationSupport` - 时长策略共享工具（`segmentCharge` / `segmentOriginalCharge` / `DurationResult` / `buildPeriodMode` / `buildGlobalMode`）
 - `BoundaryProvider` / `BoundaryProviders` / `HomogeneousSegment` - 边界驱动框架抽象
 - `CompactMerger` - compact 单元合并器（跨分段连续相同单元合并）
 - `BillingTemplate` - 便捷 API 入口（billing-api 模块）
 - `BillingResultViewer` - 查询时点视图逻辑（含 compact 单元子单元投影）
 - `PromotionEquivalentCalculator` - 优惠等效金额计算
+
+四层架构：`RuleSemantics`（层 0，描述"是什么"）→ `BoundaryDrivenLoop`（层 1，纯调度）→ 4 个 `ModeStrategy`（层 2，描述"怎么算"）→ `BillingRule` 门面（层 3，纯分派）。`calculate` 与 `prepareContexts` 共用 `resolveSegmentContext` 解析分段上下文，消除不同步。
 
 查询时点金额通过 `BillingUnit.valueSpec` 和 `BillingResultViewer` 计算；通用查询层不应解析规则私有 `ruleData`。
 
@@ -197,14 +205,24 @@ BillingService.calculate()
 
 ## 计费模式
 
+`CalculationMode`（合并自原 `BillingMode` + `DurationMode`，单一枚举四值平级）：
+
 | 模式 | 说明 |
 |------|------|
 | `CONTINUOUS` | 边界驱动循环为唯一计算路径：找最近边界跳过去，每次迭代产出一个同质段，compact 单元为自然产物 |
-| `UNIT_BASED` | 独立计费规则类型，固定单元对齐 + 完整覆盖才免费；不再作为普通规则内置模式（TODO-20260630-001 已完成） |
+| `UNIT_BASED` | 固定单元对齐 + 完整覆盖才免费，不走边界驱动公共循环；当前仅 `dayNight` 门面下 `DayNightUnitBasedStrategy` 承载 |
+| `DURATION_PERIOD` | 周期内时长计费，周期封顶 + 时段封顶，产出 `DurationSegment` |
+| `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘，产出 `DurationSegment`；唯一消费 `SMART_FREE_MINUTES` 的模式 |
 
-普通规则（`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`）只支持 `CONTINUOUS`。`UNIT_BASED` 语义由独立规则类承载（当前已实现 `DayNightUnitBasedRule`），其余按需添加。时长计费模式待引入。
+4 个规则族通过 `BillingRule.supportedCalculationModes()` 声明支持的模式：
 
-边界驱动框架关键类：`BoundaryProvider`、`BoundaryProviders`、`HomogeneousSegment`、`HomogeneousSegmentCalculator`、`CompactMerger`、`BoundaryDrivenLoop`，均位于 `core` 的 `charge.rules` 包，公共循环入口为 `BoundaryDrivenLoop.run`（CONTINUOUS 策略与时长策略直接调用）。
+- `dayNight`：`CONTINUOUS` / `UNIT_BASED` / `DURATION_PERIOD` / `DURATION_GLOBAL`（4 种全支持）
+- `relativeTime` / `naturalTime` / `compositeTime`：`CONTINUOUS` / `DURATION_PERIOD` / `DURATION_GLOBAL`（不含 `UNIT_BASED`）
+- `flatFree`：`CONTINUOUS` / `UNIT_BASED`
+
+门面按请求模式分派到对应 `ModeStrategy`。新增规则族只需实现 `RuleSemantics` + 门面即可获得 4 模式（正交解耦，N+M 实现点而非 N×M）。
+
+边界驱动框架关键类：`BoundaryProvider`、`BoundaryProviders`、`HomogeneousSegment`、`HomogeneousSegmentCalculator`、`CompactMerger`、`BoundaryDrivenLoop`，均位于 `core` 的 `charge.rules` 包，公共循环入口为 `BoundaryDrivenLoop.run`（CONTINUOUS 策略与时长策略直接调用，UNIT_BASED 不走该层）。
 
 ---
 
@@ -213,7 +231,8 @@ BillingService.calculate()
 | 类型 | 说明 |
 |------|------|
 | `FREE_RANGE` | 免费时间段（如 01:00-04:00 免费） |
-| `FREE_MINUTES` | 免费分钟数（在时间窗口内最优分配） |
+| `FREE_MINUTES` | 免费分钟数（在时间窗口起点附近分配，前置时段化） |
+| `SMART_FREE_MINUTES` | 智能免费分钟数，仅 `DURATION_GLOBAL` 模式消费，规则侧按单价降序优先高价分配；非 GLOBAL 模式报错；与 `FREE_MINUTES` 共用 `freeMinutes` 字段，按 `priority` 排序各自分配 |
 
 ---
 

@@ -96,7 +96,7 @@
 
 **验证**:`mvn -pl core compile` 通过;`mvn -pl bill-test -am test` 90 测试全绿;无 `AbstractTimeBasedRule` / `SimplifiedUnitMeta` 代码引用。
 
-### 阶段 8:文档同步
+### 阶段 8:文档同步 ✅ DONE
 
 - spec:标记状态(按完成度更新为已实现)
 - TODO → DONE:TODO-20260706-002 迁移

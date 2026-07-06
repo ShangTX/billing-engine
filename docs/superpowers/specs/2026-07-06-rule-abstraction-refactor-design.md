@@ -1,8 +1,8 @@
 # 计费引擎抽象重构设计:模式行为驱动 + 规则语义注入
 
-**状态**: 设计中
-**日期**: 2026-07-06
-**关联**: [2026-07-02-duration-rule-and-promotion-two-tier-design.md](./2026-07-02-duration-rule-and-promotion-two-tier-design.md)(前置 spec)、TODO-20260702-002(门面策略)、TODO-20260702-004(FREE_MINUTES 时段化)、TODO-20260703-001(CONTINUE 移除)
+**状态**: 已实现（阶段 0-7 完成，主体重构落地）
+**日期**: 2026-07-06（设计）→ 2026-07-06（实现完成）
+**关联**: [2026-07-02-duration-rule-and-promotion-two-tier-design.md](./2026-07-02-duration-rule-and-promotion-two-tier-design.md)(前置 spec)、TODO-20260702-002(门面策略)、TODO-20260702-004(FREE_MINUTES 时段化)、TODO-20260703-001(CONTINUE 移除)、TODO-20260706-001(GLOBAL 时段化修复，阶段 0)
 
 ---
 
