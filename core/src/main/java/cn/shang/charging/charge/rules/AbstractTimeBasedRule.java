@@ -3,19 +3,15 @@ package cn.shang.charging.charge.rules;
 import cn.shang.charging.billing.BillingConfigResolver;
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
-import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
-import cn.shang.charging.billing.pojo.DurationSegment;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.billing.pojo.SimplifiedUnitMeta;
 import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeMinutes;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
-import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
-import cn.shang.charging.util.TypeConversionUtil;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -25,21 +21,23 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
- * 时间计费规则抽象基类
+ * 时间计费规则抽象基类（CONTINUOUS 策略基类）。
  * <p>
- * 提取公共逻辑：
- * 1. RuleState 单次计算周期跟踪状态
- * 2. CalculationContext 跳过判断
- * 3. 边界驱动循环、时间轴切分、周期组织、简化单元、不足单元计费
+ * 承载 CONTINUOUS 策略族共享的基础设施：
+ * <ol>
+ *   <li>边界驱动循环委托（{@link #runBoundaryDrivenLoop} → {@link BoundaryDrivenLoop}）</li>
+ *   <li>FREE_MINUTES 时段化（{@link #materializeFreeMinutes}）</li>
+ *   <li>不足单元计费（{@link #computeIncompleteCharge} / {@link #isIncompleteFree}）</li>
+ *   <li>简化单元构建与识别（{@link #buildSimplifiedUnit} / {@link #isSimplifiedUnit} / {@link #extractSimplifiedUnitMeta}）</li>
+ *   <li>{@link RuleState} 单次计算周期跟踪状态</li>
+ * </ol>
+ * 旧切段模型（TimeFragment / splitTimeAxis / organizeByCycle / CycleFragments / findCyclesWithPromotion）
+ * 已随阶段 3b 全局空隙改造删除。
  */
 public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements BillingRule<C> {
 
@@ -101,60 +99,6 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
      */
     protected LocalDateTime getCycleBoundary(int cycleIndex, LocalDateTime calcBegin) {
         return calcBegin.plusMinutes((long) cycleIndex * getCycleMinutes());
-    }
-
-    /**
-     * 计算优惠时段覆盖的周期索引集合
-     */
-    protected Set<Integer> findCyclesWithPromotion(
-            LocalDateTime calcBegin,
-            LocalDateTime calcEnd,
-            PromotionAggregate promotionAggregate) {
-
-        Set<Integer> cycles = new HashSet<>();
-
-        // 如果有免费分钟数，保守地将所有周期视为有优惠
-        if (promotionAggregate != null && promotionAggregate.getFreeMinutes() > 0) {
-            // 返回 null 表示所有周期都有优惠（无法用集合表示无限）
-            // 调用方需特殊处理
-            return null;
-        }
-
-        if (promotionAggregate == null || promotionAggregate.getFreeTimeRanges() == null) {
-            return cycles;
-        }
-
-        List<FreeTimeRange> freeTimeRanges = promotionAggregate.getFreeTimeRanges();
-        int cycleMinutes = getCycleMinutes();
-
-        for (FreeTimeRange range : freeTimeRanges) {
-            // 忽略窗口外的时段
-            if (range.getEndTime().isBefore(calcBegin) || range.getBeginTime().isAfter(calcEnd)) {
-                continue;
-            }
-
-            // 计算优惠时段覆盖的周期范围
-            LocalDateTime effectiveBegin = range.getBeginTime().isBefore(calcBegin) ? calcBegin : range.getBeginTime();
-            LocalDateTime effectiveEnd = range.getEndTime().isAfter(calcEnd) ? calcEnd : range.getEndTime();
-
-            int startCycle = (int) Duration.between(calcBegin, effectiveBegin).toMinutes() / cycleMinutes;
-            int endCycle = (int) Duration.between(calcBegin, effectiveEnd).toMinutes() / cycleMinutes;
-
-            // 如果结束时间正好在周期边界，不包含下一个周期
-            long endMinutes = Duration.between(calcBegin, effectiveEnd).toMinutes();
-            if (endMinutes % cycleMinutes == 0) {
-                endCycle--;
-            }
-
-            // 添加所有覆盖的周期索引
-            for (int i = startCycle; i <= endCycle; i++) {
-                if (i >= 0) {
-                    cycles.add(i);
-                }
-            }
-        }
-
-        return cycles;
     }
 
     /**
@@ -225,169 +169,6 @@ public abstract class AbstractTimeBasedRule<C extends RuleConfig> implements Bil
                 .cycleAccumulated(BigDecimal.ZERO)
                 .cycleBoundary(calcBegin.plusMinutes(getCycleMinutes()))
                 .build();
-    }
-
-
-    // ==================== CONTINUOUS 模式公共时间轴切分基础设施 ====================
-
-    /**
-     * 时间片段（按免费时段边界切分后的时间范围）。
-     * <p>
-     * 子类如需携带额外字段，可继承本类并覆盖
-     * {@link #applyFreeRange(FreeTimeRange)} 与 {@link #copy(LocalDateTime, LocalDateTime)}。
-     */
-    protected static class TimeFragment {
-        public LocalDateTime beginTime;
-        public LocalDateTime endTime;
-        public boolean isFree;
-        public String freePromotionId;
-
-        public TimeFragment(LocalDateTime beginTime, LocalDateTime endTime) {
-            this.beginTime = beginTime;
-            this.endTime = endTime;
-            this.isFree = false;
-            this.freePromotionId = null;
-        }
-
-        /**
-         * 应用免费时段信息到本片段。子类可覆盖以复制额外字段。
-         */
-        public void applyFreeRange(FreeTimeRange range) {
-            this.isFree = true;
-            this.freePromotionId = range.getId();
-        }
-
-        /**
-         * 创建覆盖 [beginTime, endTime] 的副本，继承本片段的免费信息。
-         * 用于 {@link #organizeByCycle} 在周期边界切分片段。
-         * 子类可覆盖以复制额外字段。
-         */
-        public TimeFragment copy(LocalDateTime beginTime, LocalDateTime endTime) {
-            TimeFragment f = new TimeFragment(beginTime, endTime);
-            f.isFree = this.isFree;
-            f.freePromotionId = this.freePromotionId;
-            return f;
-        }
-    }
-
-    /**
-     * 周期片段容器：一个 24h 周期内的时间片段列表。
-     */
-    protected static class CycleFragments {
-        public final LocalDateTime cycleStart;
-        public final LocalDateTime cycleEnd;
-        public final List<TimeFragment> fragments = new ArrayList<>();
-
-        public CycleFragments(LocalDateTime cycleStart, LocalDateTime cycleEnd) {
-            this.cycleStart = cycleStart;
-            this.cycleEnd = cycleEnd;
-        }
-    }
-
-    /**
-     * 创建时间片段。子类可覆盖以返回携带额外字段的子类型。
-     */
-    protected TimeFragment createFragment(LocalDateTime beginTime, LocalDateTime endTime) {
-        return new TimeFragment(beginTime, endTime);
-    }
-
-    /**
-     * 按免费时段边界切分时间轴（CONTINUOUS 模式公共实现）。
-     * <p>
-     * 收集所有落在 [begin, end] 内的免费时段起止点作为切分点，去重排序后逐段生成片段，
-     * 并标记每段是否被某个免费时段完全覆盖。
-     */
-    protected List<TimeFragment> splitTimeAxis(LocalDateTime begin,
-                                               LocalDateTime end,
-                                               List<FreeTimeRange> freeTimeRanges) {
-        List<TimeFragment> fragments = new ArrayList<>();
-
-        List<LocalDateTime> cutPoints = new ArrayList<>();
-        cutPoints.add(begin);
-
-        if (freeTimeRanges != null) {
-            for (FreeTimeRange range : freeTimeRanges) {
-                if (range.getBeginTime().isAfter(end) || range.getEndTime().isBefore(begin)) {
-                    continue;
-                }
-                if (range.getBeginTime().isAfter(begin) && range.getBeginTime().isBefore(end)) {
-                    cutPoints.add(range.getBeginTime());
-                }
-                if (range.getEndTime().isAfter(begin) && range.getEndTime().isBefore(end)) {
-                    cutPoints.add(range.getEndTime());
-                }
-            }
-        }
-
-        cutPoints.add(end);
-        cutPoints = cutPoints.stream().distinct().sorted().toList();
-
-        for (int i = 0; i < cutPoints.size() - 1; i++) {
-            LocalDateTime fragBegin = cutPoints.get(i);
-            LocalDateTime fragEnd = cutPoints.get(i + 1);
-
-            TimeFragment fragment = createFragment(fragBegin, fragEnd);
-
-            if (freeTimeRanges != null) {
-                for (FreeTimeRange range : freeTimeRanges) {
-                    if (!range.getBeginTime().isAfter(fragBegin) && !range.getEndTime().isBefore(fragEnd)) {
-                        fragment.applyFreeRange(range);
-                        break;
-                    }
-                }
-            }
-
-            fragments.add(fragment);
-        }
-
-        return fragments;
-    }
-
-    /**
-     * 按周期（24h）组织片段（CONTINUOUS 模式公共实现）。
-     * <p>
-     * 以 cycleOriginBegin 为周期起点，将跨越周期边界的片段切分到对应周期。
-     */
-    protected List<CycleFragments> organizeByCycle(LocalDateTime calcBegin,
-                                                   LocalDateTime calcEnd,
-                                                   List<TimeFragment> fragments,
-                                                   LocalDateTime cycleOriginBegin) {
-        List<CycleFragments> cycles = new ArrayList<>();
-
-        int cycleMinutes = getCycleMinutes();
-        LocalDateTime cycleStart = cycleOriginBegin;
-        LocalDateTime cycleEnd = cycleOriginBegin.plusMinutes(cycleMinutes);
-
-        // 找到包含 calcBegin 的周期
-        while (cycleEnd.isBefore(calcBegin) || cycleEnd.equals(calcBegin)) {
-            cycleStart = cycleEnd;
-            cycleEnd = cycleStart.plusMinutes(cycleMinutes);
-        }
-
-        CycleFragments currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
-
-        for (TimeFragment fragment : fragments) {
-            while (fragment.endTime.isAfter(currentCycle.cycleEnd)) {
-                TimeFragment beforeBoundary = fragment.copy(fragment.beginTime, currentCycle.cycleEnd);
-
-                currentCycle.fragments.add(beforeBoundary);
-                cycles.add(currentCycle);
-
-                cycleStart = currentCycle.cycleEnd;
-                cycleEnd = cycleStart.plusMinutes(cycleMinutes);
-                currentCycle = new CycleFragments(cycleStart, cycleEnd.isAfter(calcEnd) ? calcEnd : cycleEnd);
-
-                fragment.beginTime = currentCycle.cycleStart;
-            }
-
-            currentCycle.fragments.add(fragment);
-        }
-
-        if (!currentCycle.fragments.isEmpty()) {
-            cycles.add(currentCycle);
-        }
-
-        return cycles;
     }
 
     // ==================== 边界驱动循环（委托工具） ====================

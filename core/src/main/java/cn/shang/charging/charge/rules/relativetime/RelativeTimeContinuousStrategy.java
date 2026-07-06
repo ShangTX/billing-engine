@@ -37,7 +37,6 @@ import java.util.Set;
 final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<RelativeTimeConfig> {
 
     private final RelativeTimePeriodResolver periodResolver = new RelativeTimePeriodResolver();
-    private final RelativeTimeSimplifiedCycleStateManager simplifiedCycleStateManager = new RelativeTimeSimplifiedCycleStateManager();
     private final RelativeTimeSemantics relativeTimeSemantics = new RelativeTimeSemantics();
 
     @Override
@@ -273,81 +272,4 @@ final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<Relativ
     /**
      * 为一个周期生成计费单元
      */
-    private List<BillingUnit> generateUnitsForCycle(CycleFragments cycle, RelativeTimeConfig config) {
-        List<BillingUnit> units = new ArrayList<>();
-
-        for (TimeFragment fragment : cycle.fragments) {
-            if (fragment.isFree) {
-                BillingUnit unit = BillingUnit.builder()
-                        .beginTime(fragment.beginTime)
-                        .endTime(fragment.endTime)
-                        .durationMinutes((int) Duration.between(fragment.beginTime, fragment.endTime).toMinutes())
-                        .unitPrice(BigDecimal.ZERO)
-                        .originalAmount(BigDecimal.ZERO)
-                        .free(true)
-                        .freePromotionId(fragment.freePromotionId)
-                        .chargedAmount(BigDecimal.ZERO)
-                        .build();
-                units.add(unit);
-            } else {
-                // 根据片段开始时间查找对应的 period
-                units.addAll(generateUnitsForFragment(fragment, cycle.cycleStart, config));
-            }
-        }
-
-        return units;
-    }
-
-    /**
-     * 为一个片段生成计费单元
-     */
-    private List<BillingUnit> generateUnitsForFragment(TimeFragment fragment, LocalDateTime cycleStart, RelativeTimeConfig config) {
-        List<BillingUnit> units = new ArrayList<>();
-
-        LocalDateTime current = fragment.beginTime;
-
-        while (current.isBefore(fragment.endTime)) {
-            // 找到当前时间点对应的 period
-            int minutesFromCycleStart = (int) Duration.between(cycleStart, current).toMinutes();
-            RelativeTimePeriod period = periodResolver.findPeriodForMinute(minutesFromCycleStart, config.getPeriods());
-
-            int unitMinutes = period.getUnitMinutes();
-            BigDecimal unitPrice = period.getUnitPrice();
-
-            LocalDateTime unitEnd = current.plusMinutes(unitMinutes);
-
-            // 截断到片段边界
-            if (unitEnd.isAfter(fragment.endTime)) {
-                unitEnd = fragment.endTime;
-            }
-
-            // 截断到 period 边界
-            int periodEndMinute = period.getEndMinute();
-            LocalDateTime periodEnd = periodResolver.resolvePeriodEnd(cycleStart, period);
-            if (unitEnd.isAfter(periodEnd)) {
-                unitEnd = periodEnd;
-            }
-
-            int duration = (int) Duration.between(current, unitEnd).toMinutes();
-
-            // 不足单元也收全额
-            BigDecimal originalAmount = unitPrice;
-
-            BillingUnit unit = BillingUnit.builder()
-                    .beginTime(current)
-                    .endTime(unitEnd)
-                    .durationMinutes(duration)
-                    .unitPrice(unitPrice)
-                    .originalAmount(originalAmount)
-                    .free(false)
-                    .chargedAmount(originalAmount)
-                    .build();
-
-            units.add(unit);
-            current = unitEnd;
-        }
-
-        return units;
-    }
-
 }

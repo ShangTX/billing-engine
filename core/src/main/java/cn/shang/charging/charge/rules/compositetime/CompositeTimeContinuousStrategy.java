@@ -17,20 +17,28 @@ import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * `compositeTime` 规则在 CONTINUOUS 模式下的策略实现。
  * <p>
- * 承载 CONTINUOUS 语义：边界驱动切断（气泡抽出模型）+ 24h 周期封顶 + 时段独立封顶（periodCap）+ 简化计算。
- * 继承 {@link AbstractTimeBasedRule}（CONTINUOUS 策略基类），复用时间轴切分、周期组织、简化单元、
- * 不足单元计费等公共基础设施。
+ * 承载 CONTINUOUS 语义：边界驱动切断 + 24h 周期封顶 + 时段独立封顶（periodCap）+ 简化计算。
+ * 继承 {@link AbstractTimeBasedRule}（CONTINUOUS 策略基类），复用不足单元计费等公共基础设施。
+ * 封顶 + 累计逻辑由通用 {@link ContinuousStrategy#applyCapAndAccumulate} 承载
+ * （TODO-20260706-002 阶段3：4 份合并为 1 份），周期切换/periodCap 等差异由 {@link CompositeTimeSemantics} 注入。
+ * <p>
+ * 简化路径改"全局视角算无优惠空隙"实现（TODO-20260706-002 阶段3b，决策 C）：
+ * 从 {@code freeTimeRanges} 直接算无优惠空隙，每个 gap 对齐周期边界（基于 billingOrigin），
+ * 覆盖周期数 &gt; 阈值则生成简化单元，否则与优惠段一起走边界驱动。
+ * 旧切段模型（splitTimeAxis/organizeByCycle/TimeFragment/CycleFragments）已迁移到全局空隙实现。
  * <p>
  * 由 {@link CompositeTimeRule} 门面按 calculationMode=CONTINUOUS 分派调用，不独立注册。
  * 从 {@code CompositeTimeRule} 的 CONTINUOUS 逻辑迁移而来（TODO-20260706-002 阶段2c）。
@@ -39,8 +47,6 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
 
     private final CompositeTimePeriodResolver periodResolver = new CompositeTimePeriodResolver();
     private final CompositeTimeCrossPeriodPriceResolver crossPeriodPriceResolver = new CompositeTimeCrossPeriodPriceResolver();
-    private final CompositeTimeContinuousCapHandler continuousCapHandler = new CompositeTimeContinuousCapHandler();
-    private final CompositeTimeSimplifiedCycleStateManager simplifiedCycleStateManager = new CompositeTimeSimplifiedCycleStateManager();
     private final CompositeTimeSemantics compositeTimeSemantics = new CompositeTimeSemantics();
 
     @Override
@@ -82,27 +88,11 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
     }
 
     /**
-     * CONTINUOUS 模式计算 - "气泡抽出"模型
+     * CONTINUOUS 模式计算。
      * <p>
-     * 核心思想：
-     * 1. 免费时段像气泡一样从时间轴中"抽出"
-     * 2. 气泡前后的计费时间在相对位置上直接连接
-     * 3. 每个片段的相对位置从原始计费起点开始计算
-     * <p>
-     * 示例：
-     * 免费时段：10:30-11:30
-     * 计费起点：08:00
-     * 相对周期 1：0-120 分钟
-     * 相对周期 2：120-1440 分钟
-     * <p>
-     * 片段 1：08:00-10:30
-     * ├── 相对位置：0-150 分钟（从原始计费起点计算）
-     * ├── 0-120 分钟：相对周期 1
-     * └── 120-150 分钟：相对周期 2
-     * <p>
-     * 片段 2：11:30-12:00
-     * ├── 相对位置：210-240 分钟（跳过免费时段，仍从 08:00 计算）
-     * └── 210 > 120，所以在相对周期 2
+     * 非简化路径：边界驱动切断（period 边界 + cycleEnd + freeRangeEdges + 单元对齐 + calcEnd），
+     * 封顶/累计/periodCap 由通用 {@link ContinuousStrategy#applyCapAndAccumulate} 处理。
+     * 简化路径：{@link #generateUnitsByGlobalGaps}（决策 C，全局空隙实现）。
      */
     @Override
     public BillingSegmentResult calculate(BillingContext context,
@@ -118,106 +108,32 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
         // 获取计费起点（从分段信息获取）
         LocalDateTime billingOrigin = context.getSegment().getBeginTime();
 
-        // 初始化单次计算周期跟踪状态
-        RuleState state = AbstractTimeBasedRule.RuleState.builder()
-                .cycleIndex(0)
-                .cycleAccumulated(BigDecimal.ZERO)
-                .cycleBoundary(billingOrigin.plusMinutes(getCycleMinutes()))
-                .build();
-
         // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
         FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, window);
         List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
 
-        // 按免费时段边界切分时间轴
-        List<TimeFragment> fragments = splitTimeAxis(calcBegin, calcEnd, freeTimeRanges);
-
-        // 按周期组织片段
-        List<CycleFragments> cycles = organizeByCycle(calcBegin, calcEnd, fragments, billingOrigin);
-
         // 检查是否启用简化计算
-        List<BillingUnit> allUnits = new ArrayList<>();
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
             && isSimplificationEnabled(config, context.getBillingConfigResolver(), context);
         int threshold = context.getBillingConfigResolver() != null
             ? context.getBillingConfigResolver().getSimplifiedCycleThreshold()
             : 0;
+        // FREE_MINUTES 存在时保守地视为所有周期都有优惠，不启用简化
+        boolean hasFreeMinutes = promotionAggregate != null && promotionAggregate.getFreeMinutes() > 0;
 
-        if (simplificationEnabled && cycles.size() > threshold) {
-            Set<Integer> cyclesWithPromotion = findCyclesWithPromotion(calcBegin, calcEnd, promotionAggregate);
-
-            if (cyclesWithPromotion != null) {
-                // 使用简化计算
-                allUnits = generateSimplifiedUnitsForContinuous(cycles, cyclesWithPromotion,
-                    threshold, config, calcBegin, billingOrigin, state);
-            }
-        }
-
-        // 如果未使用简化，使用边界驱动循环
-        if (allUnits.isEmpty()) {
-            // 边界来源：period 边界 + cycle 边界 + 免费时段起止 + 单元对齐 + calcEnd
-            List<BoundaryProvider> providers = new ArrayList<>();
-            // period 边界（相对位置）
-            providers.add((current, end) -> {
-                long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
-                long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
-                long cycleCount = minutesFromOrigin / MINUTES_PER_CYCLE;
-                if (minutesFromOrigin < 0 && minutesFromOrigin % MINUTES_PER_CYCLE != 0) cycleCount--;
-                LocalDateTime cycleStart = billingOrigin.plusMinutes(cycleCount * MINUTES_PER_CYCLE);
-                for (CompositePeriod period : config.getPeriods()) {
-                    long periodEndMinute = period.getEndMinute();
-                    if (periodEndMinute > positionInCycle) {
-                        LocalDateTime boundary = cycleStart.plusMinutes(periodEndMinute);
-                        if (boundary.isAfter(current) && !boundary.isAfter(end)) {
-                            return List.of(boundary);
-                        }
-                        break;
-                    }
-                }
-                return List.of();
-            });
-            providers.add(BoundaryProviders.cycleEnd(billingOrigin, MINUTES_PER_CYCLE));
-            providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
-            // 单元对齐（当前 period 的 unitMinutes）
-            providers.add((current, end) -> {
-                long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
-                long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
-                CompositePeriod period = periodResolver.findPeriodForMinute((int) positionInCycle, config.getPeriods());
-                LocalDateTime next = current.plusMinutes(period.getUnitMinutes());
-                if (next.isAfter(current) && !next.isAfter(end)) {
-                    return List.of(next);
-                }
-                return List.of();
-            });
-            providers.add(BoundaryProviders.calcEnd(calcEnd));
-
-            // 边界驱动循环
-            List<HomogeneousSegment> segments = runBoundaryDrivenLoop(calcBegin, calcEnd, providers, (current, next) -> {
-                for (FreeTimeRange range : freeTimeRanges) {
-                    if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
-                        return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
-                                true, range.getId(), null);
-                    }
-                }
-                long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
-                int positionInCycle = (int) (((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE);
-                CompositePeriod period = periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
-                BigDecimal unitPrice = crossPeriodPriceResolver.calculateUnitPrice(current, next, period);
-                return new HomogeneousSegment(current, next, unitPrice, unitPrice,
-                        false, null, null);
-            });
-
-            // 转换为 BillingUnit（封顶 + 累计 + compact + 截断）
-            allUnits = ContinuousStrategy.applyCapAndAccumulate(segments, compositeTimeSemantics,
-                    context, config, billingOrigin, calcBegin, null);
-            // 状态续算已下线（CONTINUE 移除），不再输出周期状态
+        // 全局空隙实现（决策 C）：算无优惠空隙，长空隙简化，短空隙与优惠段走边界驱动
+        List<BillingUnit> allUnits;
+        if (simplificationEnabled && threshold > 0 && !hasFreeMinutes) {
+            allUnits = generateUnitsByGlobalGaps(calcBegin, calcEnd, context, config,
+                    freeTimeRanges, threshold, billingOrigin);
+        } else {
+            allUnits = calculateBoundaryDriven(calcBegin, calcEnd, context, config, freeTimeRanges, billingOrigin);
         }
 
         BigDecimal totalAmount = allUnits.stream()
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-
 
         // 标记最后一个单元是否被截断
         if (!allUnits.isEmpty()) {
@@ -262,472 +178,198 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
     }
 
     /**
-     * 生成单个周期的计费单元
+     * 全局空隙实现（决策 C）：
+     * <ol>
+     *   <li>从 {@code freeTimeRanges} 算无优惠空隙（gap = 优惠段之间的间隙 + 头尾）</li>
+     *   <li>每个 gap 对齐周期边界（基于 billingOrigin），覆盖完整周期数 &gt; 阈值 → 简化单元；
+     *       周期边界外的 gap 头尾片段走边界驱动</li>
+     *   <li>优惠段（gap 之间的免费时段）走边界驱动生成明细</li>
+     * </ol>
+     * 所有片段按时间顺序拼接，封顶/累计/periodCap 由 {@link ContinuousStrategy#applyCapAndAccumulate}
+     * 在每个边界驱动片段内独立处理（简化段与优惠段均以 carryOverAccumulated=0 起算）。
+     * <p>
+     * 与 DayNight 的关键差异：周期边界基于 {@code billingOrigin}（分段起点），不是 {@code context.getBeginTime()}。
      */
-    private List<BillingUnit> generateUnitsForSingleCycle(
-            int cycleIndex,
-            LocalDateTime calcBegin,
-            LocalDateTime calcEnd,
-            CompositeTimeConfig config,
-            List<FreeTimeRange> freeTimeRanges,
-            LocalDateTime billingOrigin) {
-
-        LocalDateTime cycleStart = getCycleBoundary(cycleIndex, calcBegin);
-        LocalDateTime cycleEnd = getCycleBoundary(cycleIndex + 1, calcBegin);
-
-        // 限制在计算窗口内
-        if (cycleStart.isBefore(calcBegin)) {
-            cycleStart = calcBegin;
+    private List<BillingUnit> generateUnitsByGlobalGaps(LocalDateTime calcBegin, LocalDateTime calcEnd,
+                                                        BillingContext context, CompositeTimeConfig config,
+                                                        List<FreeTimeRange> freeTimeRanges, int threshold,
+                                                        LocalDateTime billingOrigin) {
+        // 1. 算无优惠空隙（freeTimeRanges 已合并排序，此处再防御性排序）
+        List<FreeTimeRange> sortedRanges = new ArrayList<>();
+        for (FreeTimeRange range : freeTimeRanges) {
+            if (range.getEndTime().isAfter(calcBegin) && range.getBeginTime().isBefore(calcEnd)) {
+                sortedRanges.add(range);
+            }
         }
-        if (cycleEnd.isAfter(calcEnd)) {
-            cycleEnd = calcEnd;
+        sortedRanges.sort(Comparator.comparing(FreeTimeRange::getBeginTime));
+
+        List<Range> gaps = new ArrayList<>();
+        LocalDateTime cursor = calcBegin;
+        for (FreeTimeRange range : sortedRanges) {
+            LocalDateTime rangeBegin = range.getBeginTime().isBefore(calcBegin) ? calcBegin : range.getBeginTime();
+            LocalDateTime rangeEnd = range.getEndTime().isAfter(calcEnd) ? calcEnd : range.getEndTime();
+            if (rangeBegin.isAfter(cursor)) {
+                gaps.add(new Range(cursor, rangeBegin));
+            }
+            if (rangeEnd.isAfter(cursor)) {
+                cursor = rangeEnd;
+            }
         }
-
-        if (!cycleStart.isBefore(cycleEnd)) {
-            return List.of();
-        }
-
-        // CONTINUOUS 风格：按免费时段切段后用 generateUnitsForCycle 生成
-        // 简化路径仅用于无优惠周期（freeTimeRanges 为空），切段后只有一段非免费片段
-        List<TimeFragment> fragments = splitTimeAxis(cycleStart, cycleEnd, freeTimeRanges);
-        CycleFragments cycle = new CycleFragments(cycleStart, cycleEnd);
-        cycle.fragments.addAll(fragments);
-        List<BillingUnit> units = generateUnitsForCycle(cycle, config, billingOrigin);
-
-        // 应用周期封顶
-        applyCycleCapWithCarryOver(toCycleUnits(cycleStart, cycleEnd, units), config.getMaxChargeOneCycle(), BigDecimal.ZERO);
-
-        // 为每个单元设置周期索引
-        for (BillingUnit unit : units) {
-            unit.setRuleData(cycleIndex);
+        if (cursor.isBefore(calcEnd)) {
+            gaps.add(new Range(cursor, calcEnd));
         }
 
-        return units;
-    }
-
-    /**
-     * 把 BillingUnit 列表包装为 CycleUnits（供 applyCycleCapWithCarryOver 使用）。
-     */
-    private CycleUnits toCycleUnits(LocalDateTime cycleStart, LocalDateTime cycleEnd, List<BillingUnit> units) {
-        CycleUnits cycle = new CycleUnits(cycleStart, cycleEnd);
-        cycle.units.addAll(units);
-        return cycle;
-    }
-
-    /**
-     * 为 CONTINUOUS 模式生成简化单元
-     */
-    private List<BillingUnit> generateSimplifiedUnitsForContinuous(
-            List<CycleFragments> cycles,
-            Set<Integer> cyclesWithPromotion,
-            int threshold,
-            CompositeTimeConfig config,
-            LocalDateTime calcBegin,
-            LocalDateTime billingOrigin,
-            RuleState state) {
-
-        List<BillingUnit> allUnits = new ArrayList<>();
-        BigDecimal cycleCapAmount = getCycleCapAmount(config);
+        // 2. 把每个 gap 拆为"完整周期块（可简化）+ 头尾部分片段（走边界驱动）"，优惠段单独走边界驱动
         int cycleMinutes = getCycleMinutes();
+        BigDecimal cycleCapAmount = getCycleCapAmount(config);
+        List<BillingUnit> allUnits = new ArrayList<>();
 
-        int consecutiveSimplified = 0;
-        int simplifiedStartIndex = -1;
-        BigDecimal carryOverAccumulated = BigDecimal.ZERO;
+        LocalDateTime promoCursor = calcBegin;
+        for (Range gap : gaps) {
+            // gap 之前的优惠段（promoCursor ~ gap.begin）走边界驱动
+            if (gap.begin.isAfter(promoCursor)) {
+                allUnits.addAll(calculateBoundaryDriven(promoCursor, gap.begin, context, config,
+                        freeTimeRanges, billingOrigin));
+            }
 
-        for (int cycleIdx = 0; cycleIdx < cycles.size(); cycleIdx++) {
-            CycleFragments cycle = cycles.get(cycleIdx);
-            // 计算周期索引（基于原始计费起点）
-            int cycleIndex = (int) Duration.between(billingOrigin, cycle.cycleStart).toMinutes() / cycleMinutes;
+            long beginOffset = Duration.between(billingOrigin, gap.begin).toMinutes();
+            long endOffset = Duration.between(billingOrigin, gap.end).toMinutes();
+            // 第一个 >= gap.begin 的周期边界索引（基于 billingOrigin）
+            int startK = beginOffset % cycleMinutes == 0
+                    ? (int) (beginOffset / cycleMinutes)
+                    : (int) (beginOffset / cycleMinutes) + 1;
+            // 第一个 <= gap.end 的周期边界索引（基于 billingOrigin）
+            int endK = (int) (endOffset / cycleMinutes);
 
-            boolean hasPromotion = cyclesWithPromotion.contains(cycleIndex);
-
-            if (!hasPromotion) {
-                // 无优惠周期，累计
-                if (consecutiveSimplified == 0) {
-                    simplifiedStartIndex = cycleIndex;
+            if (endK - startK > threshold) {
+                // 头部部分片段（gap.begin ~ 周期边界）走边界驱动
+                if ((long) startK * cycleMinutes > beginOffset) {
+                    LocalDateTime blockStart = billingOrigin.plusMinutes((long) startK * cycleMinutes);
+                    allUnits.addAll(calculateBoundaryDriven(gap.begin, blockStart, context, config,
+                            freeTimeRanges, billingOrigin));
                 }
-                consecutiveSimplified++;
+                // 完整周期块 → 简化单元（基于 billingOrigin 锚定周期边界）
+                allUnits.add(buildSimplifiedUnitFromOrigin(startK, endK - startK, cycleCapAmount, billingOrigin));
+                // 尾部部分片段（周期边界 ~ gap.end）走边界驱动
+                if ((long) endK * cycleMinutes < endOffset) {
+                    LocalDateTime blockEnd = billingOrigin.plusMinutes((long) endK * cycleMinutes);
+                    allUnits.addAll(calculateBoundaryDriven(blockEnd, gap.end, context, config,
+                            freeTimeRanges, billingOrigin));
+                }
             } else {
-                // 处理之前的简化段
-                if (consecutiveSimplified > threshold) {
-                    BillingUnit simplifiedUnit = buildSimplifiedUnit(
-                        simplifiedStartIndex, consecutiveSimplified, cycleCapAmount, calcBegin);
-                    allUnits.add(simplifiedUnit);
-                    carryOverAccumulated = BigDecimal.ZERO; // 简化后重置
-                } else if (consecutiveSimplified > 0) {
-                    // 不足阈值，正常生成
-                    for (int i = simplifiedStartIndex; i < simplifiedStartIndex + consecutiveSimplified; i++) {
-                        List<FreeTimeRange> emptyRanges = List.of();
-                        List<BillingUnit> cycleUnits = generateUnitsForSingleCycle(i, calcBegin, cycle.cycleEnd, config, emptyRanges, billingOrigin);
-                        allUnits.addAll(cycleUnits);
-                    }
-                }
-                consecutiveSimplified = 0;
-
-                // 生成当前有优惠周期的详细单元
-                List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config, billingOrigin);
-                continuousCapHandler.applyWithCarryOver(
-                        cycleUnits,
-                        config.getMaxChargeOneCycle(),
-                        carryOverAccumulated
-                );
-                allUnits.addAll(cycleUnits);
-                carryOverAccumulated = BigDecimal.ZERO;
+                // 完整周期数不足阈值，整个 gap 走边界驱动
+                allUnits.addAll(calculateBoundaryDriven(gap.begin, gap.end, context, config,
+                        freeTimeRanges, billingOrigin));
             }
+
+            promoCursor = gap.end;
         }
-
-        // 处理最后的简化段
-        if (consecutiveSimplified > threshold) {
-            BillingUnit simplifiedUnit = buildSimplifiedUnit(
-                simplifiedStartIndex, consecutiveSimplified, cycleCapAmount, calcBegin);
-            allUnits.add(simplifiedUnit);
-        } else if (consecutiveSimplified > 0) {
-            for (int i = simplifiedStartIndex; i < simplifiedStartIndex + consecutiveSimplified; i++) {
-                List<FreeTimeRange> emptyRanges = List.of();
-                List<BillingUnit> cycleUnits = generateUnitsForSingleCycle(i, calcBegin, cycles.get(cycles.size() - 1).cycleEnd, config, emptyRanges, billingOrigin);
-                allUnits.addAll(cycleUnits);
-            }
+        // 末尾优惠段（最后一个 gap 之后到 calcEnd）走边界驱动
+        if (promoCursor.isBefore(calcEnd)) {
+            allUnits.addAll(calculateBoundaryDriven(promoCursor, calcEnd, context, config,
+                    freeTimeRanges, billingOrigin));
         }
 
         return allUnits;
     }
 
     /**
-     * 为一个周期生成计费单元
+     * 边界驱动路径：构造 providers + {@link #runBoundaryDrivenLoop} + {@link ContinuousStrategy#applyCapAndAccumulate}。
+     * 供非简化路径与简化路径的头尾/优惠段复用。{@code begin}/{@code end} 为子区间起点/终点。
      */
-    private List<BillingUnit> generateUnitsForCycle(CycleFragments cycle, CompositeTimeConfig config, LocalDateTime billingOrigin) {
-        List<BillingUnit> units = new ArrayList<>();
+    private List<BillingUnit> calculateBoundaryDriven(LocalDateTime begin, LocalDateTime end,
+            BillingContext context, CompositeTimeConfig config, List<FreeTimeRange> freeTimeRanges,
+            LocalDateTime billingOrigin) {
+        if (!begin.isBefore(end)) {
+            return new ArrayList<>();
+        }
 
-        for (TimeFragment fragment : cycle.fragments) {
-            if (fragment.isFree) {
-                BillingUnit unit = BillingUnit.builder()
-                        .beginTime(fragment.beginTime)
-                        .endTime(fragment.endTime)
-                        .durationMinutes((int) Duration.between(fragment.beginTime, fragment.endTime).toMinutes())
-                        .unitPrice(BigDecimal.ZERO)
-                        .originalAmount(BigDecimal.ZERO)
-                        .free(true)
-                        .freePromotionId(fragment.freePromotionId)
-                        .chargedAmount(BigDecimal.ZERO)
-                        .build();
-                units.add(unit);
-            } else {
-                // 使用"气泡抽出"模型计算相对位置
-                units.addAll(generateUnitsForFragment(fragment, cycle, config, billingOrigin));
+        // 边界来源：period 边界 + cycle 边界 + 免费时段起止 + 单元对齐 + calcEnd
+        List<BoundaryProvider> providers = new ArrayList<>();
+        // period 边界（相对位置）
+        providers.add((current, e) -> {
+            long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
+            long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
+            long cycleCount = minutesFromOrigin / MINUTES_PER_CYCLE;
+            if (minutesFromOrigin < 0 && minutesFromOrigin % MINUTES_PER_CYCLE != 0) cycleCount--;
+            LocalDateTime cycleStart = billingOrigin.plusMinutes(cycleCount * MINUTES_PER_CYCLE);
+            for (CompositePeriod period : config.getPeriods()) {
+                long periodEndMinute = period.getEndMinute();
+                if (periodEndMinute > positionInCycle) {
+                    LocalDateTime boundary = cycleStart.plusMinutes(periodEndMinute);
+                    if (boundary.isAfter(current) && !boundary.isAfter(e)) {
+                        return List.of(boundary);
+                    }
+                    break;
+                }
             }
-        }
-
-        return units;
-    }
-
-    /**
-     * 为一个片段生成计费单元（气泡抽出模型）
-     * <p>
-     * 相对位置计算：
-     * 从原始计费起点开始，减去已经过的免费时段，得到相对位置
-     */
-    private List<BillingUnit> generateUnitsForFragment(TimeFragment fragment, CycleFragments cycle,
-                                                        CompositeTimeConfig config, LocalDateTime billingOrigin) {
-        List<BillingUnit> units = new ArrayList<>();
-
-        // 计算片段开始时间相对于计费起点的原始分钟偏移
-        long rawMinutesFromOrigin = Duration.between(billingOrigin, fragment.beginTime).toMinutes();
-
-        // 减去已过的免费时段，得到相对位置
-        long relativePosition = rawMinutesFromOrigin - calculateFreeMinutesBefore(billingOrigin, fragment.beginTime, config);
-
-        // 确定当前相对位置属于哪个周期
-        long cycleIndex = relativePosition / MINUTES_PER_CYCLE;
-        long positionInCycle = relativePosition % MINUTES_PER_CYCLE;
-        if (positionInCycle < 0) {
-            positionInCycle += MINUTES_PER_CYCLE;
-        }
-
-        LocalDateTime current = fragment.beginTime;
-
-        while (current.isBefore(fragment.endTime)) {
-            // 根据相对位置找到对应的 CompositePeriod
+            return List.of();
+        });
+        providers.add(BoundaryProviders.cycleEnd(billingOrigin, MINUTES_PER_CYCLE));
+        providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
+        // 单元对齐（当前 period 的 unitMinutes）
+        providers.add((current, e) -> {
+            long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
+            long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
             CompositePeriod period = periodResolver.findPeriodForMinute((int) positionInCycle, config.getPeriods());
-            int unitMinutes = period.getUnitMinutes();
-
-            LocalDateTime unitEnd = current.plusMinutes(unitMinutes);
-
-            // 截断到片段边界
-            if (unitEnd.isAfter(fragment.endTime)) {
-                unitEnd = fragment.endTime;
+            LocalDateTime next = current.plusMinutes(period.getUnitMinutes());
+            if (next.isAfter(current) && !next.isAfter(e)) {
+                return List.of(next);
             }
+            return List.of();
+        });
+        providers.add(BoundaryProviders.calcEnd(end));
 
-            // 截断到周期边界（基于相对位置）
-            int periodEndMinute = period.getEndMinute();
-            // 计算当前相对位置到下一个时间段边界的分钟数
-            long minutesToPeriodEnd = periodEndMinute - positionInCycle;
-            LocalDateTime periodBoundary = current.plusMinutes(minutesToPeriodEnd);
-            if (unitEnd.isAfter(periodBoundary) && periodBoundary.isAfter(current)) {
-                unitEnd = periodBoundary;
-            }
-
-            // 截断到周期边界（24小时）
-            if (unitEnd.isAfter(cycle.cycleEnd)) {
-                unitEnd = cycle.cycleEnd;
-            }
-
-            int duration = (int) Duration.between(current, unitEnd).toMinutes();
-
-            // 计算单元价格（基于自然时段）
-            BigDecimal unitPrice = crossPeriodPriceResolver.calculateUnitPrice(current, unitEnd, period);
-
-            // 不足单元也收全额
-            BigDecimal originalAmount = unitPrice;
-
-            BillingUnit unit = BillingUnit.builder()
-                    .beginTime(current)
-                    .endTime(unitEnd)
-                    .durationMinutes(duration)
-                    .unitPrice(unitPrice)
-                    .originalAmount(originalAmount)
-                    .free(false)
-                    .chargedAmount(originalAmount)
-                    .build();
-
-            units.add(unit);
-
-            // 更新当前位置和相对位置
-            long minutesAdvanced = Duration.between(current, unitEnd).toMinutes();
-            current = unitEnd;
-            positionInCycle += minutesAdvanced;
-
-            // 跨越周期边界时重置
-            if (positionInCycle >= MINUTES_PER_CYCLE) {
-                positionInCycle -= MINUTES_PER_CYCLE;
-                cycleIndex++;
-            }
-        }
-
-        return units;
-    }
-
-    /**
-     * 计算在指定时间之前已经过的免费分钟数
-     * 注：这里指的是配置中固定的时间段内免费分钟，而非动态的优惠券免费时段
-     * 对于 CONTINUOUS 模式，免费分钟来自 PromotionAggregate 的免费时段
-     */
-    private long calculateFreeMinutesBefore(LocalDateTime origin, LocalDateTime target, CompositeTimeConfig config) {
-        // 对于 CONTINUOUS 模式，免费时段已经在 splitTimeAxis 中处理
-        // 这里返回 0，因为相对位置的计算不需要再次扣除
-        return 0;
-    }
-
-    /**
-     * CONTINUOUS 模式封顶处理（考虑结转的累计金额）
-     */
-    private BigDecimal applyContinuousCapWithCarryOver(List<BillingUnit> units, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
-        if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
-            BigDecimal total = carryOverAccumulated;
-            for (BillingUnit unit : units) {
-                if (!unit.isFree()) {
-                    total = total.add(unit.getChargedAmount());
+        // 边界驱动循环
+        List<HomogeneousSegment> segments = runBoundaryDrivenLoop(begin, end, providers, (current, next) -> {
+            for (FreeTimeRange range : freeTimeRanges) {
+                if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
+                    return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
+                            true, range.getId(), null);
                 }
             }
-            return total;
-        }
+            long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
+            int positionInCycle = (int) (((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE);
+            CompositePeriod period = periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
+            BigDecimal unitPrice = crossPeriodPriceResolver.calculateUnitPrice(current, next, period);
+            return new HomogeneousSegment(current, next, unitPrice, unitPrice,
+                    false, null, null);
+        });
 
-        // 如果继承的累计金额已达到封顶，将所有收费单元合并为一个免费单元
-        if (carryOverAccumulated.compareTo(maxCharge) >= 0) {
-            List<BillingUnit> chargeableUnits = units.stream()
-                    .filter(u -> !u.isFree())
-                    .toList();
-
-            if (!chargeableUnits.isEmpty()) {
-                BillingUnit firstChargeable = chargeableUnits.get(0);
-                BillingUnit lastChargeable = chargeableUnits.get(chargeableUnits.size() - 1);
-
-                units.removeIf(u -> !u.isFree());
-
-                BillingUnit mergedFreeUnit = BillingUnit.builder()
-                        .beginTime(firstChargeable.getBeginTime())
-                        .endTime(lastChargeable.getEndTime())
-                        .durationMinutes((int) Duration.between(firstChargeable.getBeginTime(), lastChargeable.getEndTime()).toMinutes())
-                        .unitPrice(BigDecimal.ZERO)
-                        .originalAmount(BigDecimal.ZERO)
-                        .free(true)
-                        .freePromotionId("CYCLE_CAP")
-                        .chargedAmount(BigDecimal.ZERO)
-                        .build();
-                units.add(mergedFreeUnit);
-            }
-            return maxCharge;
-        }
-
-        BigDecimal accumulated = carryOverAccumulated;
-        int capIndex = -1;
-        BigDecimal lastChargeAmount = null;
-
-        for (int i = 0; i < units.size(); i++) {
-            BillingUnit unit = units.get(i);
-            if (unit.isFree()) {
-                continue;
-            }
-
-            BigDecimal newAccumulated = accumulated.add(unit.getChargedAmount());
-
-            if (newAccumulated.compareTo(maxCharge) >= 0) {
-                capIndex = i;
-                lastChargeAmount = maxCharge.subtract(accumulated);
-                break;
-            }
-
-            accumulated = newAccumulated;
-        }
-
-        if (capIndex < 0) {
-            return accumulated;
-        }
-
-        units.get(capIndex).setChargedAmount(lastChargeAmount.setScale(2, RoundingMode.HALF_UP));
-        if (units.get(capIndex).getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
-            units.get(capIndex).setFree(true);
-            units.get(capIndex).setFreePromotionId("CYCLE_CAP");
-        }
-
-        if (capIndex < units.size() - 1) {
-            BillingUnit firstAfterCap = units.get(capIndex + 1);
-            BillingUnit lastAfterCap = units.get(units.size() - 1);
-
-            BillingUnit mergedFreeUnit = BillingUnit.builder()
-                    .beginTime(firstAfterCap.getBeginTime())
-                    .endTime(lastAfterCap.getEndTime())
-                    .durationMinutes((int) Duration.between(firstAfterCap.getBeginTime(), lastAfterCap.getEndTime()).toMinutes())
-                    .unitPrice(BigDecimal.ZERO)
-                    .originalAmount(BigDecimal.ZERO)
-                    .free(true)
-                    .freePromotionId("CYCLE_CAP")
-                    .chargedAmount(BigDecimal.ZERO)
-                    .build();
-
-            units.subList(capIndex + 1, units.size()).clear();
-            units.add(mergedFreeUnit);
-        }
-
-        return maxCharge;
+        // 转换为 BillingUnit（封顶 + 累计 + periodCap + compact + 截断）
+        // cycleOrigin=billingOrigin，calcBegin=子区间起点；periodCap 由通用方法经 CompositeTimeSemantics 自动处理
+        return ContinuousStrategy.applyCapAndAccumulate(segments, compositeTimeSemantics,
+                context, config, billingOrigin, begin, null);
     }
 
     /**
-     * 周期计费单元容器
+     * 构建简化单元（周期边界基于 billingOrigin 锚定）。
+     * <p>
+     * 与基类 {@link AbstractTimeBasedRule#buildSimplifiedUnit} 一致，但周期边界用
+     * {@code billingOrigin + k * cycleMinutes} 而非 {@code calcBegin + k * cycleMinutes}
+     * （CompositeTime 周期以分段起点为原点，calcBegin 不一定是周期边界）。
      */
-    private static class CycleUnits {
-        final LocalDateTime cycleStart;
-        final LocalDateTime cycleEnd;
-        final List<BillingUnit> units = new ArrayList<>();
-        BigDecimal accumulatedBeforeCap;
+    private BillingUnit buildSimplifiedUnitFromOrigin(int beginCycleIndex, int cycleCount,
+                                                     BigDecimal cycleCapAmount, LocalDateTime billingOrigin) {
+        LocalDateTime beginTime = billingOrigin.plusMinutes((long) beginCycleIndex * MINUTES_PER_CYCLE);
+        LocalDateTime endTime = billingOrigin.plusMinutes((long) (beginCycleIndex + cycleCount) * MINUTES_PER_CYCLE);
+        BigDecimal totalAmount = cycleCapAmount.multiply(BigDecimal.valueOf(cycleCount));
 
-        CycleUnits(LocalDateTime cycleStart, LocalDateTime cycleEnd) {
-            this.cycleStart = cycleStart;
-            this.cycleEnd = cycleEnd;
-        }
-    }
+        Map<String, Object> ruleData = new HashMap<>();
+        ruleData.put("cycleIndex", beginCycleIndex);
+        ruleData.put("simplifiedCycleCount", cycleCount);
+        ruleData.put("simplifiedCycleAmount", cycleCapAmount);
+        ruleData.put("isSimplified", true);
 
-    private void applyCycleCapWithCarryOver(CycleUnits cycle, BigDecimal maxCharge, BigDecimal carryOverAccumulated) {
-        if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
-            BigDecimal newAmount = cycle.units.stream()
-                    .filter(u -> !u.isFree())
-                    .map(BillingUnit::getChargedAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            cycle.accumulatedBeforeCap = carryOverAccumulated.add(newAmount);
-            return;
-        }
-
-        List<BillingUnit> chargeableUnits = cycle.units.stream()
-                .filter(u -> !u.isFree())
-                .toList();
-
-        BigDecimal cycleNewAmount = chargeableUnits.stream()
-                .map(BillingUnit::getChargedAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal totalAccumulated = carryOverAccumulated.add(cycleNewAmount);
-
-        if (totalAccumulated.compareTo(maxCharge) < 0) {
-            cycle.accumulatedBeforeCap = totalAccumulated;
-            return;
-        }
-
-        BigDecimal excess = totalAccumulated.subtract(maxCharge);
-
-        for (int i = chargeableUnits.size() - 1; i >= 0 && excess.compareTo(BigDecimal.ZERO) > 0; i--) {
-            BillingUnit unit = chargeableUnits.get(i);
-            BigDecimal charged = unit.getChargedAmount();
-
-            if (charged.compareTo(excess) >= 0) {
-                unit.setChargedAmount(charged.subtract(excess).setScale(2, RoundingMode.HALF_UP));
-                if (unit.getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
-                    unit.setFree(true);
-                    unit.setFreePromotionId("CYCLE_CAP");
-                }
-                excess = BigDecimal.ZERO;
-            } else {
-                unit.setChargedAmount(BigDecimal.ZERO);
-                unit.setFree(true);
-                unit.setFreePromotionId("CYCLE_CAP");
-                excess = excess.subtract(charged);
-            }
-        }
-        cycle.accumulatedBeforeCap = maxCharge;
-    }
-
-
-
-    /**
-     * 查找下一个相对时间段边界
-     * @param current 当前时间点
-     * @param billingOrigin 计费起点
-     * @param config 规则配置
-     * @return 下一个时间段边界时间，如果没有则返回 null
-     */
-    @SuppressWarnings("unused")
-    private LocalDateTime findNextRelativePeriodBoundary(LocalDateTime current, LocalDateTime billingOrigin, CompositeTimeConfig config) {
-        if (config.getPeriods() == null || config.getPeriods().isEmpty()) {
-            return null;
-        }
-
-        // 计算当前位置相对于计费起点的分钟偏移
-        long minutesFromBillingOrigin = Duration.between(billingOrigin, current).toMinutes();
-
-        // 计算当前在周期内的位置（取模）
-        long positionInCycle = minutesFromBillingOrigin % MINUTES_PER_CYCLE;
-        if (positionInCycle < 0) {
-            positionInCycle += MINUTES_PER_CYCLE;
-        }
-
-        // 当前周期的起点
-        long cycleCount = minutesFromBillingOrigin / MINUTES_PER_CYCLE;
-        LocalDateTime cycleStart = billingOrigin.plusMinutes(cycleCount * MINUTES_PER_CYCLE);
-
-        // 遍历所有相对时间段，找到第一个大于当前位置的边界
-        for (CompositePeriod period : config.getPeriods()) {
-            long periodEndMinute = period.getEndMinute();
-            if (periodEndMinute > positionInCycle) {
-                return cycleStart.plusMinutes(periodEndMinute);
-            }
-        }
-
-        // 如果当前周期内没有，返回下一个周期的起点
-        return cycleStart.plusMinutes(MINUTES_PER_CYCLE);
-    }
-
-    /**
-     * 查找下一个周期边界
-     * @param current 当前时间点
-     * @param billingOrigin 计费起点
-     * @return 下一个周期边界时间（24小时后）
-     */
-    @SuppressWarnings("unused")
-    private LocalDateTime findNextCycleBoundary(LocalDateTime current, LocalDateTime billingOrigin) {
-        LocalDateTime cycleStart = billingOrigin;
-        while (cycleStart.plusMinutes(MINUTES_PER_CYCLE).isBefore(current) ||
-               cycleStart.plusMinutes(MINUTES_PER_CYCLE).equals(current)) {
-            cycleStart = cycleStart.plusMinutes(MINUTES_PER_CYCLE);
-        }
-        return cycleStart.plusMinutes(MINUTES_PER_CYCLE);
+        return BillingUnit.builder()
+                .beginTime(beginTime)
+                .endTime(endTime)
+                .durationMinutes((int) Duration.between(beginTime, endTime).toMinutes())
+                .unitPrice(cycleCapAmount)
+                .originalAmount(totalAmount)
+                .chargedAmount(totalAmount)
+                .ruleData(ruleData)
+                .build();
     }
 
     /**
@@ -784,6 +426,17 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
         }
         if (totalCovered != MINUTES_PER_CYCLE) {
             throw new IllegalArgumentException("自然时段必须覆盖全天（0-1440分钟）");
+        }
+    }
+
+    /** 时间区间（用于全局空隙计算）。 */
+    private static final class Range {
+        final LocalDateTime begin;
+        final LocalDateTime end;
+
+        Range(LocalDateTime begin, LocalDateTime end) {
+            this.begin = begin;
+            this.end = end;
         }
     }
 }

@@ -36,7 +36,6 @@ final class NaturalTimeContinuousStrategy extends AbstractTimeBasedRule<NaturalT
 
     private final NaturalTimePeriodResolver periodResolver = new NaturalTimePeriodResolver();
     private final NaturalTimeCrossPeriodPriceResolver priceResolver = new NaturalTimeCrossPeriodPriceResolver();
-    private final NaturalTimeCycleStateManager cycleStateManager = new NaturalTimeCycleStateManager();
     private final NaturalTimeSemantics naturalTimeSemantics = new NaturalTimeSemantics();
 
     @Override
@@ -201,86 +200,4 @@ final class NaturalTimeContinuousStrategy extends AbstractTimeBasedRule<NaturalT
         return null;
     }
 
-    @SuppressWarnings("unused")
-    private List<TimeFragment> splitTimeAxis(LocalDateTime calcBegin, LocalDateTime calcEnd,
-                                             List<NaturalPeriod> periods,
-                                             List<FreeTimeRange> freeTimeRanges,
-                                             NaturalTimePeriodResolver periodResolver) {
-        List<TimeFragment> fragments = new ArrayList<>();
-        LocalDateTime current = calcBegin;
-
-        while (current.isBefore(calcEnd)) {
-            LocalDateTime nextBoundary = findNextBoundary(current, calcEnd, periods, freeTimeRanges, periodResolver);
-
-            boolean isFree = isInFreeRange(current, freeTimeRanges);
-            String freePromotionId = isFree ? findPromotionIdForTime(current, freeTimeRanges) : null;
-
-            fragments.add(new TimeFragment(current, nextBoundary, isFree, freePromotionId));
-            current = nextBoundary;
-        }
-
-        return fragments;
-    }
-
-    private LocalDateTime findNextBoundary(LocalDateTime current, LocalDateTime calcEnd,
-                                           List<NaturalPeriod> periods,
-                                           List<FreeTimeRange> freeTimeRanges,
-                                           NaturalTimePeriodResolver periodResolver) {
-        LocalDateTime nextBoundary = calcEnd;
-
-        // 时段边界
-        int currentMinute = current.getHour() * 60 + current.getMinute();
-        int periodEnd = periodResolver.findNextPeriodBoundary(currentMinute, periods);
-        LocalDateTime periodBoundary = current.plusMinutes(periodEnd - currentMinute);
-        if (periodBoundary.isBefore(nextBoundary)) {
-            nextBoundary = periodBoundary;
-        }
-
-        // 免费时段边界
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (range.getBeginTime().isAfter(current) && range.getBeginTime().isBefore(nextBoundary)) {
-                nextBoundary = range.getBeginTime();
-            }
-            if (range.getEndTime().isAfter(current) && range.getEndTime().isBefore(nextBoundary)) {
-                nextBoundary = range.getEndTime();
-            }
-        }
-
-        return nextBoundary;
-    }
-
-    private boolean isInFreeRange(LocalDateTime time, List<FreeTimeRange> freeTimeRanges) {
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (!time.isBefore(range.getBeginTime()) && time.isBefore(range.getEndTime())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String findPromotionIdForTime(LocalDateTime time, List<FreeTimeRange> freeTimeRanges) {
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (!time.isBefore(range.getBeginTime()) && time.isBefore(range.getEndTime())) {
-                return range.getId();
-            }
-        }
-        return null;
-    }
-
-
-    // ==================== 内部类 ====================
-
-    private static class TimeFragment {
-        final LocalDateTime beginTime;
-        final LocalDateTime endTime;
-        final boolean free;
-        final String freePromotionId;
-
-        TimeFragment(LocalDateTime beginTime, LocalDateTime endTime, boolean free, String freePromotionId) {
-            this.beginTime = beginTime;
-            this.endTime = endTime;
-            this.free = free;
-            this.freePromotionId = freePromotionId;
-        }
-    }
 }
