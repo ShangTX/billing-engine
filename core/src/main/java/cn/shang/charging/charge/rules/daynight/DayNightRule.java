@@ -16,7 +16,7 @@ import java.util.Set;
  * <ul>
  *   <li>DURATION_PERIOD / DURATION_GLOBAL → {@link DayNightDurationStrategy}（时长计费类）</li>
  *   <li>UNIT_BASED → {@link DayNightUnitBasedStrategy}（固定单元对齐）</li>
- *   <li>CONTINUOUS → {@link ContinuousStrategy}（边界驱动切断）</li>
+ *   <li>CONTINUOUS → {@link DayNightContinuousStrategy}（边界驱动切断）</li>
  * </ul>
  * 一个 {@code dayNight} type 注册本门面，支持四种计算模式，不需覆盖注册。
  * <p>
@@ -26,7 +26,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
 
     private final DayNightDurationStrategy durationStrategy = new DayNightDurationStrategy();
     private final DayNightUnitBasedStrategy unitBasedStrategy = new DayNightUnitBasedStrategy();
-    private final ContinuousStrategy continuousStrategy = new ContinuousStrategy();
+    private final DayNightContinuousStrategy continuousStrategy = new DayNightContinuousStrategy();
 
     @Override
     public Class<DayNightConfig> configClass() {

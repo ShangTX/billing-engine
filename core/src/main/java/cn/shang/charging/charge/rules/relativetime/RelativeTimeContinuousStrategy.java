@@ -8,6 +8,7 @@ import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
+import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
@@ -16,7 +17,6 @@ import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -38,6 +38,7 @@ final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<Relativ
 
     private final RelativeTimePeriodResolver periodResolver = new RelativeTimePeriodResolver();
     private final RelativeTimeSimplifiedCycleStateManager simplifiedCycleStateManager = new RelativeTimeSimplifiedCycleStateManager();
+    private final RelativeTimeSemantics relativeTimeSemantics = new RelativeTimeSemantics();
 
     @Override
     protected boolean hasComplexFeatures(RelativeTimeConfig config) {
@@ -89,7 +90,6 @@ final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<Relativ
         FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, window);
         final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
-        BigDecimal maxCharge = config.getMaxChargeOneCycle();
         List<RelativeTimePeriod> periods = config.getPeriods();
 
         // 边界来源：周期结束（24h）+ 时段结束 + 免费时段起止 + 单元对齐 + calcEnd
@@ -155,9 +155,8 @@ final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<Relativ
         });
 
         // 应用封顶 + 累计 + 截断标记（自然日 24h 周期内统计）
-        ContinuousResult capResult = applyCapAndAccumulate(segments, maxCharge, BigDecimal.ZERO,
-                context, periods, periodResolver, cycleOriginBegin, calcBegin, config);
-        List<BillingUnit> allUnits = capResult.units;
+        List<BillingUnit> allUnits = ContinuousStrategy.applyCapAndAccumulate(segments, relativeTimeSemantics,
+                context, config, cycleOriginBegin, calcBegin, null);
 
         // 简化计算模式：边界驱动已直接产出 compact 单元，简化路径暂不再叠加
         // （简化与 compact 正交，后续可在 compact 基础上进一步合并无优惠周期）
@@ -268,138 +267,6 @@ final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<Relativ
             if (period.getUnitPrice() == null || period.getUnitPrice().compareTo(BigDecimal.ZERO) < 0) {
                 throw new IllegalArgumentException("Invalid unitPrice in period " + i);
             }
-        }
-    }
-
-    /**
-     * 把同质段列表转换为 BillingUnit 列表，并应用封顶逻辑、累计金额、截断标记。
-     * <p>
-     * 封顶：按 24h 周期内累计，达到 maxCharge 后剩余段变为免费（CYCLE_CAP）。
-     * 累计：从零开始逐单元累加。
-     * 截断：最后一个段的 duration &lt; 单元长度且 endTime == calcEnd 时标记 isTruncated。
-     */
-    private ContinuousResult applyCapAndAccumulate(List<HomogeneousSegment> segments,
-                                                    BigDecimal maxCharge,
-                                                    BigDecimal carryOverAccumulated,
-                                                    BillingContext context,
-                                                    List<RelativeTimePeriod> periods,
-                                                    RelativeTimePeriodResolver resolver,
-                                                    LocalDateTime cycleOriginBegin,
-                                                    LocalDateTime calcBegin,
-                                                    RelativeTimeConfig config) {
-        List<BillingUnit> units = new ArrayList<>();
-        if (segments.isEmpty()) {
-            return new ContinuousResult(units, carryOverAccumulated != null ? carryOverAccumulated : BigDecimal.ZERO);
-        }
-
-        LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
-        BigDecimal cycleAccumulated = carryOverAccumulated != null ? carryOverAccumulated : BigDecimal.ZERO;
-        long calcBeginOffset = Duration.between(cycleOriginBegin, calcBegin).toMinutes();
-        long nextCycleBoundaryOffset = ((calcBeginOffset / MINUTES_PER_CYCLE) + 1) * MINUTES_PER_CYCLE;
-        BigDecimal lastCycleAccumulated = cycleAccumulated;
-
-        BigDecimal accumulated = BigDecimal.ZERO;
-
-        for (int i = 0; i < segments.size(); i++) {
-            HomogeneousSegment seg = segments.get(i);
-            boolean isLast = (i == segments.size() - 1);
-
-            // 截断判定提前
-            int segMinutes = seg.durationMinutes();
-            int positionInCycle = (int) (((Duration.between(cycleOriginBegin, seg.getBeginTime()).toMinutes() % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE);
-            RelativeTimePeriod period = resolver.findPeriodForMinute(positionInCycle, periods);
-            int unitMinutes = period.getUnitMinutes();
-            int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
-            if (subCount < 1) subCount = 1;
-
-            boolean isTruncated = isLast
-                    && unitMinutes > 0
-                    && segMinutes < unitMinutes
-                    && seg.getEndTime().equals(calcEnd);
-
-            boolean cycleCapped = false;
-            if (maxCharge != null && maxCharge.compareTo(BigDecimal.ZERO) > 0
-                    && !seg.isFree() && cycleAccumulated.compareTo(maxCharge) >= 0) {
-                cycleCapped = true;
-            }
-
-            // 不足单元是否按模式免费
-            boolean incompleteFree = isTruncated && !seg.isFree() && !cycleCapped
-                    && isIncompleteFree(segMinutes, unitMinutes, config.getIncompleteUnitChargeMode(),
-                            config.getThresholdMinutes(), config.getThresholdRatio());
-
-            BigDecimal originalPerSub = seg.getOriginalAmount() != null
-                    ? seg.getOriginalAmount() : BigDecimal.ZERO;
-            BigDecimal unitPrice = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
-
-            BigDecimal charged;
-            if (seg.isFree() || cycleCapped || incompleteFree) {
-                charged = BigDecimal.ZERO;
-            } else if (isTruncated) {
-                charged = computeIncompleteCharge(unitPrice, segMinutes, unitMinutes,
-                        config.getIncompleteUnitChargeMode(),
-                        config.getThresholdMinutes(), config.getThresholdRatio());
-            } else {
-                BigDecimal budget = maxCharge != null
-                        ? maxCharge.subtract(cycleAccumulated)
-                        : null;
-                if (budget != null && budget.signum() < 0) budget = BigDecimal.ZERO;
-                BigDecimal fullTotal = originalPerSub.multiply(BigDecimal.valueOf(subCount));
-                if (budget != null && fullTotal.compareTo(budget) > 0) {
-                    charged = budget.setScale(2, RoundingMode.HALF_UP);
-                } else {
-                    charged = fullTotal;
-                }
-            }
-
-            accumulated = accumulated.add(charged);
-            if (!seg.isFree() && !cycleCapped && !incompleteFree) {
-                cycleAccumulated = cycleAccumulated.add(charged);
-            }
-            lastCycleAccumulated = cycleAccumulated;
-
-            boolean isCompact = !isTruncated && subCount > 1;
-
-            BillingUnit unit = BillingUnit.builder()
-                    .beginTime(seg.getBeginTime())
-                    .endTime(seg.getEndTime())
-                    .durationMinutes(segMinutes)
-                    .unitPrice(unitPrice)
-                    .originalAmount(originalPerSub.multiply(BigDecimal.valueOf(subCount)))
-                    .free(seg.isFree() || cycleCapped || incompleteFree)
-                    .freePromotionId(cycleCapped ? "CYCLE_CAP"
-                            : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
-                    .chargedAmount(charged)
-                    .accumulatedAmount(accumulated)
-                    .ruleData(seg.getRuleData())
-                    .compact(isCompact)
-                    .count(isCompact ? subCount : 1)
-                    .isTruncated(isTruncated)
-                    .build();
-            units.add(unit);
-
-            // 24h 周期切换：段终点越过下一个周期边界时，进入新周期，重置累计
-            long offsetFromOrigin = Duration.between(cycleOriginBegin, seg.getEndTime()).toMinutes();
-            if (offsetFromOrigin >= nextCycleBoundaryOffset) {
-                nextCycleBoundaryOffset = ((offsetFromOrigin / MINUTES_PER_CYCLE) + 1) * MINUTES_PER_CYCLE;
-                cycleAccumulated = BigDecimal.ZERO;
-                // 周期切换后，lastCycleAccumulated 将由后续段更新；若无后续段，保持为 0（新周期无单元）
-                lastCycleAccumulated = BigDecimal.ZERO;
-            }
-        }
-        return new ContinuousResult(units, lastCycleAccumulated);
-    }
-
-    /**
-     * CONTINUOUS 边界驱动结果：单元列表 + 最后一个周期的累计金额（用于状态输出）。
-     */
-    private static final class ContinuousResult {
-        final List<BillingUnit> units;
-        final BigDecimal lastCycleAccumulated;
-
-        ContinuousResult(List<BillingUnit> units, BigDecimal lastCycleAccumulated) {
-            this.units = units;
-            this.lastCycleAccumulated = lastCycleAccumulated;
         }
     }
 

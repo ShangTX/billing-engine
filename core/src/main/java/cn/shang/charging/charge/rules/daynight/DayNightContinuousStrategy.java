@@ -7,6 +7,7 @@ import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
+import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
@@ -28,25 +29,24 @@ import java.util.Set;
  * <p>
  * 承载 CONTINUOUS 语义：边界驱动切断 + 24h 周期封顶 + 简化计算。
  * 继承 {@link AbstractTimeBasedRule}（CONTINUOUS 策略基类），复用时间轴切分、周期组织、简化单元、
- * 不足单元计费等公共基础设施。
+ * 不足单元计费等公共基础设施。封顶 + 累计逻辑由通用 {@link ContinuousStrategy#applyCapAndAccumulate}
+ * 承载（TODO-20260706-002 阶段3：4 份合并为 1 份），周期切换/cap 标记等差异由 {@link DayNightSemantics} 注入。
  * <p>
- * 由 {@link DayNightRule} 门面按 BillingMode=CONTINUOUS 分派调用，不独立注册。
- * 从 {@code DayNightRule} 的 CONTINUOUS 逻辑迁移而来（TODO-20260702-002 阶段4）。
+ * 由 {@link DayNightRule} 门面按 calculationMode=CONTINUOUS 分派调用，不独立注册。
  */
-final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
+final class DayNightContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
 
     private final DayNightPriceResolver priceResolver = new DayNightPriceResolver();
     private final DayNightCycleStateManager cycleStateManager = new DayNightCycleStateManager();
+    private final DayNightSemantics dayNightSemantics = new DayNightSemantics();
 
     @Override
     protected boolean hasComplexFeatures(DayNightConfig config) {
-        // DayNightRule 无时间段封顶等复杂特性
         return false;
     }
 
     @Override
     protected boolean isSimplifiedSupported(DayNightConfig config) {
-        // DayNightRule 支持简化计算
         return true;
     }
 
@@ -60,19 +60,11 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
         return DayNightConfig.class;
     }
 
-    /**
-     * 本策略仅承载 CONTINUOUS 模式；门面 {@link DayNightRule} 声明完整的 supportedModes。
-     * 此方法为接口契约所需，不被 Calculator 直接调用（Calculator 校验门面的 supportedModes）。
-     */
     @Override
     public Set<BConstants.CalculationMode> supportedCalculationModes() {
         return EnumSet.of(BConstants.CalculationMode.CONTINUOUS);
     }
 
-    /**
-     * CONTINUOUS 模式计算
-     * 在免费时段边界切分时间轴，每个片段从片段起点重新按单元划分
-     */
     @Override
     public BillingSegmentResult calculate(BillingContext context, DayNightConfig config, PromotionAggregate promotionAggregate) {
         validateConfig(config);
@@ -82,16 +74,12 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
         LocalDateTime cycleOriginBegin = context.getBeginTime();
         int unitMinutes = config.getUnitMinutes();
 
-        // 初始化单次计算周期跟踪状态
         RuleState state = initializeState(calcBegin);
 
-        // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
         FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, context.getWindow());
         final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
-        BigDecimal maxCharge = config.getMaxChargeOneDay();
 
-        // 简化计算检查：周期数超过阈值且存在无优惠周期时，走简化路径
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
             && isSimplificationEnabled(config, context.getBillingConfigResolver(), context);
         int threshold = context.getBillingConfigResolver() != null
@@ -104,7 +92,6 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
         boolean usedSimplification = false;
 
         if (simplificationEnabled && totalCycles > threshold) {
-            // 简化路径：按周期组织，无优惠周期合并为简化单元
             List<TimeFragment> fragments = splitTimeAxis(calcBegin, calcEnd, freeTimeRanges);
             List<CycleFragments> cycles = organizeByCycle(calcBegin, calcEnd, fragments, cycleOriginBegin);
             Set<Integer> cyclesWithPromotion = findCyclesWithPromotion(calcBegin, calcEnd, promotionAggregate);
@@ -120,14 +107,11 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
         }
 
         if (!usedSimplification) {
-            // 边界驱动路径
             int dayBeginMin = config.getDayBeginMinute();
             int dayEndMin = config.getDayEndMinute();
 
-            // 边界来源：周期结束 + 日夜时段边界 + 免费时段起止 + 条件免费窗口 + 单元对齐 + calcEnd
             List<BoundaryProvider> providers = new ArrayList<>();
             providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, getCycleMinutes()));
-            // 日夜时段边界：每天 dayBeginMinute / dayEndMinute 翻转
             providers.add((current, end) -> {
                 List<LocalDateTime> result = new ArrayList<>();
                 LocalDateTime day = current.toLocalDate().atStartOfDay();
@@ -153,7 +137,6 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
                 return result;
             });
             providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
-            // 单元对齐
             providers.add((current, end) -> {
                 List<LocalDateTime> result = new ArrayList<>();
                 LocalDateTime next = current.plusMinutes(unitMinutes);
@@ -165,20 +148,17 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
             });
             providers.add(BoundaryProviders.calcEnd(calcEnd));
 
-            // 边界驱动循环
             List<HomogeneousSegment> segments = runBoundaryDrivenLoop(calcBegin, calcEnd, providers,
                     (current, next) -> buildSegmentForDayNight(current, next, config, freeTimeRanges, calcEnd));
 
-            // 应用封顶 + 累计 + 截断标记
-            allUnits = applyCapAndAccumulate(segments, maxCharge, context, unitMinutes, config);
+            allUnits = ContinuousStrategy.applyCapAndAccumulate(segments, dayNightSemantics, context, config,
+                    cycleOriginBegin, calcBegin, null);
         }
 
         BigDecimal totalAmount = allUnits.stream()
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-
-        // 标记最后一个单元是否被截断
         if (!allUnits.isEmpty()) {
             BillingUnit lastUnit = allUnits.get(allUnits.size() - 1);
             if (lastUnit.getDurationMinutes() < unitMinutes && lastUnit.getEndTime().equals(calcEnd)) {
@@ -186,16 +166,12 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
             }
         }
 
-        // 计算累计金额（每段从 ZERO 开始累加）
         BigDecimal accumulatedAmount = BigDecimal.ZERO;
         for (BillingUnit unit : allUnits) {
             accumulatedAmount = accumulatedAmount.add(unit.getChargedAmount());
             unit.setAccumulatedAmount(accumulatedAmount);
         }
 
-        // 产出 FREE_RANGE 的 PromotionUsage
-        // CONTINUOUS 免费单元 originalAmount=0（HomogeneousSegment 免费段不存原价），
-        // equivalentAmount 用 priceResolver 按免费单元时长算规则原价
         final List<BillingUnit> finalAllUnits = allUnits;
         List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
                 freeTimeRanges, calcBegin, calcEnd,
@@ -223,37 +199,25 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
                 .build();
     }
 
-    /**
-     * 验证配置有效性
-     */
     private void validateConfig(DayNightConfig config) {
-        // 检查每日封顶金额（必填）
         if (config.getMaxChargeOneDay() == null) {
             throw new IllegalArgumentException("maxChargeOneDay is required");
         }
         if (config.getMaxChargeOneDay().compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("maxChargeOneDay must be positive");
         }
-
-        // 检查单元长度
         if (config.getUnitMinutes() == null || config.getUnitMinutes() <= 0) {
             throw new IllegalArgumentException("unitMinutes must be positive");
         }
-
-        // 检查单价
         if (config.getDayUnitPrice() == null || config.getDayUnitPrice().compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("dayUnitPrice must be non-negative");
         }
         if (config.getNightUnitPrice() == null || config.getNightUnitPrice().compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("nightUnitPrice must be non-negative");
         }
-
-        // 检查日夜时段配置
         if (config.getDayBeginMinute() == null || config.getDayEndMinute() == null) {
             throw new IllegalArgumentException("dayBeginMinute and dayEndMinute are required");
         }
-
-        // 检查 blockWeight
         if (config.getBlockWeight() == null ||
             config.getBlockWeight().compareTo(BigDecimal.ZERO) < 0 ||
             config.getBlockWeight().compareTo(BigDecimal.ONE) > 0) {
@@ -271,7 +235,6 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
         LocalDateTime cycleStart = getCycleBoundary(cycleIndex, calcBegin);
         LocalDateTime cycleEnd = getCycleBoundary(cycleIndex + 1, calcBegin);
 
-        // 限制在计算窗口内
         if (cycleStart.isBefore(calcBegin)) {
             cycleStart = calcBegin;
         }
@@ -283,14 +246,11 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
             return List.of();
         }
 
-        // CONTINUOUS 风格：按免费时段切段后用 generateUnitsForCycle 生成
-        // 简化路径仅用于无优惠周期（freeTimeRanges 为空），切段后只有一段非免费片段
         List<TimeFragment> fragments = splitTimeAxis(cycleStart, cycleEnd, freeTimeRanges);
         CycleFragments cycle = new CycleFragments(cycleStart, cycleEnd);
         cycle.fragments.addAll(fragments);
         List<BillingUnit> units = generateUnitsForCycle(cycle, config);
 
-        // 为每个单元设置周期索引
         for (BillingUnit unit : units) {
             unit.setRuleData(cycleIndex);
         }
@@ -298,108 +258,6 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
         return units;
     }
 
-    /**
-     * 把同质段列表转换为 BillingUnit 列表，并应用封顶、累计金额、截断标记。
-     */
-    private List<BillingUnit> applyCapAndAccumulate(List<HomogeneousSegment> segments,
-                                                     BigDecimal maxCharge,
-                                                     BillingContext context,
-                                                     int unitMinutes,
-                                                     DayNightConfig config) {
-        List<BillingUnit> units = new ArrayList<>();
-        if (segments.isEmpty()) return units;
-
-        LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
-        BigDecimal dayAccumulated = BigDecimal.ZERO;
-
-        BigDecimal accumulated = BigDecimal.ZERO;
-
-        for (int i = 0; i < segments.size(); i++) {
-            HomogeneousSegment seg = segments.get(i);
-            boolean isLast = (i == segments.size() - 1);
-            int segMinutes = seg.durationMinutes();
-            int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
-            if (subCount < 1) subCount = 1;
-
-            // 截断判定提前：不足单元按 IncompleteUnitChargeMode 计费
-            boolean isTruncated = isLast
-                    && unitMinutes > 0
-                    && segMinutes < unitMinutes
-                    && seg.getEndTime().equals(calcEnd);
-
-            boolean cycleCapped = false;
-            if (maxCharge != null && !seg.isFree() && dayAccumulated.compareTo(maxCharge) >= 0) {
-                cycleCapped = true;
-            }
-
-            BigDecimal originalPerSub = seg.getOriginalAmount() != null
-                    ? seg.getOriginalAmount() : BigDecimal.ZERO;
-            BigDecimal unitPrice = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
-
-            // 不足单元是否按模式免费
-            boolean incompleteFree = isTruncated && !seg.isFree() && !cycleCapped
-                    && isIncompleteFree(segMinutes, unitMinutes, config.getIncompleteUnitChargeMode(),
-                            config.getThresholdMinutes(), config.getThresholdRatio());
-
-            BigDecimal charged;
-            if (seg.isFree() || cycleCapped || incompleteFree) {
-                charged = BigDecimal.ZERO;
-            } else if (isTruncated) {
-                // 不足单元按模式计费（非免费的档位）
-                charged = computeIncompleteCharge(unitPrice, segMinutes, unitMinutes,
-                        config.getIncompleteUnitChargeMode(),
-                        config.getThresholdMinutes(), config.getThresholdRatio());
-            } else {
-                BigDecimal budget = maxCharge != null
-                        ? maxCharge.subtract(dayAccumulated)
-                        : null;
-                if (budget != null && budget.signum() < 0) budget = BigDecimal.ZERO;
-                BigDecimal fullTotal = originalPerSub.multiply(BigDecimal.valueOf(subCount));
-                if (budget != null && fullTotal.compareTo(budget) > 0) {
-                    charged = budget.setScale(2, RoundingMode.HALF_UP);
-                } else {
-                    charged = fullTotal;
-                }
-            }
-
-            accumulated = accumulated.add(charged);
-            if (!seg.isFree() && !cycleCapped && !incompleteFree) {
-                dayAccumulated = dayAccumulated.add(charged);
-            }
-
-            boolean isCompact = !isTruncated && subCount > 1;
-
-            BillingUnit unit = BillingUnit.builder()
-                    .beginTime(seg.getBeginTime())
-                    .endTime(seg.getEndTime())
-                    .durationMinutes(segMinutes)
-                    .unitPrice(unitPrice)
-                    .originalAmount(originalPerSub.multiply(BigDecimal.valueOf(subCount)))
-                    .free(seg.isFree() || cycleCapped || incompleteFree)
-                    .freePromotionId(cycleCapped ? "DAILY_CAP"
-                            : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
-                    .chargedAmount(charged)
-                    .accumulatedAmount(accumulated)
-                    .ruleData(seg.getRuleData())
-                    .compact(isCompact)
-                    .count(isCompact ? subCount : 1)
-                    .isTruncated(isTruncated)
-                    .build();
-            units.add(unit);
-
-            // 24h 周期切换（按 segment.endTime 落在哪一天切换）
-            // DayNight 用自然日：跨午夜就重置
-            if (seg.getEndTime().getDayOfYear() != seg.getBeginTime().getDayOfYear()
-                    || seg.getEndTime().getYear() != seg.getBeginTime().getYear()) {
-                dayAccumulated = BigDecimal.ZERO;
-            }
-        }
-        return units;
-    }
-
-    /**
-     * 为 CONTINUOUS 模式生成简化单元
-     */
     private List<BillingUnit> generateSimplifiedUnitsForContinuous(
             List<CycleFragments> cycles,
             Set<Integer> cyclesWithPromotion,
@@ -419,26 +277,22 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
 
         for (int cycleIdx = 0; cycleIdx < cycles.size(); cycleIdx++) {
             CycleFragments cycle = cycles.get(cycleIdx);
-            // 计算周期索引（基于原始计费起点）
             int cycleIndex = (int) Duration.between(cycleOriginBegin, cycle.cycleStart).toMinutes() / cycleMinutes;
 
             boolean hasPromotion = cyclesWithPromotion.contains(cycleIndex);
 
             if (!hasPromotion) {
-                // 无优惠周期，累计
                 if (consecutiveSimplified == 0) {
                     simplifiedStartIndex = cycleIndex;
                 }
                 consecutiveSimplified++;
             } else {
-                // 处理之前的简化段
                 if (consecutiveSimplified > threshold) {
                     BillingUnit simplifiedUnit = buildSimplifiedUnit(
                         simplifiedStartIndex, consecutiveSimplified, cycleCapAmount, calcBegin);
                     allUnits.add(simplifiedUnit);
-                    carryOverAccumulated = BigDecimal.ZERO; // 简化后重置
+                    carryOverAccumulated = BigDecimal.ZERO;
                 } else if (consecutiveSimplified > 0) {
-                    // 不足阈值，正常生成
                     for (int i = simplifiedStartIndex; i < simplifiedStartIndex + consecutiveSimplified; i++) {
                         List<BillingUnit> cycleUnits = generateUnitsForSingleCycle(i, calcBegin, cycle.cycleEnd, config, List.of());
                         allUnits.addAll(cycleUnits);
@@ -446,7 +300,6 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
                 }
                 consecutiveSimplified = 0;
 
-                // 生成当前有优惠周期的详细单元
                 List<BillingUnit> cycleUnits = generateUnitsForCycle(cycle, config);
                 cycleStateManager.applyDailyCapWithCarryOver(
                         cycleUnits,
@@ -457,7 +310,6 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
             }
         }
 
-        // 处理最后的简化段
         if (consecutiveSimplified > threshold) {
             BillingUnit simplifiedUnit = buildSimplifiedUnit(
                 simplifiedStartIndex, consecutiveSimplified, cycleCapAmount, calcBegin);
@@ -477,15 +329,11 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
         return new TimeFragment(beginTime, endTime);
     }
 
-    /**
-     * 为一个周期生成计费单元
-     */
     private List<BillingUnit> generateUnitsForCycle(CycleFragments cycle, DayNightConfig config) {
         List<BillingUnit> units = new ArrayList<>();
         int unitMinutes = config.getUnitMinutes();
         for (TimeFragment fragment : cycle.fragments) {
             if (fragment.isFree) {
-                // 免费片段直接生成一个免费单元（原条件免费段已合并为普通免费段）
                 BillingUnit unit = BillingUnit.builder()
                         .beginTime(fragment.beginTime)
                         .endTime(fragment.endTime)
@@ -498,7 +346,6 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
                         .build();
                 units.add(unit);
             } else {
-                // 收费片段按单元长度划分
                 LocalDateTime current = fragment.beginTime;
                 while (current.isBefore(fragment.endTime)) {
                     LocalDateTime pricingEnd = resolvePricingEnd(current, unitMinutes, cycle.cycleEnd);
@@ -509,10 +356,8 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
 
                     int duration = (int) Duration.between(current, unitEnd).toMinutes();
 
-                    // 确定单价
                     BigDecimal unitPrice = determineUnitPriceForContinuous(current, pricingEnd, config);
 
-                    // 不足单元也收全额
                     BigDecimal originalAmount = unitPrice;
 
                     BillingUnit unit = BillingUnit.builder()
@@ -542,23 +387,15 @@ final class ContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
         return pricingEnd;
     }
 
-    /**
-     * 确定时段单价（CONTINUOUS模式专用）
-     */
     private BigDecimal determineUnitPriceForContinuous(LocalDateTime begin, LocalDateTime end, DayNightConfig config) {
         return priceResolver.determineUnitPriceForContinuous(begin, end, config);
     }
 
-    /**
-     * 边界驱动循环的段构造回调。
-     */
     private HomogeneousSegment buildSegmentForDayNight(LocalDateTime current,
                                                        LocalDateTime next,
                                                        DayNightConfig config,
                                                        List<FreeTimeRange> freeTimeRanges,
                                                        LocalDateTime calcEnd) {
-        // pricingEnd 取 current + unitMinutes，但截断到 calcEnd（与 HEAD resolvePricingEnd 截断到 cycleEnd 一致）：
-        // 不足单元也按完整单元计价（收全额），但被 calcEnd 截断的 truncated 单元按实际时段计价
         LocalDateTime pricingEnd = current.plusMinutes(config.getUnitMinutes());
         if (pricingEnd.isAfter(calcEnd)) {
             pricingEnd = calcEnd;
