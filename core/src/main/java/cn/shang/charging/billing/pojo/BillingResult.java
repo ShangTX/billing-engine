@@ -1,10 +1,7 @@
 package cn.shang.charging.billing.pojo;
 
 
-import cn.shang.charging.charge.pojo.ChargingResult;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
-import cn.shang.charging.settlement.pojo.SettlementAdjustment;
-import cn.shang.charging.settlement.pojo.SettlementResult;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,12 +18,10 @@ import java.util.List;
 @Accessors(chain=true)
 @Builder(toBuilder = true)
 public class BillingResult {
-    private List<BillingUnit> units; // 计费细节
-    private List<DurationSegment> durationSegments; // 时长计费模式下的计费段
-    private List<PromotionUsage> promotionUsages; // 优惠使用情况
-    private List<SettlementAdjustment> settlementAdjustments; // 结算情况
+    private List<BillingUnit> units; // 计费细节（CONTINUOUS/UNIT_BASED）
+    private List<DurationSegment> durationSegments; // 时长计费模式下的计费段（DURATION_PERIOD/DURATION_GLOBAL）
+    private List<PromotionUsage> promotionUsages; // 优惠使用情况（含 source 来源 + equivalentAmount 等效金额）
     private BigDecimal finalAmount;
-    // 价格的有效时间
 
     /**
      * 等效优惠金额汇总（TODO-20260706-003）。
@@ -37,14 +32,10 @@ public class BillingResult {
     private BigDecimal totalEquivalentAmount;
 
     /**
-     * 实际计算到的时间点（延伸后，用于缓存有效性判断）
-     * 最后一个计费单元延伸后的结束时间
+     * 计算窗口结束时间（= {@code window.calculationEnd}，汇总最后分段）。
+     * <p>
+     * 各 Strategy 设置为 {@code window.getCalculationEnd()}，{@link ResultAssembler} 取最后一个分段的值。
+     * 多分段时为最后分段的计算结束时间（通常 = {@code request.endTime}）。
      */
     private LocalDateTime calculationEndTime;
-
-
-    public static BillingResult of(ChargingResult chargingResult, SettlementResult settlementResult) {
-        // TODO
-        return null;
-    }
 }

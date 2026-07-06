@@ -295,11 +295,12 @@ starter 的自动装配范围见能力文档。复杂注册需求仍可手动装
 
 | 字段 | 说明 |
 |------|------|
-| `units` | 计费单元明细 |
-| `promotionUsages` | 优惠使用记录 |
-| `settlementAdjustments` | 结算调整记录 |
+| `units` | 计费单元明细（CONTINUOUS/UNIT_BASED） |
+| `durationSegments` | 时长计费段明细（DURATION_PERIOD/DURATION_GLOBAL） |
+| `promotionUsages` | 优惠使用记录（含 source 来源 + equivalentAmount 等效金额） |
 | `finalAmount` | 最终应收金额 |
-| `calculationEndTime` | 实际计算到的时间 |
+| `totalEquivalentAmount` | 等效优惠金额汇总（按需计算，见 EquivalentAmountSpec） |
+| `calculationEndTime` | 计算窗口结束时间（汇总最后分段） |
 
 ### `BillingUnit`
 
