@@ -30,3 +30,4 @@
 | 2026-07-03 | TODO-20260702-003 | feature | 优惠两级模型实现 | 1c032c5 | [promotion-two-tier-model.md](tracking/items/promotion-two-tier-model.md) |
 | 2026-07-03 | TODO-20260702-004 | refactor | FREE_MINUTES 时段化下放到策略侧 | 136ab21 | [free-minutes-materialization-delegation.md](tracking/items/free-minutes-materialization-delegation.md) |
 | 2026-07-03 | TODO-20260703-001 | refactor | 彻底去掉 CONTINUE 续算与 ValueSpec 投影查询 | e4a95de | [remove-continue-mode.md](tracking/items/remove-continue-mode.md) |
+| 2026-07-06 | TODO-20260706-001 | bug | GLOBAL 时长模式 FREE_MINUTES 时段化修复 | 610d656 | [global-duration-materialization-fix.md](tracking/items/global-duration-materialization-fix.md) |
