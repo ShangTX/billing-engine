@@ -16,4 +16,3 @@
 |----|------|--------|------|------------|------|
 | TODO-20260630-002 | feature | P2 | 物化索引预估收入能力 | ec62357 | [materialized-index-revenue-estimation.md](tracking/items/materialized-index-revenue-estimation.md) |
 | TODO-20260623-001 | feature | P2 | 优化自定义规则扩展体验 | 4e081b3 | [custom-rule-extension-experience.md](tracking/items/custom-rule-extension-experience.md) |
-| TODO-20260706-002 | refactor | P1 | 计费引擎抽象重构:模式行为驱动 + 规则语义注入 | dfaa576 | [rule-abstraction-refactor.md](tracking/items/rule-abstraction-refactor.md) |

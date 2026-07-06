@@ -4,11 +4,11 @@
 id: TODO-20260706-002
 type: refactor
 priority: P1
-status: todo
+status: done
 source_git: dfaa576
 created_at: 2026-07-06
-completed_at:
-completed_git:
+completed_at: 2026-07-06
+completed_git: 02162b6
 ---
 
 ## 背景
@@ -104,4 +104,4 @@ completed_git:
   - 4 个 ContinuousStrategy(DayNight/RelativeTime/NaturalTime/CompositeTime)改 `implements BillingRule`,删死代码(`hasComplexFeatures`/`isSimplifiedSupported`/`RuleState`/`initializeState`/`isSimplifiedUnit`/`extractSimplifiedUnitMeta`)
   - 简化单元改用 ruleData Map(键:`isSimplified`/`cycleIndex`/`simplifiedCycleCount`/`simplifiedCycleAmount`),`SimplifiedUnitMetaTest` 固化契约
   - 90 测试全绿
-- ⬜ 阶段 8:文档同步
+- ✅ 阶段 8:文档同步(本提交)
