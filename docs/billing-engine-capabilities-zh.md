@@ -32,7 +32,7 @@ BillingRequest
 
 | 模块 | 能力 |
 |------|------|
-| `core` | 计费计算、优惠聚合、规则执行、结转状态 |
+| `core` | 计费计算、优惠聚合、规则执行 |
 | `billing-api` | `BillingTemplate`、查询摘要、精确查询回退、优惠等效金额计算 |
 | `billing-v3-spring-boot-starter` | Spring Boot 3.0.x 到 3.4.x 自动装配 |
 | `billing-v4-spring-boot-starter` | Spring Boot 3.5.x 到 4.x 自动装配 |

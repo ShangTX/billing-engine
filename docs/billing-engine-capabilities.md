@@ -32,7 +32,7 @@ The `core` module performs pure calculation. The `billing-api` module adds conve
 
 | Module | Capability |
 |--------|------------|
-| `core` | Pure billing calculation, promotion aggregation, rule execution, carry-over state |
+| `core` | Pure billing calculation, promotion aggregation, rule execution |
 | `billing-api` | `BillingTemplate`, query summaries, exact-query fallback, promotion equivalent amount calculation |
 | `billing-v3-spring-boot-starter` | Spring Boot 3.0.x to 3.4.x auto-configuration |
 | `billing-v4-spring-boot-starter` | Spring Boot 3.5.x to 4.x auto-configuration |
@@ -155,6 +155,7 @@ Capabilities:
 - Period-specific unit length and price.
 - Cycle-level cap through `maxChargeOneCycle`.
 - Simplified cycle calculation support.
+- CONTINUOUS mode is wired into the boundary-driven loop and produces compact units.
 
 Current limitation:
 
@@ -169,9 +170,22 @@ Capabilities:
 - Period-level and cycle-level behavior.
 - Cross-period handling through configured modes.
 - Simplified calculation support.
+- CONTINUOUS mode is wired into the boundary-driven loop and produces compact units.
 
 Current limitation:
 
+
+### `naturalTime`
+
+Implemented by `NaturalTimeRule`.
+
+Capabilities:
+
+- 24-hour natural cycle, partitioned into natural periods.
+- Each period has its own price with a uniform unit length.
+- Configurable cross-period handling (reuses `CrossPeriodMode`).
+- Daily cap through `maxChargeOneDay`.
+- CONTINUOUS mode is wired into the boundary-driven loop and produces compact units.
 
 ### `flatFree`
 
