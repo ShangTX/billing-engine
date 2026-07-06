@@ -129,7 +129,7 @@ BillingService.calculate()
 - `BillingContext` - 计算上下文
 - `BillingRule` / `PromotionRule` - 规则接口（新增规则时实现）
 - `PromotionAggregate` - 聚合免费时段
-- `AbstractTimeBasedRule` - 时间计费规则基类，提供边界驱动公共循环、状态管理、简化计算框架
+- `RuleSupport` / `ContinuousStrategy` - CONTINUOUS 策略族共享工具（FREE_MINUTES 时段化 / 不足单元计费 / 简化单元构建）
 - `BoundaryProvider` / `BoundaryProviders` / `HomogeneousSegment` - 边界驱动框架抽象
 - `CompactMerger` - compact 单元合并器（跨分段连续相同单元合并）
 - `BillingTemplate` - 便捷 API 入口（billing-api 模块）
@@ -204,7 +204,7 @@ BillingService.calculate()
 
 普通规则（`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`）只支持 `CONTINUOUS`。`UNIT_BASED` 语义由独立规则类承载（当前已实现 `DayNightUnitBasedRule`），其余按需添加。时长计费模式待引入。
 
-边界驱动框架关键类：`BoundaryProvider`、`BoundaryProviders`、`HomogeneousSegment`、`HomogeneousSegmentCalculator`、`CompactMerger`，均位于 `core` 的 `charge.rules` 包，公共循环入口为 `AbstractTimeBasedRule.runBoundaryDrivenLoop`。
+边界驱动框架关键类：`BoundaryProvider`、`BoundaryProviders`、`HomogeneousSegment`、`HomogeneousSegmentCalculator`、`CompactMerger`、`BoundaryDrivenLoop`，均位于 `core` 的 `charge.rules` 包，公共循环入口为 `BoundaryDrivenLoop.run`（CONTINUOUS 策略与时长策略直接调用）。
 
 ---
 

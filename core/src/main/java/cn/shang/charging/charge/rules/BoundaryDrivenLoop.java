@@ -10,7 +10,7 @@ import java.util.List;
  * 从当前位置反复查询所有边界来源中最近的边界，跳到那里并调用段构造回调产出同质段，直到抵达 calcEnd。
  * 供 CONTINUOUS 策略和时长策略共享，UNIT_BASED 策略不走。
  * <p>
- * 提取自 {@link AbstractTimeBasedRule}，作为规则族共享的调度原语，不通过继承传递。
+ * 提取自原 {@code AbstractTimeBasedRule}（已废弃），作为规则族共享的调度原语，不通过继承传递。
  */
 public final class BoundaryDrivenLoop {
 

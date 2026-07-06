@@ -4,11 +4,13 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
-import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
+import cn.shang.charging.charge.rules.BillingRule;
+import cn.shang.charging.charge.rules.BoundaryDrivenLoop;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
+import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
@@ -29,7 +31,8 @@ import java.util.Set;
  * `dayNight` 规则在 CONTINUOUS 模式下的策略实现。
  * <p>
  * 承载 CONTINUOUS 语义：边界驱动切断 + 自然日封顶 + 简化计算（全局空隙实现，决策 C）。
- * 继承 {@link AbstractTimeBasedRule}（CONTINUOUS 策略基类），复用不足单元计费等公共基础设施。
+ * 复用不足单元计费等公共基础设施（{@link ContinuousStrategy}）与 FREE_MINUTES 时段化（{@link RuleSupport}），
+ * 不再继承旧基类 {@code AbstractTimeBasedRule}（TODO-20260706-002 阶段7 废弃）。
  * 封顶 + 累计逻辑由通用 {@link ContinuousStrategy#applyCapAndAccumulate} 承载
  * （TODO-20260706-002 阶段3：4 份合并为 1 份），周期切换/cap 标记等差异由 {@link DayNightSemantics} 注入。
  * <p>
@@ -40,25 +43,12 @@ import java.util.Set;
  * <p>
  * 由 {@link DayNightRule} 门面按 calculationMode=CONTINUOUS 分派调用，不独立注册。
  */
-final class DayNightContinuousStrategy extends AbstractTimeBasedRule<DayNightConfig> {
+final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
+
+    private static final int MINUTES_PER_CYCLE = 1440; // 24小时
 
     private final DayNightPriceResolver priceResolver = new DayNightPriceResolver();
     private final DayNightSemantics dayNightSemantics = new DayNightSemantics();
-
-    @Override
-    protected boolean hasComplexFeatures(DayNightConfig config) {
-        return false;
-    }
-
-    @Override
-    protected boolean isSimplifiedSupported(DayNightConfig config) {
-        return true;
-    }
-
-    @Override
-    protected BigDecimal getCycleCapAmount(DayNightConfig config) {
-        return config.getMaxChargeOneDay();
-    }
 
     @Override
     public Class<DayNightConfig> configClass() {
@@ -78,12 +68,13 @@ final class DayNightContinuousStrategy extends AbstractTimeBasedRule<DayNightCon
         LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
         int unitMinutes = config.getUnitMinutes();
 
-        FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, context.getWindow());
+        FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutes(promotionAggregate, context.getWindow());
         final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
 
+        BigDecimal cycleCapAmount = dayNightSemantics.cycleCap(config);
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
-            && isSimplificationEnabled(config, context.getBillingConfigResolver(), context);
+            && ContinuousStrategy.isSimplificationEnabled(config, context.getBillingConfigResolver(), context, cycleCapAmount);
         int threshold = context.getBillingConfigResolver() != null
             ? context.getBillingConfigResolver().getSimplifiedCycleThreshold()
             : 0;
@@ -182,8 +173,8 @@ final class DayNightContinuousStrategy extends AbstractTimeBasedRule<DayNightCon
         }
 
         // 2. 把每个 gap 拆为"完整周期块（可简化）+ 头尾部分片段（走边界驱动）"，优惠段单独走边界驱动
-        int cycleMinutes = getCycleMinutes();
-        BigDecimal cycleCapAmount = getCycleCapAmount(config);
+        int cycleMinutes = MINUTES_PER_CYCLE;
+        BigDecimal cycleCapAmount = dayNightSemantics.cycleCap(config);
         List<BillingUnit> allUnits = new ArrayList<>();
 
         LocalDateTime promoCursor = calcBegin;
@@ -209,7 +200,7 @@ final class DayNightContinuousStrategy extends AbstractTimeBasedRule<DayNightCon
                     allUnits.addAll(calculateBoundaryDriven(gap.begin, blockStart, context, config, freeTimeRanges));
                 }
                 // 完整周期块 → 简化单元
-                allUnits.add(buildSimplifiedUnit(startK, endK - startK, cycleCapAmount, calcBegin));
+                allUnits.add(ContinuousStrategy.buildSimplifiedUnit(startK, endK - startK, cycleCapAmount, calcBegin, cycleMinutes));
                 // 尾部部分片段（周期边界 ~ gap.end）走边界驱动
                 if ((long) endK * cycleMinutes < endOffset) {
                     LocalDateTime blockEnd = calcBegin.plusMinutes((long) endK * cycleMinutes);
@@ -231,7 +222,7 @@ final class DayNightContinuousStrategy extends AbstractTimeBasedRule<DayNightCon
     }
 
     /**
-     * 边界驱动路径：构造 providers + {@link #runBoundaryDrivenLoop} + {@link ContinuousStrategy#applyCapAndAccumulate}。
+     * 边界驱动路径：构造 providers + {@link BoundaryDrivenLoop#run} + {@link ContinuousStrategy#applyCapAndAccumulate}。
      * 供非简化路径与简化路径的头尾/优惠段复用。
      */
     private List<BillingUnit> calculateBoundaryDriven(LocalDateTime begin, LocalDateTime end,
@@ -245,7 +236,7 @@ final class DayNightContinuousStrategy extends AbstractTimeBasedRule<DayNightCon
         int unitMinutes = config.getUnitMinutes();
 
         List<BoundaryProvider> providers = new ArrayList<>();
-        providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, getCycleMinutes()));
+        providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, MINUTES_PER_CYCLE));
         providers.add((current, e) -> {
             List<LocalDateTime> result = new ArrayList<>();
             LocalDateTime day = current.toLocalDate().atStartOfDay();
@@ -282,7 +273,7 @@ final class DayNightContinuousStrategy extends AbstractTimeBasedRule<DayNightCon
         });
         providers.add(BoundaryProviders.calcEnd(end));
 
-        List<HomogeneousSegment> segments = runBoundaryDrivenLoop(begin, end, providers,
+        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(begin, end, providers,
                 (current, next) -> buildSegmentForDayNight(current, next, config, freeTimeRanges, end));
 
         return ContinuousStrategy.applyCapAndAccumulate(segments, dayNightSemantics, context, config,

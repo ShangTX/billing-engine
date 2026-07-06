@@ -882,8 +882,13 @@ public class ComprehensiveBillingTest {
 
     @SuppressWarnings("unchecked")
     static boolean isSimplifiedUnit(BillingUnit unit) {
-        SimplifiedUnitMeta meta = SimplifiedUnitMeta.from(unit);
-        return meta != null && meta.simplified();
+        if (unit == null || unit.getRuleData() == null) {
+            return false;
+        }
+        if (!(unit.getRuleData() instanceof Map<?, ?> rawMap)) {
+            return false;
+        }
+        return Boolean.TRUE.equals(((Map<String, Object>) rawMap).get("isSimplified"));
     }
 
     // ==================== Service 创建方法 ====================

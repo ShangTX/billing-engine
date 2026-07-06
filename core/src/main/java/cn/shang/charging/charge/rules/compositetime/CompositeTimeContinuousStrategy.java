@@ -5,11 +5,13 @@ import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
-import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
+import cn.shang.charging.charge.rules.BillingRule;
+import cn.shang.charging.charge.rules.BoundaryDrivenLoop;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
+import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
@@ -31,7 +33,8 @@ import java.util.Set;
  * `compositeTime` 规则在 CONTINUOUS 模式下的策略实现。
  * <p>
  * 承载 CONTINUOUS 语义：边界驱动切断 + 24h 周期封顶 + 时段独立封顶（periodCap）+ 简化计算。
- * 继承 {@link AbstractTimeBasedRule}（CONTINUOUS 策略基类），复用不足单元计费等公共基础设施。
+ * 复用不足单元计费等公共基础设施（{@link ContinuousStrategy}）与 FREE_MINUTES 时段化（{@link RuleSupport}），
+ * 不再继承旧基类 {@code AbstractTimeBasedRule}（TODO-20260706-002 阶段7 废弃）。
  * 封顶 + 累计逻辑由通用 {@link ContinuousStrategy#applyCapAndAccumulate} 承载
  * （TODO-20260706-002 阶段3：4 份合并为 1 份），周期切换/periodCap 等差异由 {@link CompositeTimeSemantics} 注入。
  * <p>
@@ -43,35 +46,13 @@ import java.util.Set;
  * 由 {@link CompositeTimeRule} 门面按 calculationMode=CONTINUOUS 分派调用，不独立注册。
  * 从 {@code CompositeTimeRule} 的 CONTINUOUS 逻辑迁移而来（TODO-20260706-002 阶段2c）。
  */
-final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<CompositeTimeConfig> {
+final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTimeConfig> {
+
+    private static final int MINUTES_PER_CYCLE = 1440; // 24小时
 
     private final CompositeTimePeriodResolver periodResolver = new CompositeTimePeriodResolver();
     private final CompositeTimeCrossPeriodPriceResolver crossPeriodPriceResolver = new CompositeTimeCrossPeriodPriceResolver();
     private final CompositeTimeSemantics compositeTimeSemantics = new CompositeTimeSemantics();
-
-    @Override
-    protected boolean hasComplexFeatures(CompositeTimeConfig config) {
-        // CompositeTimeRule 支持时间段独立封顶
-        if (config.getPeriods() != null) {
-            for (CompositePeriod period : config.getPeriods()) {
-                if (period.getMaxCharge() != null && period.getMaxCharge().compareTo(BigDecimal.ZERO) > 0) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    @Override
-    protected boolean isSimplifiedSupported(CompositeTimeConfig config) {
-        // 当存在时间段独立封顶时不支持简化计算
-        return !hasComplexFeatures(config);
-    }
-
-    @Override
-    protected BigDecimal getCycleCapAmount(CompositeTimeConfig config) {
-        return config.getMaxChargeOneCycle();
-    }
 
     @Override
     public Class<CompositeTimeConfig> configClass() {
@@ -109,13 +90,14 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
         LocalDateTime billingOrigin = context.getSegment().getBeginTime();
 
         // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
-        FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, window);
+        FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutes(promotionAggregate, window);
         List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
 
         // 检查是否启用简化计算
+        BigDecimal cycleCapAmount = compositeTimeSemantics.cycleCap(config);
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
-            && isSimplificationEnabled(config, context.getBillingConfigResolver(), context);
+            && ContinuousStrategy.isSimplificationEnabled(config, context.getBillingConfigResolver(), context, cycleCapAmount);
         int threshold = context.getBillingConfigResolver() != null
             ? context.getBillingConfigResolver().getSimplifiedCycleThreshold()
             : 0;
@@ -220,8 +202,8 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
         }
 
         // 2. 把每个 gap 拆为"完整周期块（可简化）+ 头尾部分片段（走边界驱动）"，优惠段单独走边界驱动
-        int cycleMinutes = getCycleMinutes();
-        BigDecimal cycleCapAmount = getCycleCapAmount(config);
+        int cycleMinutes = MINUTES_PER_CYCLE;
+        BigDecimal cycleCapAmount = compositeTimeSemantics.cycleCap(config);
         List<BillingUnit> allUnits = new ArrayList<>();
 
         LocalDateTime promoCursor = calcBegin;
@@ -274,7 +256,7 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
     }
 
     /**
-     * 边界驱动路径：构造 providers + {@link #runBoundaryDrivenLoop} + {@link ContinuousStrategy#applyCapAndAccumulate}。
+     * 边界驱动路径：构造 providers + {@link BoundaryDrivenLoop#run} + {@link ContinuousStrategy#applyCapAndAccumulate}。
      * 供非简化路径与简化路径的头尾/优惠段复用。{@code begin}/{@code end} 为子区间起点/终点。
      */
     private List<BillingUnit> calculateBoundaryDriven(LocalDateTime begin, LocalDateTime end,
@@ -321,7 +303,7 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
         providers.add(BoundaryProviders.calcEnd(end));
 
         // 边界驱动循环
-        List<HomogeneousSegment> segments = runBoundaryDrivenLoop(begin, end, providers, (current, next) -> {
+        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(begin, end, providers, (current, next) -> {
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
                     return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
@@ -345,7 +327,7 @@ final class CompositeTimeContinuousStrategy extends AbstractTimeBasedRule<Compos
     /**
      * 构建简化单元（周期边界基于 billingOrigin 锚定）。
      * <p>
-     * 与基类 {@link AbstractTimeBasedRule#buildSimplifiedUnit} 一致，但周期边界用
+     * 与 {@link ContinuousStrategy#buildSimplifiedUnit} 一致，但周期边界用
      * {@code billingOrigin + k * cycleMinutes} 而非 {@code calcBegin + k * cycleMinutes}
      * （CompositeTime 周期以分段起点为原点，calcBegin 不一定是周期边界）。
      */

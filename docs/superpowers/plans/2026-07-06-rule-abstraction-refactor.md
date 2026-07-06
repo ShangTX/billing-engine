@@ -87,14 +87,14 @@
 
 **验证**:`prepareContexts` 路径 `calculationMode` 正确(时长模式等效金额生效);`externalPool` 跨段共享在 `prepareContexts` 路径生效;`PromotionEquivalentCalculatorTest` 全绿,baseline = `calculate` 结果。
 
-### 阶段 7:废弃旧模型
+### 阶段 7:废弃旧模型 ✅ DONE
 
 - 删 `AbstractTimeBasedRule`(职责拆解完毕:调度归 `BoundaryDrivenLoop`,工具归 `RuleSupport`,`CONTINUOUS` 基类职责归 `ContinuousStrategy`)
-- 删 `SimplifiedUnitMeta`(简化单元改用 `ruleData`)
-- 删 `ContinuousCalculator` 中间层(若阶段 2 未删)
-- 检查无残留引用
+- 删 `SimplifiedUnitMeta`(简化单元改用 `ruleData` Map,契约由 `SimplifiedUnitMetaTest` 固化)
+- 删 `ContinuousCalculator` 中间层(阶段 2 已删,无残留)
+- 检查无残留引用(grep 确认:仅 Javadoc 历史提及,无代码引用)
 
-**验证**:编译通过;无 `AbstractTimeBasedRule` / `SimplifiedUnitMeta` 引用;全测试绿。
+**验证**:`mvn -pl core compile` 通过;`mvn -pl bill-test -am test` 90 测试全绿;无 `AbstractTimeBasedRule` / `SimplifiedUnitMeta` 代码引用。
 
 ### 阶段 8:文档同步
 

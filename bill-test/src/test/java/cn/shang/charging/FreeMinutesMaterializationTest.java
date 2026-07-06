@@ -117,7 +117,7 @@ class FreeMinutesMaterializationTest {
                         && u.getUsedMinutes() == 60));
     }
 
-    /** CONTINUOUS：FREE_MINUTES 时段化经 AbstractTimeBasedRule.materializeFreeMinutes，行为不变。 */
+    /** CONTINUOUS：FREE_MINUTES 时段化经 RuleSupport.materializeFreeMinutes，行为不变。 */
     @Test
     void continuous_freeMinutes_materialized() {
         DayNightConfig config = dayNightConfig(new BigDecimal("100.00"));

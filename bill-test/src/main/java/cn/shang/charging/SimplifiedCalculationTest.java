@@ -311,12 +311,17 @@ public class SimplifiedCalculationTest {
     // ==================== 辅助方法 ====================
 
     /**
-     * 检查单元是否为简化单元
+     * 检查单元是否为简化单元（直接读 ruleData Map，旧 SimplifiedUnitMeta 已随 TODO-20260706-002 阶段7 删除）。
      */
     @SuppressWarnings("unchecked")
     static boolean isSimplifiedUnit(BillingUnit unit) {
-        SimplifiedUnitMeta meta = SimplifiedUnitMeta.from(unit);
-        return meta != null && meta.simplified();
+        if (unit == null || unit.getRuleData() == null) {
+            return false;
+        }
+        if (!(unit.getRuleData() instanceof Map<?, ?> rawMap)) {
+            return false;
+        }
+        return Boolean.TRUE.equals(((Map<String, Object>) rawMap).get("isSimplified"));
     }
 
     /**

@@ -88,3 +88,20 @@ completed_git:
 - E:`prepareContexts` 补 calculationMode + externalPool,抽共享 `resolveSegmentContext`
 
 阶段 0(GLOBAL 时段化修复)独立为 TODO-20260706-001,与本项并行先行。
+
+## 进度
+
+- ✅ 阶段 0:见 TODO-20260706-001
+- ✅ 阶段 1:`CalculationMode` 合并(commit 1fac17d)
+- ✅ 阶段 2:3 规则族门面化(commit 4104480 起)
+- ✅ 阶段 3:`ContinuousStrategy` 通用 `applyCapAndAccumulate` + `RuleSemantics` + 简化全局空隙(commit 4104480 / 59c34e1)
+- ✅ 阶段 4:`DurationSupport` + `DurationPeriodStrategy` / `DurationGlobalStrategy`(commit 8a4ec71)
+- ✅ 阶段 5:`SMART_FREE_MINUTES` 优先高价分配(commit 657c79d)
+- ✅ 阶段 6:共享 `resolveSegmentContext`(commit ad94bcf)
+- ✅ 阶段 7:废弃 `AbstractTimeBasedRule` + `SimplifiedUnitMeta`(本提交)
+  - `RuleSupport` 承载 `materializeFreeMinutes`(FREE_MINUTES 时段化)
+  - `ContinuousStrategy` 承载 `isSimplificationEnabled` / `buildSimplifiedUnit` / `getCycleBoundary` / `computeIncompleteCharge` / `isIncompleteFree`
+  - 4 个 ContinuousStrategy(DayNight/RelativeTime/NaturalTime/CompositeTime)改 `implements BillingRule`,删死代码(`hasComplexFeatures`/`isSimplifiedSupported`/`RuleState`/`initializeState`/`isSimplifiedUnit`/`extractSimplifiedUnitMeta`)
+  - 简化单元改用 ruleData Map(键:`isSimplified`/`cycleIndex`/`simplifiedCycleCount`/`simplifiedCycleAmount`),`SimplifiedUnitMetaTest` 固化契约
+  - 90 测试全绿
+- ⬜ 阶段 8:文档同步

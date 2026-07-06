@@ -5,11 +5,13 @@ import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
-import cn.shang.charging.charge.rules.AbstractTimeBasedRule;
+import cn.shang.charging.charge.rules.BillingRule;
+import cn.shang.charging.charge.rules.BoundaryDrivenLoop;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
+import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
@@ -28,33 +30,18 @@ import java.util.Set;
  * `relativeTime` 规则在 CONTINUOUS 模式下的策略实现。
  * <p>
  * 承载 CONTINUOUS 语义：边界驱动切断 + 24h 周期封顶 + 简化计算（预留）。
- * 继承 {@link AbstractTimeBasedRule}（CONTINUOUS 策略基类），复用时间轴切分、周期组织、简化单元、
- * 不足单元计费等公共基础设施。
+ * 复用不足单元计费等公共基础设施（{@link ContinuousStrategy}）与 FREE_MINUTES 时段化（{@link RuleSupport}），
+ * 不再继承旧基类 {@code AbstractTimeBasedRule}（TODO-20260706-002 阶段7 废弃）。
  * <p>
  * 由 {@link RelativeTimeRule} 门面按 calculationMode=CONTINUOUS 分派调用，不独立注册。
  * 从 {@code RelativeTimeRule} 的 CONTINUOUS 逻辑迁移而来（TODO-20260706-002 阶段2a）。
  */
-final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<RelativeTimeConfig> {
+final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeConfig> {
+
+    private static final int MINUTES_PER_CYCLE = 1440; // 24小时
 
     private final RelativeTimePeriodResolver periodResolver = new RelativeTimePeriodResolver();
     private final RelativeTimeSemantics relativeTimeSemantics = new RelativeTimeSemantics();
-
-    @Override
-    protected boolean hasComplexFeatures(RelativeTimeConfig config) {
-        // RelativeTimeRule 无时间段封顶等复杂特性
-        return false;
-    }
-
-    @Override
-    protected boolean isSimplifiedSupported(RelativeTimeConfig config) {
-        // RelativeTimeRule 支持简化计算
-        return true;
-    }
-
-    @Override
-    protected BigDecimal getCycleCapAmount(RelativeTimeConfig config) {
-        return config.getMaxChargeOneCycle();
-    }
 
     @Override
     public Class<RelativeTimeConfig> configClass() {
@@ -86,14 +73,14 @@ final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<Relativ
         // 初始化单次计算周期跟踪状态
 
         // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
-        FreeMinuteAllocationResult materialized = materializeFreeMinutes(promotionAggregate, window);
+        FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutes(promotionAggregate, window);
         final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
         List<RelativeTimePeriod> periods = config.getPeriods();
 
         // 边界来源：周期结束（24h）+ 时段结束 + 免费时段起止 + 单元对齐 + calcEnd
         List<BoundaryProvider> providers = new ArrayList<>();
-        providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, getCycleMinutes()));
+        providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, MINUTES_PER_CYCLE));
         // 周期内 period 结束：从当前位置算到下一个 period.endMinute
         providers.add((current, end) -> {
             List<LocalDateTime> result = new ArrayList<>();
@@ -134,7 +121,7 @@ final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<Relativ
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
         // 边界驱动循环
-        List<HomogeneousSegment> segments = runBoundaryDrivenLoop(calcBegin, calcEnd, providers, (current, next) -> {
+        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next) -> {
             // 检查是否被免费时段完全覆盖
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
@@ -159,8 +146,9 @@ final class RelativeTimeContinuousStrategy extends AbstractTimeBasedRule<Relativ
 
         // 简化计算模式：边界驱动已直接产出 compact 单元，简化路径暂不再叠加
         // （简化与 compact 正交，后续可在 compact 基础上进一步合并无优惠周期）
+        BigDecimal cycleCapAmount = relativeTimeSemantics.cycleCap(config);
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
-            && isSimplificationEnabled(config, context.getBillingConfigResolver(), context);
+            && ContinuousStrategy.isSimplificationEnabled(config, context.getBillingConfigResolver(), context, cycleCapAmount);
         int threshold = context.getBillingConfigResolver() != null
             ? context.getBillingConfigResolver().getSimplifiedCycleThreshold()
             : 0;

@@ -1,5 +1,7 @@
 package cn.shang.charging.charge.rules;
 
+import cn.shang.charging.billing.BillingConfigResolver;
+import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.RuleConfig;
@@ -9,7 +11,9 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * CONTINUOUS 模式通用策略（层 2）：持有唯一一份 applyCapAndAccumulate，消除 4 规则族重复。
@@ -20,7 +24,12 @@ import java.util.List;
  * cap 标记通过 {@link RuleSemantics#cycleCapLabel} 注入；unitMinutes 通过
  * {@link RuleSemantics#unitMinutes} 注入（全局/按 period）。
  * <p>
+ * 同时承载 CONTINUOUS 策略族共享的不足单元计费（{@link #computeIncompleteCharge} /
+ * {@link #isIncompleteFree}）与简化单元构建（{@link #buildSimplifiedUnit} /
+ * {@link #getCycleBoundary} / {@link #isSimplificationEnabled}）。
+ * <p>
  * TODO-20260706-002 阶段3：4 份 applyCapAndAccumulate 合并为 1 份。
+ * TODO-20260706-002 阶段7：从 AbstractTimeBasedRule 搬入不足单元计费 + 简化单元构建，废弃旧基类。
  */
 public final class ContinuousStrategy {
 
@@ -105,7 +114,7 @@ public final class ContinuousStrategy {
             }
 
             boolean incompleteFree = isTruncated && !seg.isFree() && !cycleCapped
-                    && AbstractTimeBasedRule.isIncompleteFree(segMinutes, unitMinutes,
+                    && ContinuousStrategy.isIncompleteFree(segMinutes, unitMinutes,
                             semantics.incompleteMode(config),
                             semantics.thresholdMinutes(config),
                             semantics.thresholdRatio(config));
@@ -118,7 +127,7 @@ public final class ContinuousStrategy {
             if (seg.isFree() || cycleCapped || incompleteFree) {
                 charged = BigDecimal.ZERO;
             } else if (isTruncated) {
-                charged = AbstractTimeBasedRule.computeIncompleteCharge(unitPrice, segMinutes, unitMinutes,
+                charged = ContinuousStrategy.computeIncompleteCharge(unitPrice, segMinutes, unitMinutes,
                         semantics.incompleteMode(config),
                         semantics.thresholdMinutes(config),
                         semantics.thresholdRatio(config));
@@ -248,5 +257,168 @@ public final class ContinuousStrategy {
      */
     public static long minutesFromOrigin(LocalDateTime cycleOrigin, LocalDateTime time) {
         return Duration.between(cycleOrigin, time).toMinutes();
+    }
+
+    // ==================== 简化计算框架 ====================
+
+    /**
+     * 检查简化计算是否启用。
+     * <p>
+     * 从 {@code AbstractTimeBasedRule} 搬入；{@code cycleCapAmount} 由调用方通过
+     * {@link RuleSemantics#cycleCap} 解析后传入，避免对 {@code getCycleCapAmount} 的继承依赖。
+     */
+    public static <C extends RuleConfig> boolean isSimplificationEnabled(C config,
+                                                                          BillingConfigResolver configResolver,
+                                                                          BillingContext context,
+                                                                          BigDecimal cycleCapAmount) {
+        if (context != null && Boolean.TRUE.equals(context.getDisableSimplification())) {
+            return false;
+        }
+        // 配置明确禁用
+        if (config.getSimplifiedSupported() != null && !config.getSimplifiedSupported()) {
+            return false;
+        }
+        // 阈值为 0 表示禁用
+        int threshold = configResolver.getSimplifiedCycleThreshold();
+        if (threshold <= 0) {
+            return false;
+        }
+        // 封顶金额必须有效
+        return cycleCapAmount != null && cycleCapAmount.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    /**
+     * 计算周期边界时间。
+     *
+     * @param cycleIndex    周期索引（0-based）
+     * @param calcBegin     计算起点
+     * @param cycleMinutes  周期长度（分钟），由调用方通过 {@link RuleSemantics#cycleMinutes} 传入
+     * @return 该周期的起始时间
+     */
+    public static LocalDateTime getCycleBoundary(int cycleIndex, LocalDateTime calcBegin, int cycleMinutes) {
+        return calcBegin.plusMinutes((long) cycleIndex * cycleMinutes);
+    }
+
+    /**
+     * 构建简化单元。
+     * <p>
+     * 从 {@code AbstractTimeBasedRule} 搬入；{@code cycleMinutes} 由调用方传入，
+     * 避免对 {@code getCycleMinutes} 的继承依赖。
+     */
+    public static BillingUnit buildSimplifiedUnit(int beginCycleIndex,
+                                                   int cycleCount,
+                                                   BigDecimal cycleCapAmount,
+                                                   LocalDateTime calcBegin,
+                                                   int cycleMinutes) {
+
+        LocalDateTime beginTime = getCycleBoundary(beginCycleIndex, calcBegin, cycleMinutes);
+        LocalDateTime endTime = getCycleBoundary(beginCycleIndex + cycleCount, calcBegin, cycleMinutes);
+        BigDecimal totalAmount = cycleCapAmount.multiply(BigDecimal.valueOf(cycleCount));
+
+        // 构建 ruleData
+        Map<String, Object> ruleData = new HashMap<>();
+        ruleData.put("cycleIndex", beginCycleIndex);
+        ruleData.put("simplifiedCycleCount", cycleCount);
+        ruleData.put("simplifiedCycleAmount", cycleCapAmount);
+        ruleData.put("isSimplified", true);
+
+        return BillingUnit.builder()
+                .beginTime(beginTime)
+                .endTime(endTime)
+                .durationMinutes((int) Duration.between(beginTime, endTime).toMinutes())
+                .unitPrice(cycleCapAmount)
+                .originalAmount(totalAmount)
+                .chargedAmount(totalAmount)
+                .ruleData(ruleData)
+                .build();
+    }
+
+    // ==================== 不足单元计费（公共工具） ====================
+
+    /**
+     * 按不足单元计费模式计算截断单元的实际收费金额。
+     * <p>
+     * 仅用于 isTruncated=true 的单元（segMinutes &lt; unitMinutes）。
+     * <ul>
+     *   <li>FULL_CHARGE：unitPrice（不足也收全额）</li>
+     *   <li>PROPORTIONAL：unitPrice × segMinutes / unitMinutes</li>
+     *   <li>FREE：0</li>
+     *   <li>THRESHOLD_MINUTES：segMinutes ≥ thresholdMinutes ? unitPrice : 0</li>
+     *   <li>THRESHOLD_RATIO：ratio = segMinutes/unitMinutes ≥ thresholdRatio ? unitPrice × ratio : 0</li>
+     * </ul>
+     *
+     * @param unitPrice        完整单元单价
+     * @param segMinutes       截断单元实际时长
+     * @param unitMinutes      完整单元时长
+     * @param mode             不足单元计费模式（null 视为 FULL_CHARGE）
+     * @param thresholdMinutes THRESHOLD_MINUTES 阈值（null 视为 0）
+     * @param thresholdRatio   THRESHOLD_RATIO 阈值（null 视为 0，即总是按比例）
+     * @return 截断单元实际收费金额（scale=2, HALF_UP）
+     */
+    public static BigDecimal computeIncompleteCharge(BigDecimal unitPrice,
+                                                       int segMinutes,
+                                                       int unitMinutes,
+                                                       BConstants.IncompleteUnitChargeMode mode,
+                                                       Integer thresholdMinutes,
+                                                       BigDecimal thresholdRatio) {
+        if (unitPrice == null) unitPrice = BigDecimal.ZERO;
+        if (mode == null) mode = BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
+        if (segMinutes >= unitMinutes || unitMinutes <= 0) {
+            return unitPrice.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        switch (mode) {
+            case FULL_CHARGE:
+                return unitPrice.setScale(2, RoundingMode.HALF_UP);
+            case PROPORTIONAL:
+                return unitPrice.multiply(BigDecimal.valueOf(segMinutes))
+                        .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP);
+            case FREE:
+                return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            case THRESHOLD_MINUTES: {
+                int threshold = thresholdMinutes != null ? thresholdMinutes : 0;
+                return segMinutes >= threshold
+                        ? unitPrice.setScale(2, RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            }
+            case THRESHOLD_RATIO: {
+                BigDecimal ratio = BigDecimal.valueOf(segMinutes)
+                        .divide(BigDecimal.valueOf(unitMinutes), 6, RoundingMode.HALF_UP);
+                BigDecimal threshold = thresholdRatio != null ? thresholdRatio : BigDecimal.ZERO;
+                if (ratio.compareTo(threshold) >= 0) {
+                    // 达到阈值：按比例收（非全额）
+                    return unitPrice.multiply(ratio).setScale(2, RoundingMode.HALF_UP);
+                }
+                return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            }
+            default:
+                return unitPrice.setScale(2, RoundingMode.HALF_UP);
+        }
+    }
+
+    /**
+     * 判定不足单元在该模式下是否免费（用于设置 free/freePromotionId）。
+     */
+    public static boolean isIncompleteFree(int segMinutes,
+                                            int unitMinutes,
+                                            BConstants.IncompleteUnitChargeMode mode,
+                                            Integer thresholdMinutes,
+                                            BigDecimal thresholdRatio) {
+        if (mode == null) return false;
+        if (segMinutes >= unitMinutes || unitMinutes <= 0) return false;
+        switch (mode) {
+            case FREE:
+                return true;
+            case THRESHOLD_MINUTES:
+                return segMinutes < (thresholdMinutes != null ? thresholdMinutes : 0);
+            case THRESHOLD_RATIO: {
+                BigDecimal ratio = BigDecimal.valueOf(segMinutes)
+                        .divide(BigDecimal.valueOf(unitMinutes), 6, RoundingMode.HALF_UP);
+                BigDecimal threshold = thresholdRatio != null ? thresholdRatio : BigDecimal.ZERO;
+                return ratio.compareTo(threshold) < 0;
+            }
+            default:
+                return false;
+        }
     }
 }

@@ -42,7 +42,7 @@
 - `NaturalTimeSmokeTest` - 自然时间规则冒烟测试
 - `EngineBoundarySmokeTest` - 引擎边界冒烟测试
 - `BillingApiBoundaryTest` - API 边界测试
-- `SimplifiedUnitMetaTest` - 简化单元元数据测试
+- `SimplifiedUnitMetaTest` - 简化单元 ruleData Map 契约测试（旧 SimplifiedUnitMeta 已删除）
 
 ### 文档
 
@@ -84,9 +84,10 @@ billing/
 ├── core/src/main/java/cn/shang/charging/
 │   ├── billing/pojo/
 │   │   ├── BConstants.java          # 常量定义（IncompleteUnitChargeMode 等）
-│   │   └ SimplifiedUnitMeta.java    # 简化单元元数据
+│   │   └ (简化单元元数据改由 ruleData Map 承载，见 ContinuousStrategy.buildSimplifiedUnit)
 │   ├── charge/rules/
-│   │   ├── AbstractTimeBasedRule.java
+│   │   ├── RuleSupport.java            # FREE_MINUTES 时段化公共工具
+│   │   ├── ContinuousStrategy.java     # CONTINUOUS 通用 applyCapAndAccumulate + 不足单元计费 + 简化单元构建
 │   │   ├── AbstractContinuousCapHandler.java
 │   │   ├── SimplifiedCycleStateHelper.java
 │   │   ├── daynight/
