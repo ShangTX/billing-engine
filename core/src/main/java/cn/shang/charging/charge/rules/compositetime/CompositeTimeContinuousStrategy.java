@@ -104,12 +104,10 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
         int threshold = context.getBillingConfigResolver() != null
             ? context.getBillingConfigResolver().getSimplifiedCycleThreshold()
             : 0;
-        // FREE_MINUTES 存在时保守地视为所有周期都有优惠，不启用简化
-        boolean hasFreeMinutes = promotionAggregate != null && promotionAggregate.getFreeMinutes() > 0;
-
         // 全局空隙实现（决策 C）：算无优惠空隙，长空隙简化，短空隙与优惠段走边界驱动
+        // FREE_MINUTES 时段化后免费段参与 gaps，简化能正确处理，不再保守排除
         List<BillingUnit> allUnits;
-        if (simplificationEnabled && threshold > 0 && !hasFreeMinutes) {
+        if (simplificationEnabled && threshold > 0) {
             allUnits = generateUnitsByGlobalGaps(calcBegin, calcEnd, context, config,
                     freeTimeRanges, threshold, billingOrigin);
         } else {

@@ -78,16 +78,15 @@ public final class DurationPeriodStrategy {
             return new HomogeneousSegment(current, next, unitPrice, unitPrice, false, null, null);
         });
 
-        // 简化计算判断（与 CONTINUOUS 一致：FREE_MINUTES 时保守不简化）
+        // 简化计算判断（FREE_MINUTES 时段化后免费段参与 gaps，简化能正确处理，不再保守排除）
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
                 && ContinuousStrategy.isSimplificationEnabled(config, context.getBillingConfigResolver(), context, cycleCap);
         int threshold = context.getBillingConfigResolver() != null
                 ? context.getBillingConfigResolver().getSimplifiedCycleThreshold() : 0;
-        boolean hasFreeMinutes = promotionAggregate != null && promotionAggregate.getFreeMinutes() > 0;
 
         // 转换为 DurationSegment（时段封顶 + 周期封顶）
         DurationSupport.DurationResult durationResult;
-        if (simplificationEnabled && threshold > 0 && !hasFreeMinutes) {
+        if (simplificationEnabled && threshold > 0) {
             durationResult = DurationSupport.buildPeriodModeSimplified(
                     segments, cycleCap, semantics, config, cycleOrigin, freeTimeRanges, threshold);
         } else {
