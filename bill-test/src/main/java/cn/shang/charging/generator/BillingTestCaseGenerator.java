@@ -446,9 +446,15 @@ public class BillingTestCaseGenerator {
     /**
      * 从功能点选择实际计费模式。
      * UNIT_BASED 已降级为独立规则类型，普通规则只支持 CONTINUOUS；
-     * 生成器统一产出 CONTINUOUS 用例（TestFeature.UNIT_BASED 保留为兼容标记，按 CONTINUOUS 生成）。
+     * 生成器默认产出 CONTINUOUS 用例（TestFeature.UNIT_BASED 保留为兼容标记，按 CONTINUOUS 生成）。
+     * <p>
+     * BUBBLE 免费段例外：CONTINUOUS 不支持 BUBBLE（{@code ContinuousStrategy.assertNoBubbleSupported} 校验），
+     * 改用 DURATION_PERIOD（已支持 bubble：effective 周期切分）。
      */
     private BConstants.CalculationMode selectBillingMode(Set<TestFeature> features) {
+        if (features.contains(TestFeature.BUBBLE_FREE_RANGE)) {
+            return BConstants.CalculationMode.DURATION_PERIOD;
+        }
         return BConstants.CalculationMode.CONTINUOUS;
     }
 

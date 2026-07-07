@@ -11,6 +11,7 @@ import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.RuleSupport;
+import cn.shang.charging.charge.rules.SimplificationSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
@@ -19,10 +20,8 @@ import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -71,6 +70,9 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutes(promotionAggregate, context.getWindow());
         final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
+
+        // CONTINUOUS 模式不支持 BUBBLE 免费时段（bubble 需 effective 周期，CONTINUOUS 未消费）
+        ContinuousStrategy.assertNoBubbleSupported(freeTimeRanges);
 
         BigDecimal cycleCapAmount = dayNightSemantics.cycleCap(config);
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
@@ -141,36 +143,17 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
      *   <li>每个 gap 对齐周期边界，覆盖完整周期数 &gt; 阈值 → 简化单元；周期边界外的 gap 头尾片段走边界驱动</li>
      *   <li>优惠段（gap 之间的免费时段）走边界驱动生成明细</li>
      * </ol>
-     * 所有片段按时间顺序拼接，封顶/累计由 {@link ContinuousStrategy#applyCapAndAccumulate} 在每个边界驱动片段内独立处理
-     * （与旧实现一致：简化段与优惠段均以 carryOverAccumulated=0 起算）。
+     * 核心算法（computeGaps + findSimplifiedBlock）由 {@link SimplificationSupport} 承载，
+     * 与 PERIOD 时长模式简化共用一份。CONTINUOUS 已校验无 bubble，bubbleRanges 传空，
+     * effective offset = 自然 offset，行为与原切段模型一致。
+     * 封顶/累计由 {@link ContinuousStrategy#applyCapAndAccumulate} 在每个边界驱动片段内独立处理
+     * （简化段与优惠段均以 carryOverAccumulated=0 起算）。
      */
     private List<BillingUnit> generateUnitsByGlobalGaps(LocalDateTime calcBegin, LocalDateTime calcEnd,
                                                         BillingContext context, DayNightConfig config,
                                                         List<FreeTimeRange> freeTimeRanges, int threshold) {
-        // 1. 算无优惠空隙（freeTimeRanges 已合并排序，此处再防御性排序）
-        List<FreeTimeRange> sortedRanges = new ArrayList<>();
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (range.getEndTime().isAfter(calcBegin) && range.getBeginTime().isBefore(calcEnd)) {
-                sortedRanges.add(range);
-            }
-        }
-        sortedRanges.sort(Comparator.comparing(FreeTimeRange::getBeginTime));
-
-        List<Range> gaps = new ArrayList<>();
-        LocalDateTime cursor = calcBegin;
-        for (FreeTimeRange range : sortedRanges) {
-            LocalDateTime rangeBegin = range.getBeginTime().isBefore(calcBegin) ? calcBegin : range.getBeginTime();
-            LocalDateTime rangeEnd = range.getEndTime().isAfter(calcEnd) ? calcEnd : range.getEndTime();
-            if (rangeBegin.isAfter(cursor)) {
-                gaps.add(new Range(cursor, rangeBegin));
-            }
-            if (rangeEnd.isAfter(cursor)) {
-                cursor = rangeEnd;
-            }
-        }
-        if (cursor.isBefore(calcEnd)) {
-            gaps.add(new Range(cursor, calcEnd));
-        }
+        // 1. 算无优惠空隙（CONTINUOUS 已校验无 bubble）
+        List<SimplificationSupport.Range> gaps = SimplificationSupport.computeGaps(calcBegin, calcEnd, freeTimeRanges);
 
         // 2. 把每个 gap 拆为"完整周期块（可简化）+ 头尾部分片段（走边界驱动）"，优惠段单独走边界驱动
         int cycleMinutes = MINUTES_PER_CYCLE;
@@ -178,33 +161,27 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         List<BillingUnit> allUnits = new ArrayList<>();
 
         LocalDateTime promoCursor = calcBegin;
-        for (Range gap : gaps) {
+        for (SimplificationSupport.Range gap : gaps) {
             // gap 之前的优惠段（promoCursor ~ gap.begin）走边界驱动
             if (gap.begin.isAfter(promoCursor)) {
                 allUnits.addAll(calculateBoundaryDriven(promoCursor, gap.begin, context, config, freeTimeRanges));
             }
 
-            long beginOffset = Duration.between(calcBegin, gap.begin).toMinutes();
-            long endOffset = Duration.between(calcBegin, gap.end).toMinutes();
-            // 第一个 >= gap.begin 的周期边界索引
-            int startK = beginOffset % cycleMinutes == 0
-                    ? (int) (beginOffset / cycleMinutes)
-                    : (int) (beginOffset / cycleMinutes) + 1;
-            // 第一个 <= gap.end 的周期边界索引
-            int endK = (int) (endOffset / cycleMinutes);
+            // CONTINUOUS 无 bubble，bubbleRanges=List.of()，effective offset = 自然 offset
+            SimplificationSupport.SimplifiedBlock block = SimplificationSupport.findSimplifiedBlock(
+                    gap, calcBegin, List.of(), cycleMinutes, threshold);
 
-            if (endK - startK > threshold) {
-                // 头部部分片段（gap.begin ~ 周期边界）走边界驱动
-                if (startK * cycleMinutes > beginOffset) {
-                    LocalDateTime blockStart = calcBegin.plusMinutes((long) startK * cycleMinutes);
-                    allUnits.addAll(calculateBoundaryDriven(gap.begin, blockStart, context, config, freeTimeRanges));
+            if (block != null) {
+                // 头部部分片段（gap.begin ~ 简化块起点）走边界驱动
+                if (block.begin.isAfter(gap.begin)) {
+                    allUnits.addAll(calculateBoundaryDriven(gap.begin, block.begin, context, config, freeTimeRanges));
                 }
-                // 完整周期块 → 简化单元
-                allUnits.add(ContinuousStrategy.buildSimplifiedUnit(startK, endK - startK, cycleCapAmount, calcBegin, cycleMinutes));
-                // 尾部部分片段（周期边界 ~ gap.end）走边界驱动
-                if ((long) endK * cycleMinutes < endOffset) {
-                    LocalDateTime blockEnd = calcBegin.plusMinutes((long) endK * cycleMinutes);
-                    allUnits.addAll(calculateBoundaryDriven(blockEnd, gap.end, context, config, freeTimeRanges));
+                // 完整周期块 → 简化单元（startK/cycleCount 与原逻辑一致，buildSimplifiedUnit 用 calcBegin 锚定周期边界）
+                allUnits.add(ContinuousStrategy.buildSimplifiedUnit(
+                        block.startK, block.cycleCount, cycleCapAmount, calcBegin, cycleMinutes));
+                // 尾部部分片段（简化块终点 ~ gap.end）走边界驱动
+                if (block.end.isBefore(gap.end)) {
+                    allUnits.addAll(calculateBoundaryDriven(block.end, gap.end, context, config, freeTimeRanges));
                 }
             } else {
                 // 完整周期数不足阈值，整个 gap 走边界驱动
@@ -324,16 +301,5 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         BigDecimal unitPrice = priceResolver.determineUnitPriceForContinuous(current, pricingEnd, config);
         return new HomogeneousSegment(current, next, unitPrice, unitPrice,
                 false, null, null);
-    }
-
-    /** 时间区间（用于全局空隙计算）。 */
-    private static final class Range {
-        final LocalDateTime begin;
-        final LocalDateTime end;
-
-        Range(LocalDateTime begin, LocalDateTime end) {
-            this.begin = begin;
-            this.end = end;
-        }
     }
 }

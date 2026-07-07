@@ -78,9 +78,21 @@ public final class DurationPeriodStrategy {
             return new HomogeneousSegment(current, next, unitPrice, unitPrice, false, null, null);
         });
 
+        // 简化计算判断（与 CONTINUOUS 一致：FREE_MINUTES 时保守不简化）
+        boolean simplificationEnabled = context.getBillingConfigResolver() != null
+                && ContinuousStrategy.isSimplificationEnabled(config, context.getBillingConfigResolver(), context, cycleCap);
+        int threshold = context.getBillingConfigResolver() != null
+                ? context.getBillingConfigResolver().getSimplifiedCycleThreshold() : 0;
+        boolean hasFreeMinutes = promotionAggregate != null && promotionAggregate.getFreeMinutes() > 0;
+
         // 转换为 DurationSegment（时段封顶 + 周期封顶）
-        DurationSupport.DurationResult durationResult =
-                DurationSupport.buildPeriodMode(segments, cycleCap, semantics, config, cycleOrigin);
+        DurationSupport.DurationResult durationResult;
+        if (simplificationEnabled && threshold > 0 && !hasFreeMinutes) {
+            durationResult = DurationSupport.buildPeriodModeSimplified(
+                    segments, cycleCap, semantics, config, cycleOrigin, freeTimeRanges, threshold);
+        } else {
+            durationResult = DurationSupport.buildPeriodMode(segments, cycleCap, semantics, config, cycleOrigin);
+        }
 
         // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 从 DurationSegment.originalAmount 聚合）
         final List<DurationSegment> finalSegments = durationResult.segments;

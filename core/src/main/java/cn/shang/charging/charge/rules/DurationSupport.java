@@ -2,6 +2,8 @@ package cn.shang.charging.charge.rules;
 
 import cn.shang.charging.billing.pojo.DurationSegment;
 import cn.shang.charging.billing.pojo.RuleConfig;
+import cn.shang.charging.promotion.pojo.FreeTimeRange;
+import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -361,5 +363,158 @@ public final class DurationSupport {
                 ? cycleCapApplied : totalAmount;
 
         return new DurationResult(result, cycleCapApplied, finalAmount);
+    }
+
+    // ==================== 简化路径（PERIOD 模式） ====================
+
+    /**
+     * 构建简化时长段：N 个完整 effective 周期合并为一个 DurationSegment。
+     * <p>
+     * 简化段跨多个 period，periodLabel/periodCap 不适用（已按 cycleCap 封顶）。
+     * chargedAmount = cycleCap × cycleCount（每周期封顶），originalAmount 同（简化段无优惠）。
+     */
+    public static DurationSegment buildSimplifiedDurationSegment(LocalDateTime begin, LocalDateTime end,
+                                                                 int cycleCount, int cycleMinutes,
+                                                                 BigDecimal cycleCap) {
+        BigDecimal totalAmount = cycleCap.multiply(BigDecimal.valueOf(cycleCount));
+        return new DurationSegment(
+                begin, end,
+                "SIMPLIFIED",
+                cycleCount * cycleMinutes,
+                cycleCap,
+                totalAmount,
+                null,
+                null,
+                totalAmount);
+    }
+
+    /**
+     * PERIOD 模式简化路径：长周期无优惠区间合并为简化段，短区间/优惠段走 {@link #buildPeriodMode} 详细。
+     * <p>
+     * 核心算法（computeGaps + findSimplifiedBlock）由 {@link SimplificationSupport} 承载，与 CONTINUOUS 共用一份。
+     * bubble 段通过 effective offset 处理（周期边界后移）：gap 内无 bubble，effective offset 线性；
+     * gap 之前的 bubble 时长从 effective offset 中扣除。
+     * <p>
+     * <b>子区间独立计算</b>：优惠段/头尾片段各自调用 buildPeriodMode（effectiveAccumInCycle 从 0 起算）。
+     * 由于简化段对齐 effective 周期边界，头尾片段落在简化段的相邻不完整周期内（不跨周期边界），
+     * 优惠段 charged=0，故独立计算的周期划分差异不影响 chargedAmount。
+     *
+     * @param segments        边界驱动产出的同质段（含 bubble/free 标记）
+     * @param cycleCap        周期封顶金额
+     * @param semantics       规则族语义
+     * @param config          规则配置
+     * @param cycleOrigin     周期起点
+     * @param freeTimeRanges  免费段列表（含 BUBBLE 段，用于算 gaps + effective offset）
+     * @param threshold       简化阈值（完整周期数 &gt; 阈值才简化）
+     * @return DurationResult（segments 为简化段 + 详细段混合）
+     */
+    public static <C extends RuleConfig> DurationResult buildPeriodModeSimplified(
+            List<HomogeneousSegment> segments,
+            BigDecimal cycleCap,
+            RuleSemantics<C> semantics,
+            C config,
+            LocalDateTime cycleOrigin,
+            List<FreeTimeRange> freeTimeRanges,
+            int threshold) {
+
+        List<DurationSegment> result = new ArrayList<>();
+        if (segments.isEmpty()) {
+            return new DurationResult(result, cycleCap, BigDecimal.ZERO);
+        }
+
+        LocalDateTime calcBegin = segments.get(0).getBeginTime();
+        LocalDateTime calcEnd = segments.get(segments.size() - 1).getEndTime();
+        int cycleMinutes = semantics.cycleMinutes();
+
+        // 分离 bubble 段（用于 effective offset 计算）
+        List<FreeTimeRange> bubbleRanges = new ArrayList<>();
+        for (FreeTimeRange range : freeTimeRanges) {
+            if (range.getRangeType() == FreeTimeRangeType.BUBBLE) {
+                bubbleRanges.add(range);
+            }
+        }
+
+        // 算无优惠空隙（bubble 段是优惠，不在 gap 内）
+        List<SimplificationSupport.Range> gaps = SimplificationSupport.computeGaps(calcBegin, calcEnd, freeTimeRanges);
+
+        BigDecimal totalCharged = BigDecimal.ZERO;
+        LocalDateTime promoCursor = calcBegin;
+
+        for (SimplificationSupport.Range gap : gaps) {
+            // gap 之前的优惠段（含 bubble）走详细
+            if (gap.begin.isAfter(promoCursor)) {
+                DurationResult detail = buildPeriodModeForRange(segments, promoCursor, gap.begin,
+                        cycleCap, semantics, config, cycleOrigin);
+                result.addAll(detail.segments);
+                totalCharged = totalCharged.add(detail.chargedAmount);
+            }
+
+            // gap 内简化判断（effective offset，含 bubble 后移）
+            SimplificationSupport.SimplifiedBlock block = SimplificationSupport.findSimplifiedBlock(
+                    gap, calcBegin, bubbleRanges, cycleMinutes, threshold);
+
+            if (block != null) {
+                // 头部片段（gap.begin ~ 简化块起点）走详细
+                if (block.begin.isAfter(gap.begin)) {
+                    DurationResult head = buildPeriodModeForRange(segments, gap.begin, block.begin,
+                            cycleCap, semantics, config, cycleOrigin);
+                    result.addAll(head.segments);
+                    totalCharged = totalCharged.add(head.chargedAmount);
+                }
+                // 简化段（N 个完整 effective 周期）
+                result.add(buildSimplifiedDurationSegment(block.begin, block.end, block.cycleCount, cycleMinutes, cycleCap));
+                totalCharged = totalCharged.add(cycleCap.multiply(BigDecimal.valueOf(block.cycleCount)));
+                // 尾部片段（简化块终点 ~ gap.end）走详细
+                if (block.end.isBefore(gap.end)) {
+                    DurationResult tail = buildPeriodModeForRange(segments, block.end, gap.end,
+                            cycleCap, semantics, config, cycleOrigin);
+                    result.addAll(tail.segments);
+                    totalCharged = totalCharged.add(tail.chargedAmount);
+                }
+            } else {
+                // 完整周期数不足阈值，整个 gap 走详细
+                DurationResult detail = buildPeriodModeForRange(segments, gap.begin, gap.end,
+                        cycleCap, semantics, config, cycleOrigin);
+                result.addAll(detail.segments);
+                totalCharged = totalCharged.add(detail.chargedAmount);
+            }
+
+            promoCursor = gap.end;
+        }
+        // 末尾优惠段（最后一个 gap 之后到 calcEnd）走详细
+        if (promoCursor.isBefore(calcEnd)) {
+            DurationResult detail = buildPeriodModeForRange(segments, promoCursor, calcEnd,
+                    cycleCap, semantics, config, cycleOrigin);
+            result.addAll(detail.segments);
+            totalCharged = totalCharged.add(detail.chargedAmount);
+        }
+
+        return new DurationResult(result, cycleCap, totalCharged);
+    }
+
+    /**
+     * 对 [begin, end] 子区间跑详细 buildPeriodMode：先从 segments 裁剪子区间段，再调用 {@link #buildPeriodMode}。
+     */
+    private static <C extends RuleConfig> DurationResult buildPeriodModeForRange(
+            List<HomogeneousSegment> segments, LocalDateTime begin, LocalDateTime end,
+            BigDecimal cycleCap, RuleSemantics<C> semantics, C config, LocalDateTime cycleOrigin) {
+        List<HomogeneousSegment> clipped = clipSegments(segments, begin, end);
+        return buildPeriodMode(clipped, cycleCap, semantics, config, cycleOrigin);
+    }
+
+    /**
+     * 从同质段列表裁剪 [begin, end] 子区间：跨边界的段被切分，rangeType/free 标记保留。
+     */
+    private static List<HomogeneousSegment> clipSegments(List<HomogeneousSegment> segments,
+                                                        LocalDateTime begin, LocalDateTime end) {
+        List<HomogeneousSegment> clipped = new ArrayList<>();
+        for (HomogeneousSegment seg : segments) {
+            if (!seg.getEndTime().isAfter(begin) || !seg.getBeginTime().isBefore(end)) continue;
+            LocalDateTime segBegin = seg.getBeginTime().isBefore(begin) ? begin : seg.getBeginTime();
+            LocalDateTime segEnd = seg.getEndTime().isAfter(end) ? end : seg.getEndTime();
+            clipped.add(new HomogeneousSegment(segBegin, segEnd, seg.getUnitPrice(), seg.getOriginalAmount(),
+                    seg.isFree(), seg.getFreePromotionId(), seg.getRangeType(), null));
+        }
+        return clipped;
     }
 }

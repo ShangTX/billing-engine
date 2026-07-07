@@ -12,6 +12,7 @@ import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.RuleSupport;
+import cn.shang.charging.charge.rules.SimplificationSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
@@ -22,7 +23,6 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -93,6 +93,9 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
         FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutes(promotionAggregate, window);
         List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
+
+        // CONTINUOUS 模式不支持 BUBBLE 免费时段（bubble 需 effective 周期，CONTINUOUS 未消费）
+        ContinuousStrategy.assertNoBubbleSupported(freeTimeRanges);
 
         // 检查是否启用简化计算
         BigDecimal cycleCapAmount = compositeTimeSemantics.cycleCap(config);
@@ -167,7 +170,10 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
      *       周期边界外的 gap 头尾片段走边界驱动</li>
      *   <li>优惠段（gap 之间的免费时段）走边界驱动生成明细</li>
      * </ol>
-     * 所有片段按时间顺序拼接，封顶/累计/periodCap 由 {@link ContinuousStrategy#applyCapAndAccumulate}
+     * 核心算法（computeGaps + findSimplifiedBlock）由 {@link SimplificationSupport} 承载，
+     * 与 DayNight/PERIOD 简化共用一份。CONTINUOUS 已校验无 bubble，bubbleRanges 传空，
+     * effective offset = 自然 offset（相对 billingOrigin）。
+     * 封顶/累计/periodCap 由 {@link ContinuousStrategy#applyCapAndAccumulate}
      * 在每个边界驱动片段内独立处理（简化段与优惠段均以 carryOverAccumulated=0 起算）。
      * <p>
      * 与 DayNight 的关键差异：周期边界基于 {@code billingOrigin}（分段起点），不是 {@code context.getBeginTime()}。
@@ -176,30 +182,8 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
                                                         BillingContext context, CompositeTimeConfig config,
                                                         List<FreeTimeRange> freeTimeRanges, int threshold,
                                                         LocalDateTime billingOrigin) {
-        // 1. 算无优惠空隙（freeTimeRanges 已合并排序，此处再防御性排序）
-        List<FreeTimeRange> sortedRanges = new ArrayList<>();
-        for (FreeTimeRange range : freeTimeRanges) {
-            if (range.getEndTime().isAfter(calcBegin) && range.getBeginTime().isBefore(calcEnd)) {
-                sortedRanges.add(range);
-            }
-        }
-        sortedRanges.sort(Comparator.comparing(FreeTimeRange::getBeginTime));
-
-        List<Range> gaps = new ArrayList<>();
-        LocalDateTime cursor = calcBegin;
-        for (FreeTimeRange range : sortedRanges) {
-            LocalDateTime rangeBegin = range.getBeginTime().isBefore(calcBegin) ? calcBegin : range.getBeginTime();
-            LocalDateTime rangeEnd = range.getEndTime().isAfter(calcEnd) ? calcEnd : range.getEndTime();
-            if (rangeBegin.isAfter(cursor)) {
-                gaps.add(new Range(cursor, rangeBegin));
-            }
-            if (rangeEnd.isAfter(cursor)) {
-                cursor = rangeEnd;
-            }
-        }
-        if (cursor.isBefore(calcEnd)) {
-            gaps.add(new Range(cursor, calcEnd));
-        }
+        // 1. 算无优惠空隙（CONTINUOUS 已校验无 bubble）
+        List<SimplificationSupport.Range> gaps = SimplificationSupport.computeGaps(calcBegin, calcEnd, freeTimeRanges);
 
         // 2. 把每个 gap 拆为"完整周期块（可简化）+ 头尾部分片段（走边界驱动）"，优惠段单独走边界驱动
         int cycleMinutes = MINUTES_PER_CYCLE;
@@ -207,35 +191,28 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
         List<BillingUnit> allUnits = new ArrayList<>();
 
         LocalDateTime promoCursor = calcBegin;
-        for (Range gap : gaps) {
+        for (SimplificationSupport.Range gap : gaps) {
             // gap 之前的优惠段（promoCursor ~ gap.begin）走边界驱动
             if (gap.begin.isAfter(promoCursor)) {
                 allUnits.addAll(calculateBoundaryDriven(promoCursor, gap.begin, context, config,
                         freeTimeRanges, billingOrigin));
             }
 
-            long beginOffset = Duration.between(billingOrigin, gap.begin).toMinutes();
-            long endOffset = Duration.between(billingOrigin, gap.end).toMinutes();
-            // 第一个 >= gap.begin 的周期边界索引（基于 billingOrigin）
-            int startK = beginOffset % cycleMinutes == 0
-                    ? (int) (beginOffset / cycleMinutes)
-                    : (int) (beginOffset / cycleMinutes) + 1;
-            // 第一个 <= gap.end 的周期边界索引（基于 billingOrigin）
-            int endK = (int) (endOffset / cycleMinutes);
+            // CONTINUOUS 无 bubble，bubbleRanges=List.of()，effective offset = 自然 offset（相对 billingOrigin）
+            SimplificationSupport.SimplifiedBlock block = SimplificationSupport.findSimplifiedBlock(
+                    gap, billingOrigin, List.of(), cycleMinutes, threshold);
 
-            if (endK - startK > threshold) {
-                // 头部部分片段（gap.begin ~ 周期边界）走边界驱动
-                if ((long) startK * cycleMinutes > beginOffset) {
-                    LocalDateTime blockStart = billingOrigin.plusMinutes((long) startK * cycleMinutes);
-                    allUnits.addAll(calculateBoundaryDriven(gap.begin, blockStart, context, config,
+            if (block != null) {
+                // 头部部分片段（gap.begin ~ 简化块起点）走边界驱动
+                if (block.begin.isAfter(gap.begin)) {
+                    allUnits.addAll(calculateBoundaryDriven(gap.begin, block.begin, context, config,
                             freeTimeRanges, billingOrigin));
                 }
                 // 完整周期块 → 简化单元（基于 billingOrigin 锚定周期边界）
-                allUnits.add(buildSimplifiedUnitFromOrigin(startK, endK - startK, cycleCapAmount, billingOrigin));
-                // 尾部部分片段（周期边界 ~ gap.end）走边界驱动
-                if ((long) endK * cycleMinutes < endOffset) {
-                    LocalDateTime blockEnd = billingOrigin.plusMinutes((long) endK * cycleMinutes);
-                    allUnits.addAll(calculateBoundaryDriven(blockEnd, gap.end, context, config,
+                allUnits.add(buildSimplifiedUnitFromOrigin(block.startK, block.cycleCount, cycleCapAmount, billingOrigin));
+                // 尾部部分片段（简化块终点 ~ gap.end）走边界驱动
+                if (block.end.isBefore(gap.end)) {
+                    allUnits.addAll(calculateBoundaryDriven(block.end, gap.end, context, config,
                             freeTimeRanges, billingOrigin));
                 }
             } else {
@@ -408,17 +385,6 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
         }
         if (totalCovered != MINUTES_PER_CYCLE) {
             throw new IllegalArgumentException("自然时段必须覆盖全天（0-1440分钟）");
-        }
-    }
-
-    /** 时间区间（用于全局空隙计算）。 */
-    private static final class Range {
-        final LocalDateTime begin;
-        final LocalDateTime end;
-
-        Range(LocalDateTime begin, LocalDateTime end) {
-            this.begin = begin;
-            this.end = end;
         }
     }
 }

@@ -5,6 +5,8 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.RuleConfig;
+import cn.shang.charging.promotion.pojo.FreeTimeRange;
+import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -257,6 +259,29 @@ public final class ContinuousStrategy {
      */
     public static long minutesFromOrigin(LocalDateTime cycleOrigin, LocalDateTime time) {
         return Duration.between(cycleOrigin, time).toMinutes();
+    }
+
+    // ==================== BUBBLE 校验（CONTINUOUS 模式约束） ====================
+
+    /**
+     * 校验 CONTINUOUS 模式不支持 BUBBLE 免费时段。
+     * <p>
+     * CONTINUOUS 的周期切换/cap 逻辑分散在各规则族 Semantics + applyCapAndAccumulate，
+     * 未消费 bubble 语义（bubble 段会被当作普通免费段，占用周期，违背 bubble 设计）。
+     * 故 CONTINUOUS 模式遇 BUBBLE 免费段直接报错，引导改用 DURATION_PERIOD/DURATION_GLOBAL
+     * （两者已支持 bubble：PERIOD 按 effective 周期切，GLOBAL 按 cycleCount 减 bubble 时长）。
+     *
+     * @param freeTimeRanges 免费段列表
+     * @throws IllegalArgumentException 存在 BUBBLE 段时抛出
+     */
+    public static void assertNoBubbleSupported(List<FreeTimeRange> freeTimeRanges) {
+        if (freeTimeRanges == null || freeTimeRanges.isEmpty()) return;
+        for (FreeTimeRange range : freeTimeRanges) {
+            if (range.getRangeType() == FreeTimeRangeType.BUBBLE) {
+                throw new IllegalArgumentException(
+                        "CONTINUOUS 模式不支持 BUBBLE 免费时段，请改用 DURATION_PERIOD 或 DURATION_GLOBAL 模式");
+            }
+        }
     }
 
     // ==================== 简化计算框架 ====================

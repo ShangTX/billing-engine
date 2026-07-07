@@ -76,6 +76,9 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
         List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
 
+        // CONTINUOUS 模式不支持 BUBBLE 免费时段（bubble 需 effective 周期，CONTINUOUS 未消费）
+        ContinuousStrategy.assertNoBubbleSupported(freeTimeRanges);
+
         // 边界来源：自然时段边界 + 免费时段起止 + 计费单元对齐 + calcEnd
         // 周期对齐在跨周期封顶处由 cycleAccumulated 单独处理
         List<BoundaryProvider> providers = new ArrayList<>();

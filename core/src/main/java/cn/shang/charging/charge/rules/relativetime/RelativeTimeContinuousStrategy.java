@@ -76,6 +76,8 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
         FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutes(promotionAggregate, window);
         final List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();
+        // CONTINUOUS 模式不支持 BUBBLE 免费时段（bubble 需 effective 周期，CONTINUOUS 未消费）
+        ContinuousStrategy.assertNoBubbleSupported(freeTimeRanges);
         List<RelativeTimePeriod> periods = config.getPeriods();
 
         // 边界来源：周期结束（24h）+ 时段结束 + 免费时段起止 + 单元对齐 + calcEnd

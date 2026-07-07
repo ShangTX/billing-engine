@@ -43,7 +43,9 @@ class BillingTestCaseGeneratorTest {
             assertNotNull(generatedCase.getRequest());
             assertNotNull(generatedCase.getRuleConfig());
             assertNotNull(generatedCase.getResult());
-            assertFalse(generatedCase.getResult().getUnits().isEmpty());
+            // BUBBLE → DURATION_PERIOD（CONTINUOUS 不支持 BUBBLE），产出 durationSegments
+            assertFalse(generatedCase.getResult().getDurationSegments().isEmpty(),
+                    "DURATION_PERIOD 模式应产出 durationSegments");
         }
     }
 
