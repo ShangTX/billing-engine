@@ -19,6 +19,7 @@ import cn.shang.charging.promotion.pojo.PromotionUsage;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
 import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
+import cn.shang.charging.util.JacksonUtils;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -437,6 +438,10 @@ public class BillingPlaygroundTest {
                         u.getEquivalentAmount() != null ? u.getEquivalentAmount() : "-");
             }
         }
+
+        // 完整结果 JSON 序列化（方便复制、对比、传给前端）
+        System.out.println("\n【完整结果 JSON】");
+        System.out.println(JacksonUtils.toPrettyJsonString(result));
 
         System.out.println("\n" + "─".repeat(72));
     }

@@ -20,9 +20,10 @@ public class JacksonUtils {
 
     private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-    private static final ObjectMapper MAPPER = createMapper();
+    private static final ObjectMapper MAPPER = createMapper(false);
+    private static final ObjectMapper PRETTY_MAPPER = createMapper(true);
 
-    private static ObjectMapper createMapper() {
+    private static ObjectMapper createMapper(boolean pretty) {
         SimpleModule customModule = new SimpleModule();
         customModule.addSerializer(LocalDateTime.class, new LocalDateTimeSerializer(DATETIME_FORMATTER));
 
@@ -30,11 +31,19 @@ public class JacksonUtils {
                 .addModule(new JavaTimeModule())
                 .addModule(customModule)
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                .configure(SerializationFeature.INDENT_OUTPUT, pretty)
                 .build();
     }
 
     public static String toJsonString(Object obj) {
         return MAPPER.writeValueAsString(obj);
+    }
+
+    /**
+     * 格式化（缩进）输出的 JSON 序列化字符串，便于阅读完整结果。
+     */
+    public static String toPrettyJsonString(Object obj) {
+        return PRETTY_MAPPER.writeValueAsString(obj);
     }
 
     public static <T> T parse(String json, Class<T> clazz) {
