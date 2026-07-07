@@ -76,6 +76,46 @@ class BubbleFreeRangeTest {
         assertEquals(0, new BigDecimal("126").compareTo(result.getFinalAmount()));
     }
 
+    /** PERIOD + bubble：bubble 不占用周期，周期按累计有效时长切，每周期独立封顶。 */
+    @Test
+    void periodMode_bubble_notOccupyCycle() {
+        BillingService service = createService(config(new BigDecimal("50")), BConstants.CalculationMode.DURATION_PERIOD);
+
+        BillingRequest req = request(
+                LocalDateTime.of(2026, 1, 1, 17, 0),
+                LocalDateTime.of(2026, 1, 3, 18, 0));
+        req.setExternalPromotions(List.of(freeRange("bubble",
+                LocalDateTime.of(2026, 1, 1, 17, 0),
+                LocalDateTime.of(2026, 1, 2, 0, 0),
+                FreeTimeRangeType.BUBBLE)));
+
+        BillingResult result = service.calculate(req);
+
+        // bubble 7h 不计入周期：周期1 effective 24h（2日00:00-3日00:00）封顶 50
+        // 周期2 effective 18h（3日00:00-3日18:00）18×3=54>50 封顶 50。总 100
+        assertEquals(0, new BigDecimal("100").compareTo(result.getFinalAmount()));
+    }
+
+    /** PERIOD + NORMAL（对比）：NORMAL 占用周期，周期数不减，行为与增强前一致。 */
+    @Test
+    void periodMode_normal_occupyCycle() {
+        BillingService service = createService(config(new BigDecimal("50")), BConstants.CalculationMode.DURATION_PERIOD);
+
+        BillingRequest req = request(
+                LocalDateTime.of(2026, 1, 1, 17, 0),
+                LocalDateTime.of(2026, 1, 3, 18, 0));
+        req.setExternalPromotions(List.of(freeRange("normal",
+                LocalDateTime.of(2026, 1, 1, 17, 0),
+                LocalDateTime.of(2026, 1, 2, 0, 0),
+                FreeTimeRangeType.NORMAL)));
+
+        BillingResult result = service.calculate(req);
+
+        // NORMAL 7h 占用周期：周期1 [1日17:00,2日17:00] 免费7h+收费17h 封顶50
+        // 周期2 [2日17:00,3日17:00] 收费24h 封顶50，周期3 [3日17:00,3日18:00] 1h=3。总 103
+        assertEquals(0, new BigDecimal("103").compareTo(result.getFinalAmount()));
+    }
+
     // ==================== 辅助方法 ====================
 
     private DayNightConfig config(BigDecimal maxChargeOneDay) {

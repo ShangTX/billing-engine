@@ -159,13 +159,8 @@ public final class DurationSupport {
         int cycleMinutes = semantics.cycleMinutes();
         BigDecimal totalCharged = BigDecimal.ZERO;
 
-        // 周期跟踪：cycleStart 对齐到 cycleOrigin 的周期边界（<= calcBegin 的最大周期起点），
-        // 与 cycleEnd provider 一致，保证周期封顶重置点与边界切断对齐。
-        LocalDateTime firstBegin = segments.get(0).getBeginTime();
-        long beginOffset = java.time.Duration.between(cycleOrigin, firstBegin).toMinutes();
-        long cycleIndex = beginOffset / cycleMinutes;
-        if (beginOffset < 0 && beginOffset % cycleMinutes != 0) cycleIndex--;
-        LocalDateTime cycleStart = cycleOrigin.plusMinutes(cycleIndex * cycleMinutes);
+        // 周期跟踪：按累计有效时长（非 bubble 段时长）切周期。bubble 段不占用周期时长。
+        long effectiveAccumInCycle = 0;
         BigDecimal cycleAccumulated = BigDecimal.ZERO;
 
         // period 跟踪（周期内）
@@ -175,55 +170,86 @@ public final class DurationSupport {
         String periodLabel = null;
 
         for (HomogeneousSegment seg : segments) {
-            // 周期切换检测：段起点越过当前周期终点
-            while (seg.getBeginTime().compareTo(cycleStart.plusMinutes(cycleMinutes)) >= 0) {
-                // 结算刚结束的周期：min(cycleCap, cycleAccumulated)
-                totalCharged = totalCharged.add(applyCycleCap(cycleCap, cycleAccumulated));
-                cycleStart = cycleStart.plusMinutes(cycleMinutes);
-                cycleAccumulated = BigDecimal.ZERO;
-                // 周期切换后 period 累计重置
-                currentPeriodKey = null;
-                periodAccumulated = BigDecimal.ZERO;
-                periodCap = null;
+            if (seg.isBubble()) {
+                // bubble 段不切分、不占用周期时长、不触发周期切换，charged=0
+                result.add(new DurationSegment(
+                        seg.getBeginTime(), seg.getEndTime(), periodLabel,
+                        0, seg.getUnitPrice(), BigDecimal.ZERO, periodCap,
+                        seg.getFreePromotionId(), BigDecimal.ZERO));
+                continue;
             }
 
-            int segMinutes = seg.durationMinutes();
-            BigDecimal charged = segmentCharge(seg, semantics, config, cycleOrigin);
+            // 非 bubble 段：按周期容量切分（段可能跨周期边界，切分后分别算 charged）
+            LocalDateTime segBegin = seg.getBeginTime();
+            LocalDateTime segEnd = seg.getEndTime();
+            int remainingMinutes = seg.durationMinutes();
+            boolean isFree = seg.isFree();
 
-            // period 识别（周期内切换）
-            String newPeriodKey = semantics.periodKey(seg.getBeginTime(), config, cycleOrigin);
-            if (!newPeriodKey.equals(currentPeriodKey)) {
-                currentPeriodKey = newPeriodKey;
-                periodAccumulated = BigDecimal.ZERO;
-                periodCap = semantics.periodCap(seg.getBeginTime(), config, cycleOrigin);
-                periodLabel = semantics.periodLabel(seg.getBeginTime(), config, cycleOrigin);
-            }
-
-            // 时段封顶（周期内累计，落盘到 chargedAmount）
-            if (periodCap != null && !seg.isFree()) {
-                BigDecimal newAccum = periodAccumulated.add(charged);
-                if (newAccum.compareTo(periodCap) > 0) {
-                    charged = periodCap.subtract(periodAccumulated);
-                    if (charged.signum() < 0) charged = BigDecimal.ZERO;
-                    periodAccumulated = periodCap;
+            while (remainingMinutes > 0) {
+                long capacity = cycleMinutes - effectiveAccumInCycle;
+                int frontMinutes;
+                boolean splitsCycle;
+                if (remainingMinutes <= capacity) {
+                    frontMinutes = remainingMinutes;
+                    splitsCycle = false;
                 } else {
-                    periodAccumulated = newAccum;
+                    frontMinutes = (int) capacity;
+                    splitsCycle = true;
+                }
+                LocalDateTime frontEnd = splitsCycle ? segBegin.plusMinutes(frontMinutes) : segEnd;
+
+                // 构造前段子段，重新算 charged（同质段单价一致，切分后准确）
+                HomogeneousSegment frontSeg = new HomogeneousSegment(segBegin, frontEnd,
+                        seg.getUnitPrice(), seg.getOriginalAmount(), isFree,
+                        isFree ? seg.getFreePromotionId() : null, null);
+                BigDecimal charged = isFree ? BigDecimal.ZERO
+                        : segmentCharge(frontSeg, semantics, config, cycleOrigin);
+                BigDecimal original = segmentOriginalCharge(frontSeg, semantics, config, cycleOrigin);
+
+                // period 识别（周期内切换）
+                String newPeriodKey = semantics.periodKey(segBegin, config, cycleOrigin);
+                if (!newPeriodKey.equals(currentPeriodKey)) {
+                    currentPeriodKey = newPeriodKey;
+                    periodAccumulated = BigDecimal.ZERO;
+                    periodCap = semantics.periodCap(segBegin, config, cycleOrigin);
+                    periodLabel = semantics.periodLabel(segBegin, config, cycleOrigin);
+                }
+
+                // 时段封顶（周期内累计，落盘到 chargedAmount）
+                if (periodCap != null && !isFree) {
+                    BigDecimal newAccum = periodAccumulated.add(charged);
+                    if (newAccum.compareTo(periodCap) > 0) {
+                        charged = periodCap.subtract(periodAccumulated);
+                        if (charged.signum() < 0) charged = BigDecimal.ZERO;
+                        periodAccumulated = periodCap;
+                    } else {
+                        periodAccumulated = newAccum;
+                    }
+                }
+
+                cycleAccumulated = cycleAccumulated.add(charged);
+                effectiveAccumInCycle += frontMinutes;
+
+                result.add(new DurationSegment(
+                        segBegin, frontEnd, periodLabel,
+                        isFree ? 0 : frontMinutes,
+                        seg.getUnitPrice(), charged, periodCap,
+                        isFree ? seg.getFreePromotionId() : null, original));
+
+                if (splitsCycle) {
+                    // 周期切换：结算当前周期，重置累计
+                    totalCharged = totalCharged.add(applyCycleCap(cycleCap, cycleAccumulated));
+                    cycleAccumulated = BigDecimal.ZERO;
+                    effectiveAccumInCycle = 0;
+                    currentPeriodKey = null;
+                    periodAccumulated = BigDecimal.ZERO;
+                    periodCap = null;
+                    segBegin = frontEnd;
+                    remainingMinutes -= frontMinutes;
+                } else {
+                    remainingMinutes = 0;
                 }
             }
-
-            cycleAccumulated = cycleAccumulated.add(charged);
-
-            result.add(new DurationSegment(
-                    seg.getBeginTime(),
-                    seg.getEndTime(),
-                    periodLabel,
-                    seg.isFree() ? 0 : segMinutes,
-                    seg.getUnitPrice(),
-                    charged,
-                    periodCap,
-                    seg.isFree() ? seg.getFreePromotionId() : null,
-                    segmentOriginalCharge(seg, semantics, config, cycleOrigin)
-            ));
         }
 
         // 结算最后一个周期
