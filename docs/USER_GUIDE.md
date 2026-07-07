@@ -755,11 +755,22 @@ request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCA
 
 ## 13. 时间取整
 
-处理计费时间中的秒数，适用于停车收费等"进场多算、出场不算"场景。
+引擎按**分钟精度**计费，所有时间通过 `BillingTemplate` 入口时对齐到分钟。取整遵循「对用户有利」原则：
+
+| 时间类型 | 取整方向 | 原则 |
+|---------|---------|------|
+| 计费 `beginTime` | 向上（ceil） | 计费尽量短 |
+| 计费 `endTime` | 向下（truncate） | 计费尽量短 |
+| 优惠 `beginTime`（FREE_RANGE） | 向下（truncate） | 优惠尽量长 |
+| 优惠 `endTime`（FREE_RANGE） | 向上（ceil） | 优惠尽量长 |
+
+### 13.1 计费时间取整模式（`TimeRoundingMode`）
+
+控制 `BillingRequest.beginTime` / `endTime` / `calcEndTime` 的取整方式：
 
 | 模式 | 说明 |
 |------|------|
-| `KEEP_SECONDS` | 保留秒数，不做处理 |
+| `KEEP_SECONDS` | 保留秒数，不做处理（优惠时间仍按上表取整） |
 | `TRUNCATE_BOTH` | 开始和结束时间都直接去掉秒数 |
 | `CEIL_BEGIN_TRUNCATE_END` | 开始时间向上取整（+1分钟），结束时间去秒。**默认值** |
 | `TRUNCATE_BEGIN_CEIL_END` | 开始时间去秒，结束时间向上取整 |
@@ -774,6 +785,16 @@ billingTemplate.calculate(request, TimeRoundingMode.TRUNCATE_BOTH);
 // 方式3：不指定，默认使用 CEIL_BEGIN_TRUNCATE_END
 billingTemplate.calculate(request);
 ```
+
+### 13.2 -1 分钟守卫
+
+计费时间取整后若 `beginTime >= endTime`（如 `begin=10:31:30` ceil→`10:32`，`end=10:31:50` truncate→`10:31`），引擎将两者调到一致（`beginTime = endTime`），计费 0 元，避免取整倒置导致分段异常。
+
+### 13.3 优惠时间取整（独立于 `TimeRoundingMode`）
+
+外部优惠（`BillingRequest.externalPromotions`）中 `FREE_RANGE` 类型的 `beginTime` / `endTime` **始终**按「优惠尽量长」取整（begin 向下、end 向上），不受 `TimeRoundingMode` 影响。这保证优惠时段与取整后的计费时间对齐，不产生 0 分钟段。`FREE_MINUTES` / `SMART_FREE_MINUTES` / `AMOUNT` / `DISCOUNT` 无时间段，不涉及。
+
+> 注：引擎内部计算（边界驱动循环、免费分钟分配等）均按分钟精度，`Duration.toMinutes()` 截断秒数。建议调用方通过 `BillingTemplate` 入口传入时间，由引擎统一取整；直接使用 `BillingService` 时应自行保证时间对齐到分钟。
 
 ---
 
