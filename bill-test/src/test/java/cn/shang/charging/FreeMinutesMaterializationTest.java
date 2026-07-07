@@ -176,6 +176,8 @@ class FreeMinutesMaterializationTest {
                 .maxChargeOneDay(maxCharge)
                 .unitMinutes(60)
                 .blockWeight(new BigDecimal("0.5"))
+                // 本测试类专注 FREE_MINUTES 时段化，显式 PROPORTIONAL 隔离 incompleteUnitChargeMode 影响
+                .incompleteUnitChargeMode(BConstants.IncompleteUnitChargeMode.PROPORTIONAL)
                 .build();
     }
 

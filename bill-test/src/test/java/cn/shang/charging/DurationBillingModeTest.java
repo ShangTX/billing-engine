@@ -256,6 +256,59 @@ class DurationBillingModeTest {
         assertEquals(180, totalCharged);
     }
 
+    /** PERIOD 模式 + FULL_CHARGE（默认）：不足 unitMinutes 的余数向上取整，"不满一小时按一小时算" */
+    @Test
+    void periodMode_fullCharge_ceilRemainder() {
+        // dayNightConfig 默认 FULL_CHARGE
+        DayNightConfig config = dayNightConfig("period-full", new BigDecimal("100.00"));
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_PERIOD);
+
+        // 8:00-9:30 = 90 分钟，unitMinutes=60，日段 2 元/时
+        BillingResult result = service.calculate(request(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 9, 30)));
+
+        // FULL_CHARGE：90min = 1 整单元(60) + 余数(30) → 2×1 + 2 = 4 元（余数收一个全额）
+        assertEquals(0, new BigDecimal("4.00").compareTo(result.getFinalAmount()));
+
+        // chargedMinutes 仍记实际分钟（90），不取整
+        DurationSegment seg = result.getDurationSegments().get(0);
+        assertEquals(90, seg.chargedMinutes());
+    }
+
+    /** PERIOD 模式 + PROPORTIONAL：不足 unitMinutes 的余数按比例计费 */
+    @Test
+    void periodMode_proportional_partialUnit() {
+        DayNightConfig config = dayNightConfig("period-prop", new BigDecimal("100.00"),
+                BConstants.IncompleteUnitChargeMode.PROPORTIONAL);
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_PERIOD);
+
+        // 8:00-9:30 = 90 分钟
+        BillingResult result = service.calculate(request(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 9, 30)));
+
+        // PROPORTIONAL：2 × 90 / 60 = 3 元
+        assertEquals(0, new BigDecimal("3.00").compareTo(result.getFinalAmount()));
+    }
+
+    /** GLOBAL 模式 + FULL_CHARGE（默认）：跨日夜段，每段余数独立向上取整 */
+    @Test
+    void globalMode_fullCharge_crossDayNight() {
+        // dayNightConfig 默认 FULL_CHARGE
+        DayNightConfig config = dayNightConfig("global-full", new BigDecimal("1000.00"));
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
+
+        // 18:00-21:30：日段 18:00-20:00 (120min) + 夜段 20:00-21:30 (90min)
+        BillingResult result = service.calculate(request(
+                LocalDateTime.of(2026, 1, 1, 18, 0),
+                LocalDateTime.of(2026, 1, 1, 21, 30)));
+
+        // FULL_CHARGE：日段 120min 整除 → 2×2=4 元；夜段 90min=1整+30余 → 1×1+1=2 元。总 6 元
+        // （对比 PROPORTIONAL：日段 4 + 夜段 1.5 = 5.5 元）
+        assertEquals(0, new BigDecimal("6.00").compareTo(result.getFinalAmount()));
+    }
+
     /** 不支持时长模式的规则传 PERIOD 抛异常 */
     @Test
     void unsupportedDurationMode_throws() {
@@ -272,6 +325,11 @@ class DurationBillingModeTest {
     // ==================== 辅助方法 ====================
 
     private DayNightConfig dayNightConfig(String id, BigDecimal maxCharge) {
+        return dayNightConfig(id, maxCharge, BConstants.IncompleteUnitChargeMode.FULL_CHARGE);
+    }
+
+    private DayNightConfig dayNightConfig(String id, BigDecimal maxCharge,
+                                          BConstants.IncompleteUnitChargeMode incompleteMode) {
         return DayNightConfig.builder()
                 .id(id)
                 .dayBeginMinute(8 * 60)
@@ -281,6 +339,7 @@ class DurationBillingModeTest {
                 .maxChargeOneDay(maxCharge)
                 .unitMinutes(60)
                 .blockWeight(new BigDecimal("0.5"))
+                .incompleteUnitChargeMode(incompleteMode)
                 .build();
     }
 

@@ -141,6 +141,7 @@ BillingRequest
 - `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
 - UNIT_BASED 语义由 `DayNightUnitBasedStrategy` 承载（门面下策略，固定单元对齐 + 完整覆盖才免费）。
 - `DURATION_PERIOD` / `DURATION_GLOBAL` 时长模式由通用 `DurationPeriodStrategy` / `DurationGlobalStrategy` 承载（声明即支持，无需规则族私有实现）。
+- 不足单元计费（`IncompleteUnitChargeMode`：FULL_CHARGE/PROPORTIONAL/FREE/THRESHOLD_MINUTES/THRESHOLD_RATIO）已接入全部计算模式：CONTINUOUS/UNIT_BASED 处理截断单元（`isTruncated` 末段），DURATION_PERIOD/DURATION_GLOBAL 处理同质段不足 `unitMinutes` 的余数部分（整除部分始终照收，余数按模式处理）。默认 `FULL_CHARGE`（"不满一小时按一小时算"），`PROPORTIONAL` 按比例。
 
 查询行为：
 
@@ -306,7 +307,6 @@ BillingRequest
 
 - `AMOUNT` 和 `DISCOUNT` 已作为优惠类型能力接入，但当前仍不是独立 `PromotionRuleType`。
 - `times` 仍为预留规则常量；`nrTimeMix` 已废弃并由 `compositeTime` 覆盖。
-- 不足单元计费方式配置（`IncompleteUnitChargeMode` 的 PROPORTIONAL/FREE/THRESHOLD 档位）尚未接入计费逻辑，截断单元一律按 FULL_CHARGE 收全额（TODO-20260626-001）。
 - `SMART_FREE_MINUTES` 仅 `DURATION_GLOBAL` 模式支持；其余模式遇之报错（按设计，复杂度锁定在 GLOBAL 内）。
 - 物化索引预估收入能力：引擎只提供实现可能（产出 validMinutes/accumulatedAmount 等），存储/索引由业务层实现（TODO-20260630-002）。
 

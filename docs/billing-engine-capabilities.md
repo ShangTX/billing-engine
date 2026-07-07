@@ -140,6 +140,7 @@ Capabilities:
 - `maxChargeOneDay` applies a daily cap.
 - UNIT_BASED semantics are carried by `DayNightUnitBasedStrategy` (a strategy under the facade: fixed unit alignment + full-coverage-free).
 - `DURATION_PERIOD` / `DURATION_GLOBAL` are carried by the shared `DurationPeriodStrategy` / `DurationGlobalStrategy` (declared-on support, no rule-family-private implementation needed).
+- Incomplete-unit charge mode (`IncompleteUnitChargeMode`: FULL_CHARGE/PROPORTIONAL/FREE/THRESHOLD_MINUTES/THRESHOLD_RATIO) is wired into all calculation modes: CONTINUOUS/UNIT_BASED handle the truncated unit (`isTruncated` last segment), DURATION_PERIOD/DURATION_GLOBAL handle the remainder of a homogeneous segment that is short of `unitMinutes` (the integral part is always charged; only the remainder follows the mode). Default `FULL_CHARGE` ("round up to a full unit"), `PROPORTIONAL` charges proportionally.
 
 Important query behavior:
 
@@ -304,7 +305,6 @@ Important current gaps include:
 
 - `AMOUNT` and `DISCOUNT` are wired in as promotion-type capabilities but are still not independent `PromotionRuleType` entries.
 - Reserved rule constants such as `times` remain unimplemented; `nrTimeMix` is deprecated and covered by `compositeTime`.
-- Incomplete-unit charge mode config (`IncompleteUnitChargeMode` PROPORTIONAL/FREE/THRESHOLD tiers) is not yet wired into the calculation logic; truncated units are always charged FULL_CHARGE (TODO-20260626-001).
 - `SMART_FREE_MINUTES` is supported only in `DURATION_GLOBAL` mode; other modes throw on it (by design, complexity is confined to GLOBAL).
 - Materialized-index revenue estimation: the engine only provides the implementation surface (producing validMinutes/accumulatedAmount etc.); storage/indexing is up to the business layer (TODO-20260630-002).
 

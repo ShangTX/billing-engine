@@ -839,6 +839,32 @@ BillingResult result = billingTemplate.calculate(request);
 | `compositeTime` | ✅ | ❌ | ✅ | ✅ |
 | `flatFree` | ✅ | ✅ | ❌ | ❌ |
 
+### 不足单元 / 余数处理（IncompleteUnitChargeMode）
+
+当计费时间不是 `unitMinutes` 的整数倍时，不足一个 `unitMinutes` 的部分如何收费，由规则 Config 的 `incompleteUnitChargeMode` 配置（默认 `FULL_CHARGE`）：
+
+| 模式 | CONTINUOUS / UNIT_BASED（截断单元） | DURATION_PERIOD / DURATION_GLOBAL（余数部分） |
+|------|-------------------------------------|----------------------------------------------|
+| `FULL_CHARGE`（默认） | 不足单元收一个完整 `unitPrice` | 余数收一个完整 `unitPrice`（"不满一小时按一小时算"） |
+| `PROPORTIONAL` | `unitPrice × segMinutes / unitMinutes` | 余数按比例 `unitPrice × remainder / unitMinutes` |
+| `FREE` | 不足单元免费 | 余数免费（整除部分仍收） |
+| `THRESHOLD_MINUTES` | 不足单元超阈值收全额，否则免费 | 余数超阈值收全额，否则免费 |
+| `THRESHOLD_RATIO` | 不足单元超阈值比例收全额，否则按比例 | 余数超阈值比例收全额，否则按比例 |
+
+- **CONTINUOUS / UNIT_BASED**：作用于「截断单元」（`isTruncated=true` 的末段，`segMinutes < unitMinutes`）
+- **DURATION_PERIOD / DURATION_GLOBAL**：作用于每个同质段「不足 `unitMinutes` 的余数部分」。整除部分（`fullUnits × unitPrice`）始终照收，余数按上表模式处理。`PROPORTIONAL` 与原按比例行为一致；`FULL_CHARGE` 实现"不满一小时按一小时算"
+
+配置示例（时长模式按比例收费）：
+
+```java
+new DayNightConfig()
+        .setUnitMinutes(60)
+        .setIncompleteUnitChargeMode(BConstants.IncompleteUnitChargeMode.PROPORTIONAL)
+        ...
+```
+
+`DurationSegment.chargedMinutes` 始终记实际分钟数，`chargedAmount` 反映取整后金额。
+
 ---
 
 ## 16. 自定义计费规则

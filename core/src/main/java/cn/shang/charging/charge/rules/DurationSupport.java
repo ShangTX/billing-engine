@@ -51,6 +51,10 @@ public final class DurationSupport {
     /**
      * 计算单个同质段的应收金额（时段封顶前）。免费段返回 0。
      * unitMinutes 按 seg 起点经 semantics 查询（全局统一或按 period）。
+     * <p>
+     * 按 {@link RuleSemantics#incompleteMode} 处理不足一个 unitMinutes 的余数部分：
+     * 默认 {@code FULL_CHARGE}（余数收一个全额，即"不满一小时按一小时算"），
+     * {@code PROPORTIONAL} 按比例（与原按比例逻辑一致）。
      */
     public static <C extends RuleConfig> BigDecimal segmentCharge(
             HomogeneousSegment seg, RuleSemantics<C> semantics, C config, LocalDateTime cycleOrigin) {
@@ -58,21 +62,55 @@ public final class DurationSupport {
         int unitMinutes = semantics.unitMinutes(seg.getBeginTime(), config, cycleOrigin);
         BigDecimal price = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
         if (unitMinutes <= 0) return BigDecimal.ZERO;
-        return price.multiply(BigDecimal.valueOf(seg.durationMinutes()))
-                .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP);
+        return chargeByMode(price, seg.durationMinutes(), unitMinutes, semantics, config);
     }
 
     /**
      * 计算单个同质段的按规则原价（封顶前，免费段也用规则单价算）。
      * 用于 {@link DurationSegment#originalAmount()}（等效优惠金额聚合）。
+     * <p>
+     * 与 {@link #segmentCharge} 用相同的 {@code incompleteUnitChargeMode} 逻辑，保持一致。
      */
     public static <C extends RuleConfig> BigDecimal segmentOriginalCharge(
             HomogeneousSegment seg, RuleSemantics<C> semantics, C config, LocalDateTime cycleOrigin) {
         int unitMinutes = semantics.unitMinutes(seg.getBeginTime(), config, cycleOrigin);
         if (unitMinutes <= 0) return BigDecimal.ZERO;
         BigDecimal price = semantics.priceAt(seg.getBeginTime(), seg.getEndTime(), config, cycleOrigin);
-        return price.multiply(BigDecimal.valueOf(seg.durationMinutes()))
-                .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP);
+        return chargeByMode(price, seg.durationMinutes(), unitMinutes, semantics, config);
+    }
+
+    /**
+     * 按 {@link BConstants.IncompleteUnitChargeMode} 计算同质段应收金额（封顶前）。
+     * <p>
+     * 时长模式同质段时长可为任意值（不一定对齐 unitMinutes），拆分为整除部分 + 余数部分：
+     * <ul>
+     *   <li>整除部分：{@code unitPrice × fullUnits}（fullUnits = segMinutes / unitMinutes）</li>
+     *   <li>余数部分（remainder &gt; 0 时）：按 {@code incompleteUnitChargeMode} 处理
+     *     <ul>
+     *       <li>{@code PROPORTIONAL}：{@code unitPrice × remainder / unitMinutes}（按比例）</li>
+     *       <li>{@code FULL_CHARGE}：{@code unitPrice}（余数收一个全额，即"不满一小时按一小时算"）</li>
+     *       <li>{@code FREE}：{@code 0}（余数免费，整除部分仍收）</li>
+     *       <li>{@code THRESHOLD_MINUTES}/{@code THRESHOLD_RATIO}：余数按阈值判定</li>
+     *     </ul>
+     *   </li>
+     * </ul>
+     * 余数部分复用 {@link ContinuousStrategy#computeIncompleteCharge}，语义与 CONTINUOUS 截断单元一致。
+     * remainder == 0 时直接返回整除部分，不调用 computeIncompleteCharge（避免 FULL_CHARGE 多收一个全额）。
+     */
+    private static <C extends RuleConfig> BigDecimal chargeByMode(BigDecimal unitPrice, int segMinutes, int unitMinutes,
+                                                                   RuleSemantics<C> semantics, C config) {
+        int fullUnits = segMinutes / unitMinutes;
+        int remainder = segMinutes % unitMinutes;
+        BigDecimal baseCharge = unitPrice.multiply(BigDecimal.valueOf(fullUnits));
+        if (remainder == 0) {
+            return baseCharge.setScale(2, RoundingMode.HALF_UP);
+        }
+        BigDecimal remainderCharge = ContinuousStrategy.computeIncompleteCharge(
+                unitPrice, remainder, unitMinutes,
+                semantics.incompleteMode(config),
+                semantics.thresholdMinutes(config),
+                semantics.thresholdRatio(config));
+        return baseCharge.add(remainderCharge).setScale(2, RoundingMode.HALF_UP);
     }
 
     /**
