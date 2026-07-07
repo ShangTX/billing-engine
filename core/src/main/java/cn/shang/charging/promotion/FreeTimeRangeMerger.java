@@ -9,6 +9,19 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * 免费时间段合并器。
+ * <p>
+ * 将多个免费时间段（可能重叠、不同优先级）合并为互斥的连续时间段。
+ * 合并规则：
+ * <ul>
+ *   <li>按优先级分组处理（数字越小优先级越高）</li>
+ *   <li>高优先级时间段覆盖低优先级时间段的交集部分</li>
+ *   <li>同优先级时间段按时间顺序合并相邻/重叠段</li>
+ *   <li>超出整体区间 [overallStart, overallEnd] 的部分被舍弃</li>
+ * </ul>
+ * 输出 {@link TimeRangeMergeResult}：包含合并后的段、被舍弃的段、原始段与被舍弃段的映射。
+ */
 public class FreeTimeRangeMerger {
 
     /**

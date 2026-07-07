@@ -15,6 +15,18 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
+/**
+ * 计费结果汇总器。
+ * <p>
+ * 将多个 {@link BillingSegmentResult} 合并为最终的 {@link BillingResult}：
+ * <ul>
+ *   <li>跨分段连续相同单元做 compact 合并（{@link CompactMerger}）</li>
+ *   <li>汇总时长计费段（DURATION_PERIOD/DURATION_GLOBAL 模式）</li>
+ *   <li>汇总优惠使用情况（PromotionUsage）</li>
+ *   <li>计算最终金额 = 各分段 chargedAmount 之和</li>
+ *   <li>取最后分段的计算结束时间作为 calculationEndTime</li>
+ * </ul>
+ */
 public class ResultAssembler {
 
     /**

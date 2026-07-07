@@ -10,7 +10,11 @@ import lombok.experimental.Accessors;
 import java.time.LocalDateTime;
 
 /**
- * 免费时间段
+ * 免费时间段。
+ * <p>
+ * 表示一段免费时间，由优惠规则（FREE_RANGE）或免费分钟数时段化（FREE_MINUTES）产出。
+ * 多个免费时间段可由 {@code FreeTimeRangeMerger} 合并为互斥段，
+ * 参与边界驱动循环和计费明细构建。
  */
 @Accessors(chain = true)
 @AllArgsConstructor
@@ -19,11 +23,16 @@ import java.time.LocalDateTime;
 @Data
 public class FreeTimeRange {
 
-    private String id;            // 唯一标识符，用于追踪
+    /** 唯一标识符（对应优惠ID，用于追踪和等效金额计算） */
+    private String id;
+    /** 免费时段起点（含） */
     private LocalDateTime beginTime;
+    /** 免费时段终点（含） */
     private LocalDateTime endTime;
+    /** 优先级（数字越小优先级越高，高优先级覆盖低优先级） */
     private int priority;
 
+    /** 优惠类型（FREE_RANGE / FREE_MINUTES / SMART_FREE_MINUTES） */
     private BConstants.PromotionType promotionType;
 
     /**
@@ -38,19 +47,20 @@ public class FreeTimeRange {
      */
     private BConstants.PromotionSource source;
 
-    private Object data; // 其他数据
+    /** 扩展数据（业务侧自定义，不参与计费，仅透传） */
+    private Object data;
 
-    // 检查时间段是否有效（开始时间早于结束时间）
+    /** 检查时间段是否有效（开始时间早于结束时间，且非 null） */
     public boolean isValid() {
         return beginTime != null && endTime != null && !beginTime.isAfter(endTime);
     }
 
-    // 检查两个时间段是否有重合
+    /** 检查两个时间段是否有时间重叠 */
     public boolean overlaps(FreeTimeRange other) {
         return this.beginTime.isBefore(other.endTime) && this.endTime.isAfter(other.beginTime);
     }
 
-    // 获取重合部分
+    /** 获取两个时间段的重叠部分（无重叠返回 null，优先级取两者较小值） */
     public FreeTimeRange getOverlap(FreeTimeRange other) {
         if (!overlaps(other)) {
             return null;
@@ -61,7 +71,7 @@ public class FreeTimeRange {
                 .setPriority(Math.min(this.priority, other.priority));
     }
 
-    // 复制构造方法
+    /** 深拷贝（含 id 和 data） */
     public FreeTimeRange copy() {
         FreeTimeRange copy = new FreeTimeRange()
                 .setId(id)
@@ -75,6 +85,7 @@ public class FreeTimeRange {
         return copy;
     }
 
+    /** 复制但不复制 id（用于合并时生成新段） */
     public FreeTimeRange copyWithNewId() {
         return new FreeTimeRange()
                 .setBeginTime(this.beginTime)

@@ -12,9 +12,13 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 优惠计算结果
+ * 优惠聚合结果（中间形式）。
  * <p>
- * 包含免费时段、免费分钟数、金额减免和折扣优惠的组合结果。
+ * 由 {@code PromotionEngine.evaluate()} 产出，是免费时段、免费分钟数、金额减免、折扣的组合快照。
+ * 引擎以本对象为输入，策略侧按需消费（CONTINUOUS/UNIT_BASED 时段化 FREE_MINUTES，
+ * DURATION_GLOBAL 优先高价分配 SMART_FREE_MINUTES）。
+ * <p>
+ * 本对象为规范中间形式：FREE_RANGE 已合并，FREE_MINUTES/SMART_FREE_MINUTES 未时段化（策略侧负责）。
  */
 @Builder
 @AllArgsConstructor
@@ -22,13 +26,16 @@ import java.util.Set;
 @Data
 public class PromotionAggregate {
 
-    // 最终唯一生效的优惠表达
-    List<FreeTimeRange> freeTimeRanges;     // 仅 FREE_RANGE（已合并）；FREE_MINUTES 不在此处时段化
-    long freeMinutes;                       // 同化后的总免费分钟（= freeMinutesList 求和，简化计算判定用）
-    List<FreeMinutes> freeMinutesList;      // 未时段化的 FREE_MINUTES 列表（TODO-20260702-004：时段化下放到策略侧）
-    List<FreeMinutes> smartFreeMinutesList; // 未时段化的 SMART_FREE_MINUTES 列表（TODO-20260706-002 阶段5：标量透传，仅 DurationGlobalStrategy 消费）
+    /** 已合并的免费时间段列表（仅 FREE_RANGE，FREE_MINUTES 不在此处时段化） */
+    List<FreeTimeRange> freeTimeRanges;
+    /** 总免费分钟数（= freeMinutesList 求和，供简化计算快速判定用，SMART_FREE_MINUTES 不计入） */
+    long freeMinutes;
+    /** 未时段化的 FREE_MINUTES 列表（策略侧调用 FreeMinuteAllocator 时段化） */
+    List<FreeMinutes> freeMinutesList;
+    /** 未时段化的 SMART_FREE_MINUTES 列表（标量透传，仅 DurationGlobalStrategy 按优先高价消费） */
+    List<FreeMinutes> smartFreeMinutesList;
 
-    // —— 可选：等效金额（仅统计，不参与计费） ——
+    /** 等效金额（仅统计，不参与计费计算；可由策略侧按需设置） */
     BigDecimal equivalentAmount;
 
     // ==================== AMOUNT/DISCOUNT 优惠 ====================

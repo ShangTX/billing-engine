@@ -14,12 +14,31 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 计费核心调度服务。
+ * <p>
+ * 计费管道入口，编排完整计费流程：
+ * <pre>
+ * 分段构建 → 配置解析 → 优惠聚合 → 规则计算 → 结果汇总 → 等效金额（按需）
+ * </pre>
+ * 提供三种调用方式：
+ * <ul>
+ *   <li>{@link #calculate} - 一步完成计费（内部自动构建分段上下文）</li>
+ *   <li>{@link #prepareContexts} + {@link #calculateWithContexts} - 两步调用，
+ *       支持在上下文不变的情况下重算（用于等效金额消去法等场景）</li>
+ * </ul>
+ */
 public class BillingService {
 
+    /** 方案分段构建器：按方案变更时间切割分段 */
     private final SegmentBuilder segmentBuilder;
+    /** 计费配置解析器：调用方实现，按方案ID解析规则配置 */
     private final BillingConfigResolver billingConfigResolver;
+    /** 优惠计算引擎：聚合免费时段、免费分钟、金额减免、折扣 */
     private final PromotionEngine promotionEngine;
+    /** 规则计费计算器：根据规则类型分派到对应 BillingRule 执行 */
     private final BillingCalculator billingCalculator;
+    /** 结果汇总器：合并分段结果、跨段 compact 合并、计算最终金额 */
     private final ResultAssembler resultAssembler;
 
     // 等效金额计算器（懒加载，避免构造函数循环依赖；TODO-20260706-003）
