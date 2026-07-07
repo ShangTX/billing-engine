@@ -7,45 +7,52 @@ import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.RuleSemantics;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * `dayNight` 规则族语义：自然日周期 + 全局单元 + 每日封顶。
+ * `dayNight` 规则族语义：24h 固定循环周期 + 全局单元 + 每周期封顶。
  * <p>
- * 周期切换按自然日 00:00（currentCycleBoundary = calcBegin 次日 00:00，固定推进）。
- * cap 标记 "DAILY_CAP"。
+ * 周期从计费起点（cycleOrigin = beginTime）起算，每 1440 分钟一个周期，边界始终对齐
+ * cycleOrigin + N × 1440（与 RelativeTime 一致，非自然日）。cap 标记 "DAILY_CAP"。
  * <p>
  * TODO-20260706-002 阶段3。
  * TODO-20260706-002 阶段4：加 priceAt / periodBoundaryProvider / periodLabel，时长模式通用化。
  */
 final class DayNightSemantics implements RuleSemantics<DayNightConfig> {
 
+    private static final int MINUTES_PER_CYCLE = 1440;
+
     private final DayNightPriceResolver priceResolver = new DayNightPriceResolver();
 
     @Override
     public LocalDateTime cycleOrigin(BillingContext context) {
-        // DayNight 封顶按自然日，cycleOrigin 仅用于边界 provider，封顶切换不依赖它
+        // 周期从计费起点起算的 24h 固定循环（与 RelativeTime 一致）
         return context.getBeginTime();
     }
 
     @Override
     public LocalDateTime initialCycleBoundary(LocalDateTime cycleOrigin, LocalDateTime calcBegin) {
-        // calcBegin 所在自然日的次日 00:00
-        return calcBegin.toLocalDate().atStartOfDay().plusDays(1);
+        // calcBegin 所在 24h 周期的结束边界 = cycleOrigin + ceil((calcBegin-cycleOrigin)/1440) × 1440
+        long calcBeginOffset = Duration.between(cycleOrigin, calcBegin).toMinutes();
+        long nextCycleBoundaryOffset = ((calcBeginOffset / MINUTES_PER_CYCLE) + 1) * MINUTES_PER_CYCLE;
+        return cycleOrigin.plusMinutes(nextCycleBoundaryOffset);
     }
 
     @Override
     public boolean isCycleBoundary(HomogeneousSegment seg, LocalDateTime currentCycleBoundary, LocalDateTime cycleOrigin) {
-        // seg 越过自然日边界（seg.endTime >= 次日 00:00）
+        // seg 越过当前 24h 周期边界（seg.endTime >= currentCycleBoundary）
         return !seg.getEndTime().isBefore(currentCycleBoundary);
     }
 
     @Override
     public LocalDateTime nextCycleBoundary(LocalDateTime segEndTime, LocalDateTime currentCycleBoundary, LocalDateTime cycleOrigin) {
-        // 固定自然日推进（次日 00:00 + 1 day）
-        return currentCycleBoundary.plusDays(1);
+        // 固定 24h 推进：始终对齐 cycleOrigin + N × 1440
+        long offsetFromOrigin = Duration.between(cycleOrigin, segEndTime).toMinutes();
+        long nextOffset = ((offsetFromOrigin / MINUTES_PER_CYCLE) + 1) * MINUTES_PER_CYCLE;
+        return cycleOrigin.plusMinutes(nextOffset);
     }
 
     @Override
