@@ -1,26 +1,53 @@
-﻿# 时间计费引擎使用指南
+# 时间计费引擎 — 使用指南
 
-本文是面向调用者的主要使用文档。README 只作为项目入口；完整接入方式、常见场景和字段语义以本文为准。
+本文是面向调用方（人类开发者和 AI agent）的唯一详细使用说明。
+README 只作为项目入口；完整接入方式、API 契约和字段语义以本文为准。
+
+> **AI agent 注意**：本文包含完整包名、类名、字段名、枚举值和代码示例。
+> 生成代码时应优先参考本文「常用包名速查」章节获取准确 import 路径。
+
+---
+
+## 目录
+
+1. [适用场景](#1-适用场景)
+2. [常用包名速查](#2-常用包名速查)
+3. [安装与模块选择](#3-安装与模块选择)
+4. [核心概念](#4-核心概念)
+5. [手动接入（纯 Java）](#5-手动接入纯-java)
+6. [Spring Boot 接入](#6-spring-boot-接入)
+7. [发起计费](#7-发起计费)
+8. [请求参数详解](#8-请求参数详解)
+9. [结果结构详解](#9-结果结构详解)
+10. [计费规则](#10-计费规则)
+11. [优惠系统](#11-优惠系统)
+12. [方案切换（多段计费）](#12-方案切换多段计费)
+13. [时间取整](#13-时间取整)
+14. [优惠等效金额](#14-优惠等效金额)
+15. [计算模式详解](#15-计算模式详解)
+16. [自定义计费规则](#16-自定义计费规则)
+17. [常用枚举与常量](#17-常用枚举与常量)
+18. [设计原则与禁止事项](#18-设计原则与禁止事项)
+
+---
 
 ## 1. 适用场景
 
-本项目适用于停车收费、场地租赁、设备租赁、服务时长计费等按时间收费的场景。
+本项目是一个**时间计费引擎**，适用于：
+- 停车收费
+- 场地/设备租赁
+- 服务时长计费
+- 其他按时间收费的场景
 
-核心概念：
+核心流程：
 
-- `BillingRequest`：一次计费请求。
-- `BillingConfigResolver`：调用方实现的配置解析器，决定每个方案使用什么规则、优惠和计费模式。
-- `BillingRule`：具体计费规则，例如 `dayNight`、`relativeTime`、`compositeTime`。
-- `PromotionGrant`：外部优惠输入，例如免费时间段、免费分钟数。
-- `BillingUnit`：计费明细中的最小单元。
-
-推荐调用入口是 `billing-api` 模块中的 `BillingTemplate`。
+```
+时间轴 → 方案分段 → 优惠聚合 → 应用计费规则 → 生成计费明细 → 汇总费用
+```
 
 ---
 
 ## 2. 常用包名速查
-
-人类开发者通常可以依赖 IDE 自动导入包名；AI agent 或纯文本环境编写示例代码时，应优先参考本节。
 
 ### 2.1 核心计费类
 
@@ -30,26 +57,37 @@
 | `BillingConfigResolver` | `cn.shang.charging.billing.BillingConfigResolver` |
 | `BillingCalculator` | `cn.shang.charging.billing.BillingCalculator` |
 | `SegmentBuilder` | `cn.shang.charging.billing.SegmentBuilder` |
+| `CalculationWindowFactory` | `cn.shang.charging.billing.CalculationWindowFactory` |
+| `PromotionEquivalentCalculator` | `cn.shang.charging.billing.PromotionEquivalentCalculator` |
 | `ResultAssembler` | `cn.shang.charging.settlement.ResultAssembler` |
+
+### 2.2 核心 POJO
+
+| 类 | 包名 |
+|------|------|
 | `BillingRequest` | `cn.shang.charging.billing.pojo.BillingRequest` |
 | `BillingResult` | `cn.shang.charging.billing.pojo.BillingResult` |
+| `BillingContext` | `cn.shang.charging.billing.pojo.BillingContext` |
 | `BillingUnit` | `cn.shang.charging.billing.pojo.BillingUnit` |
-| `BillingCarryOver` | `cn.shang.charging.billing.pojo.BillingCarryOver` |
+| `BillingSegmentResult` | `cn.shang.charging.billing.pojo.BillingSegmentResult` |
+| `CalculationWindow` | `cn.shang.charging.billing.pojo.CalculationWindow` |
+| `DurationSegment` | `cn.shang.charging.billing.pojo.DurationSegment` |
+| `EquivalentAmountSpec` | `cn.shang.charging.billing.pojo.EquivalentAmountSpec` |
 | `SchemeChange` | `cn.shang.charging.billing.pojo.SchemeChange` |
 | `RuleConfig` | `cn.shang.charging.billing.pojo.RuleConfig` |
 | `PromotionRuleConfig` | `cn.shang.charging.billing.pojo.PromotionRuleConfig` |
 | `BConstants` | `cn.shang.charging.billing.pojo.BConstants` |
 | `TimeRoundingMode` | `cn.shang.charging.billing.pojo.TimeRoundingMode` |
+| `SegmentContext` | `cn.shang.charging.billing.pojo.SegmentContext` |
 
-### 2.2 `billing-api` 类
+### 2.3 billing-api 便捷封装
 
 | 类 | 包名 |
 |------|------|
 | `BillingTemplate` | `cn.shang.charging.wrapper.BillingTemplate` |
-| `CalculationWithQueryResult` | `cn.shang.charging.wrapper.CalculationWithQueryResult` |
-| `PromotionEquivalentCalculator` | `cn.shang.charging.wrapper.PromotionEquivalentCalculator` |
+| `PromotionSavingsAnalyzer` | `cn.shang.charging.wrapper.PromotionSavingsAnalyzer` |
 
-### 2.3 计费规则类
+### 2.4 计费规则类
 
 | 类 | 包名 |
 |------|------|
@@ -60,22 +98,24 @@
 | `RelativeTimeRule` | `cn.shang.charging.charge.rules.relativetime.RelativeTimeRule` |
 | `RelativeTimeConfig` | `cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig` |
 | `RelativeTimePeriod` | `cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod` |
+| `NaturalTimeRule` | `cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule` |
+| `NaturalTimeConfig` | `cn.shang.charging.charge.rules.naturaltime.NaturalTimeConfig` |
 | `CompositeTimeRule` | `cn.shang.charging.charge.rules.compositetime.CompositeTimeRule` |
 | `CompositeTimeConfig` | `cn.shang.charging.charge.rules.compositetime.CompositeTimeConfig` |
 | `CompositePeriod` | `cn.shang.charging.charge.rules.compositetime.CompositePeriod` |
 | `NaturalPeriod` | `cn.shang.charging.charge.rules.compositetime.NaturalPeriod` |
 | `CrossPeriodMode` | `cn.shang.charging.charge.rules.compositetime.CrossPeriodMode` |
-| `InsufficientUnitMode` | `cn.shang.charging.charge.rules.compositetime.InsufficientUnitMode` |
 | `FlatFreeRule` | `cn.shang.charging.charge.rules.flatfree.FlatFreeRule` |
 | `FlatFreeConfig` | `cn.shang.charging.charge.rules.flatfree.FlatFreeConfig` |
 
-### 2.4 优惠类
+### 2.5 优惠类
 
 | 类 | 包名 |
 |------|------|
 | `PromotionEngine` | `cn.shang.charging.promotion.PromotionEngine` |
 | `FreeTimeRangeMerger` | `cn.shang.charging.promotion.FreeTimeRangeMerger` |
 | `FreeMinuteAllocator` | `cn.shang.charging.promotion.FreeMinuteAllocator` |
+| `PromotionAggregateUtil` | `cn.shang.charging.promotion.PromotionAggregateUtil` |
 | `PromotionRule` | `cn.shang.charging.promotion.rules.PromotionRule` |
 | `PromotionRuleRegistry` | `cn.shang.charging.promotion.rules.PromotionRuleRegistry` |
 | `FreeMinutesPromotionRule` | `cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule` |
@@ -87,14 +127,20 @@
 | `PromotionAggregate` | `cn.shang.charging.promotion.pojo.PromotionAggregate` |
 | `FreeTimeRange` | `cn.shang.charging.promotion.pojo.FreeTimeRange` |
 | `FreeTimeRangeType` | `cn.shang.charging.promotion.pojo.FreeTimeRangeType` |
+| `FreeMinutes` | `cn.shang.charging.promotion.pojo.FreeMinutes` |
+| `FreeMinuteAllocationResult` | `cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult` |
+| `TimeRangeMergeResult` | `cn.shang.charging.promotion.pojo.TimeRangeMergeResult` |
 
 ---
 
 ## 3. 安装与模块选择
 
-### 推荐：`billing-api`
+**环境要求**：JDK 21+，Maven 3.6+（JDK 25 已验证兼容）。
 
-`billing-api` 提供 `BillingTemplate`，包含基础计费、查询时点金额、优惠等效金额和时间取整能力。
+### 3.1 推荐：billing-api
+
+`billing-api` 提供 `BillingTemplate`，封装了基础计费、时间取整、优惠等效金额等便捷方法。
+**普通调用方应优先使用此模块。**
 
 ```xml
 <dependency>
@@ -104,7 +150,7 @@
 </dependency>
 ```
 
-### Spring Boot Starter
+### 3.2 Spring Boot Starter
 
 ```xml
 <!-- Spring Boot 3.0.x - 3.4.x -->
@@ -122,19 +168,73 @@
 </dependency>
 ```
 
-Spring Boot starter 默认自动注册 `dayNight`、`compositeTime`、`relativeTime` 和 `freeMinutes`。`flatFree`、`startFree` 已实现，但根据构造方式可能需要手动注册。
+Starter 自动注册 `dayNight`、`compositeTime`、`relativeTime` 计费规则和 `freeMinutes` 优惠规则。
 
-### 直接使用 `core`
+### 3.3 直接使用 core
 
-只有在需要完全控制组件组装时才建议直接使用 `core`。普通调用方优先使用 `billing-api`。
+仅在需要完全控制组件组装时使用。
+
+```xml
+<dependency>
+    <groupId>io.github.shangtx</groupId>
+    <artifactId>billing-core</artifactId>
+    <version>2.1.2</version>
+</dependency>
+```
+
+### 模块依赖关系
+
+```
+billing-v3/v4-spring-boot-starter → billing-api → core（无外部依赖）
+bill-test → core, billing-api（测试与示例）
+```
 
 ---
 
-## 4. 最小手动接入
+## 4. 核心概念
 
-### 4.1 实现 `BillingConfigResolver`
+### 4.1 计费管道
+
+```
+BillingService.calculate()
+├── SegmentBuilder.buildSegments()       # 按方案切换切割分段
+├── BillingConfigResolver                # 调用方实现：解析每个分段的规则、优惠、模式
+├── PromotionEngine.evaluate()           # 聚合优惠（免费时段、免费分钟、折扣、减免）
+├── BillingCalculator.calculate()        # 分派到具体 BillingRule 执行计费
+└── ResultAssembler.assemble()           # 汇总分段结果，跨段 compact 合并
+```
+
+### 4.2 关键接口/类
+
+| 角色 | 类/接口 | 说明 |
+|------|---------|------|
+| 调用入口 | `BillingTemplate` | 便捷 API，推荐直接使用 |
+| 核心调度 | `BillingService` | 编排完整计费管道 |
+| 配置解析 | `BillingConfigResolver` | **调用方必须实现**：按方案ID返回规则配置 |
+| 规则接口 | `BillingRule<C extends RuleConfig>` | 计费规则实现接口 |
+| 输入 | `BillingRequest` | 计费请求 POJO |
+| 输出 | `BillingResult` | 计费结果 POJO |
+| 单元明细 | `BillingUnit` | 最小计费单元（CONTINUOUS/UNIT_BASED 模式） |
+| 时长段 | `DurationSegment` | 时长计费段（DURATION_PERIOD/DURATION_GLOBAL 模式） |
+| 外部优惠 | `PromotionGrant` | 优惠券等外部输入的优惠 |
+
+---
+
+## 5. 手动接入（纯 Java）
+
+### 5.1 实现 BillingConfigResolver
+
+这是接入的核心：告诉引擎「每个方案用什么规则、什么优惠、什么计算模式」。
 
 ```java
+import cn.shang.charging.billing.BillingConfigResolver;
+import cn.shang.charging.billing.pojo.*;
+import cn.shang.charging.charge.rules.daynight.DayNightConfig;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
 public class MyBillingConfigResolver implements BillingConfigResolver {
 
     @Override
@@ -147,15 +247,110 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
                                           LocalDateTime segmentStart,
                                           LocalDateTime segmentEnd,
                                           Map<String, Object> context) {
+        // 返回具体规则配置（如 DayNightConfig）
         return new DayNightConfig()
                 .setId("daynight-1")
-                .setDayBeginMinute(8 * 60)
-                .setDayEndMinute(20 * 60)
+                .setDayBeginMinute(8 * 60)       // 白天开始：08:00
+                .setDayEndMinute(20 * 60)         // 白天结束：20:00
                 .setDayUnitPrice(new BigDecimal("2"))
                 .setNightUnitPrice(new BigDecimal("1"))
                 .setMaxChargeOneDay(new BigDecimal("50"))
-                .setUnitMinutes(60)
-                .setBlockWeight(new BigDecimal("0.5"));
+                .setUnitMinutes(60);
+    }
+
+    @Override
+    public List<PromotionRuleConfig> resolvePromotionRules(String schemeId,
+                                                           LocalDateTime segmentStart,
+                                                           LocalDateTime segmentEnd,
+                                                           Map<String, Object> context) {
+        return List.of();  // 无方案内优惠
+    }
+}
+```
+
+### 5.2 组装组件并创建 BillingTemplate
+
+```java
+import cn.shang.charging.billing.*;
+import cn.shang.charging.billing.pojo.BConstants;
+import cn.shang.charging.charge.rules.*;
+import cn.shang.charging.charge.rules.daynight.DayNightRule;
+import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
+import cn.shang.charging.charge.rules.compositetime.CompositeTimeRule;
+import cn.shang.charging.charge.rules.flatfree.FlatFreeRule;
+import cn.shang.charging.promotion.*;
+import cn.shang.charging.promotion.rules.*;
+import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
+import cn.shang.charging.promotion.rules.startfree.StartFreePromotionRule;
+import cn.shang.charging.settlement.ResultAssembler;
+import cn.shang.charging.wrapper.BillingTemplate;
+
+BillingConfigResolver configResolver = new MyBillingConfigResolver();
+
+// 1. 注册计费规则（构造函数已注册 dayNight/relativeTime/compositeTime，按需补充）
+BillingRuleRegistry billingRuleRegistry = new BillingRuleRegistry();
+billingRuleRegistry.register(BConstants.ChargeRuleType.FLAT_FREE, new FlatFreeRule());
+
+// 2. 注册优惠规则
+PromotionRuleRegistry promotionRuleRegistry = new PromotionRuleRegistry();
+promotionRuleRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
+promotionRuleRegistry.register(BConstants.PromotionRuleType.START_FREE, new StartFreePromotionRule());
+
+// 3. 组装引擎
+PromotionEngine promotionEngine = new PromotionEngine(
+        configResolver,
+        new FreeTimeRangeMerger(),
+        promotionRuleRegistry
+);
+
+BillingService billingService = new BillingService(
+        new SegmentBuilder(),
+        configResolver,
+        promotionEngine,
+        new BillingCalculator(billingRuleRegistry),
+        new ResultAssembler()
+);
+
+// 4. 创建便捷入口
+BillingTemplate billingTemplate = new BillingTemplate(billingService, configResolver);
+```
+
+---
+
+## 6. Spring Boot 接入
+
+### 6.1 添加依赖
+
+参见 [3.2 节](#32-spring-boot-starter)。
+
+### 6.2 提供 BillingConfigResolver Bean
+
+Starter 已自动注册所有引擎组件，业务侧只需提供 `BillingConfigResolver` 实现：
+
+```java
+import cn.shang.charging.billing.BillingConfigResolver;
+import cn.shang.charging.billing.pojo.*;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import org.springframework.stereotype.Component;
+
+@Component
+public class MyBillingConfigResolver implements BillingConfigResolver {
+
+    @Override
+    public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+        return BConstants.CalculationMode.CONTINUOUS;
+    }
+
+    @Override
+    public RuleConfig resolveChargingRule(String schemeId,
+                                          LocalDateTime segmentStart,
+                                          LocalDateTime segmentEnd,
+                                          Map<String, Object> context) {
+        // 根据 schemeId 返回对应规则配置
+        // ...
+        return null;
     }
 
     @Override
@@ -168,67 +363,14 @@ public class MyBillingConfigResolver implements BillingConfigResolver {
 }
 ```
 
-### 4.2 创建 `BillingTemplate`
+### 6.3 注入 BillingTemplate
 
 ```java
-BillingConfigResolver configResolver = new MyBillingConfigResolver();
+import cn.shang.charging.wrapper.BillingTemplate;
+import cn.shang.charging.billing.pojo.BillingRequest;
+import cn.shang.charging.billing.pojo.BillingResult;
+import org.springframework.stereotype.Service;
 
-BillingRuleRegistry billingRuleRegistry = new BillingRuleRegistry();
-billingRuleRegistry.register(BConstants.ChargeRuleType.DAY_NIGHT, new DayNightRule());
-billingRuleRegistry.register(BConstants.ChargeRuleType.RELATIVE_TIME, new RelativeTimeRule());
-billingRuleRegistry.register(BConstants.ChargeRuleType.COMPOSITE_TIME, new CompositeTimeRule());
-billingRuleRegistry.register(BConstants.ChargeRuleType.FLAT_FREE, new FlatFreeRule());
-
-PromotionRuleRegistry promotionRuleRegistry = new PromotionRuleRegistry();
-promotionRuleRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
-promotionRuleRegistry.register(BConstants.PromotionRuleType.START_FREE, new StartFreePromotionRule());
-
-PromotionEngine promotionEngine = new PromotionEngine(
-        configResolver,
-        new FreeTimeRangeMerger(),
-        new FreeMinuteAllocator(),
-        promotionRuleRegistry
-);
-
-BillingService billingService = new BillingService(
-        new SegmentBuilder(),
-        configResolver,
-        promotionEngine,
-        new BillingCalculator(billingRuleRegistry),
-        new ResultAssembler()
-);
-
-BillingTemplate billingTemplate = new BillingTemplate(billingService, configResolver);
-```
-
-### 4.3 发起计费
-
-```java
-BillingRequest request = new BillingRequest();
-request.setBeginTime(LocalDateTime.of(2026, 5, 8, 9, 0));
-request.setEndTime(LocalDateTime.of(2026, 5, 8, 12, 30));
-request.setSchemeId("scheme-1");
-request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
-
-BillingResult result = billingTemplate.calculate(request);
-```
-
----
-
-## 5. Spring Boot 接入
-
-引入对应 starter 后，业务侧通常只需要提供 `BillingConfigResolver` Bean。
-
-```java
-@Component
-public class MyBillingConfigResolver implements BillingConfigResolver {
-    // 实现 resolveCalculationMode、resolveChargingRule、resolvePromotionRules
-}
-```
-
-然后直接注入 `BillingTemplate`：
-
-```java
 @Service
 public class BillingAppService {
 
@@ -244,88 +386,50 @@ public class BillingAppService {
 }
 ```
 
-starter 的自动装配范围见能力文档。复杂注册需求仍可手动装配。
+### 6.4 Starter 自动装配的 Bean 列表
+
+| Bean | 类型 |
+|------|------|
+| `billingRuleRegistry` | `BillingRuleRegistry`（已注册 dayNight/relativeTime/compositeTime） |
+| `promotionRuleRegistry` | `PromotionRuleRegistry`（已注册 freeMinutes） |
+| `freeTimeRangeMerger` | `FreeTimeRangeMerger` |
+| `promotionEngine` | `PromotionEngine` |
+| `billingService` | `BillingService` |
+| `billingTemplate` | `BillingTemplate` |
+
+所有 Bean 均标注 `@ConditionalOnMissingBean`，可通过自定义 Bean 覆盖。
 
 ---
 
-## 6. `BillingTemplate` 常用方法
+## 7. 发起计费
 
-| 方法 | 用途 |
-|------|------|
-| `calculate(request)` | 执行基础计费，默认使用 `CEIL_BEGIN_TRUNCATE_END` 时间取整 |
-| `calculate(request, roundingMode)` | 使用指定时间取整模式执行计费 |
-| `calculatePromotionEquivalents(request)` | 计算每个优惠的等效金额 |
-| `calculatePromotionSavings(result)` | 基于已有结果分析优惠节省金额 |
-| `getConfigResolver()` | 获取配置解析器 |
-
----
-
-## 7. 请求参数
-
-### `BillingRequest`
-
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `id` | 否 | 请求标识，用于追踪 |
-| `beginTime` | 是 | 计费开始时间 |
-| `endTime` | 是 | 计费结束时间 |
-| `calcEndTime` | 否 | 实际计算终点，用于局部计算 |
-| `schemeId` | 条件 | 单方案 ID，与 `schemeChanges` 二选一 |
-| `schemeChanges` | 条件 | 多方案切换时间轴，与 `schemeId` 二选一 |
-| `segmentCalculationMode` | 是 | 分段计算模式 |
-| `externalPromotions` | 否 | 外部优惠列表 |
-| `timeRoundingMode` | 否 | 时间取整模式 |
-| `disableSimplification` | 否 | 是否禁用长期简化计算 |
-| `context` | 否 | 传递给 `BillingConfigResolver` 的上下文 |
-
-
-### `SchemeChange`
-
-| 字段 | 说明 |
-|------|------|
-| `lastSchemeId` | 变更前方案 ID |
-| `nextSchemeId` | 变更后方案 ID |
-| `changeTime` | 变更发生时间 |
-
----
-
-## 8. 结果结构
-
-### `BillingResult`
-
-| 字段 | 说明 |
-|------|------|
-| `units` | 计费单元明细（CONTINUOUS/UNIT_BASED） |
-| `durationSegments` | 时长计费段明细（DURATION_PERIOD/DURATION_GLOBAL） |
-| `promotionUsages` | 优惠使用记录（含 source 来源 + equivalentAmount 等效金额） |
-| `finalAmount` | 最终应收金额 |
-| `totalEquivalentAmount` | 等效优惠金额汇总（按需计算，见 EquivalentAmountSpec） |
-| `calculationEndTime` | 计算窗口结束时间（汇总最后分段） |
-
-### `BillingUnit`
-
-| 字段 | 说明 |
-|------|------|
-| `beginTime` / `endTime` | 单元起止时间 |
-| `durationMinutes` | 单元时长 |
-| `unitPrice` | 单元价格，由具体规则解释 |
-| `originalAmount` | 优惠前金额 |
-| `chargedAmount` | 单元完整结束后的最终金额 |
-| `accumulatedAmount` | 单元完整结束后的累计金额 |
-| `free` / `freePromotionId` | 是否由优惠完全覆盖及对应优惠 ID |
-| `isTruncated` | 是否被 `calcEndTime` 截断 |
-| `ruleData` | 规则私有扩展数据 |
-| `compact` | 是否为 compact 单元（合并了 N 个连续相同子单元） |
-| `count` | compact 单元代表的子单元数量，非 compact 始终为 1 |
-
-
----
-
-## 10. 优惠使用
-
-### 外部免费分钟数
+### 7.1 基础调用
 
 ```java
+import cn.shang.charging.billing.pojo.*;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+BillingRequest request = new BillingRequest();
+request.setBeginTime(LocalDateTime.of(2026, 5, 8, 9, 0));
+request.setEndTime(LocalDateTime.of(2026, 5, 8, 12, 30));
+request.setSchemeId("scheme-1");
+request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
+
+BillingResult result = billingTemplate.calculate(request);
+
+// 获取结果
+BigDecimal finalAmount = result.getFinalAmount();
+List<BillingUnit> units = result.getUnits();
+List<PromotionUsage> usages = result.getPromotionUsages();
+```
+
+### 7.2 带外部优惠的调用
+
+```java
+import cn.shang.charging.promotion.pojo.PromotionGrant;
+
+// 外部 30 分钟免费
 PromotionGrant freeMinutes = PromotionGrant.builder()
         .id("coupon-30min")
         .type(BConstants.PromotionType.FREE_MINUTES)
@@ -333,9 +437,236 @@ PromotionGrant freeMinutes = PromotionGrant.builder()
         .freeMinutes(30)
         .priority(1)
         .build();
+
+BillingRequest request = new BillingRequest();
+request.setBeginTime(beginTime);
+request.setEndTime(endTime);
+request.setSchemeId("scheme-1");
+request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
+request.setExternalPromotions(List.of(freeMinutes));
+
+BillingResult result = billingTemplate.calculate(request);
 ```
 
-### 外部免费时段
+---
+
+## 8. 请求参数详解
+
+### BillingRequest 字段
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | `String` | 否 | 请求标识，用于追踪和日志 |
+| `beginTime` | `LocalDateTime` | **是** | 计费开始时间 |
+| `endTime` | `LocalDateTime` | **是** | 计费结束时间 |
+| `calcEndTime` | `LocalDateTime` | 否 | 实际计算终点（用于查询时点/局部计算），不提供时使用 endTime |
+| `schemeId` | `String` | 条件 | 单方案 ID，与 `schemeChanges` 二选一 |
+| `schemeChanges` | `List<SchemeChange>` | 条件 | 方案切换时间轴，与 `schemeId` 二选一 |
+| `segmentCalculationMode` | `BConstants.SegmentCalculationMode` | **是** | 分段计算方式：`SINGLE`（单段）/ `SEGMENT_LOCAL`（分段独立起算） |
+| `externalPromotions` | `List<PromotionGrant>` | 否 | 外部优惠列表（跨分段共享，整笔计费享一次） |
+| `timeRoundingMode` | `TimeRoundingMode` | 否 | 时间取整模式（默认 `CEIL_BEGIN_TRUNCATE_END`） |
+| `context` | `Map<String, Object>` | 否 | 传递给 `BillingConfigResolver` 的自定义上下文参数 |
+| `disableSimplification` | `Boolean` | 否 | 精确查询时设为 true，禁用简化计算以保证完整明细 |
+| `equivalentAmountSpec` | `EquivalentAmountSpec` | 否 | 等效金额计算规格（详见[第14节](#14-优惠等效金额)） |
+
+### SchemeChange 字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `lastSchemeId` | `String` | 变更前方案 ID |
+| `nextSchemeId` | `String` | 变更后方案 ID |
+| `changeTime` | `LocalDateTime` | 变更发生时间（分段切割点） |
+
+---
+
+## 9. 结果结构详解
+
+### 9.1 BillingResult
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `units` | `List<BillingUnit>` | 计费单元明细（CONTINUOUS/UNIT_BASED 模式产出） |
+| `durationSegments` | `List<DurationSegment>` | 时长计费段明细（DURATION_PERIOD/DURATION_GLOBAL 模式产出） |
+| `promotionUsages` | `List<PromotionUsage>` | 优惠使用记录（含 source、equivalentAmount） |
+| `finalAmount` | `BigDecimal` | **最终应收金额**（各分段 chargedAmount 之和） |
+| `totalEquivalentAmount` | `BigDecimal` | 等效优惠金额汇总（仅当 equivalentAmountSpec 非 null 时有值） |
+| `calculationEndTime` | `LocalDateTime` | 实际计算窗口结束时间 |
+
+> **注意**：`units` 和 `durationSegments` 互斥 — CONTINUOUS/UNIT_BASED 产出 `units`，DURATION_PERIOD/DURATION_GLOBAL 产出 `durationSegments`。
+
+### 9.2 BillingUnit
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `beginTime` | `LocalDateTime` | 单元开始时间 |
+| `endTime` | `LocalDateTime` | 单元结束时间 |
+| `durationMinutes` | `int` | 单元时长（分钟） |
+| `unitPrice` | `BigDecimal` | 单元单价（由具体规则解释） |
+| `originalAmount` | `BigDecimal` | 原始金额（优惠前） |
+| `chargedAmount` | `BigDecimal` | 实际收费金额（优惠后） |
+| `accumulatedAmount` | `BigDecimal` | 段内累计金额（从分段起点到本单元的 chargedAmount 之和） |
+| `free` | `boolean` | 是否被优惠完全覆盖（免费） |
+| `freePromotionId` | `String` | 免费原因（优惠 ID 或特殊标记如 `"PERIOD_CAP"`、`"CYCLE_CAP"`） |
+| `isTruncated` | `Boolean` | 是否被 calcEndTime 截断（不足一个完整单元） |
+| `compact` | `boolean` | 是否为 compact 单元（合并了 N 个连续相同子单元） |
+| `count` | `int` | compact 单元代表的子单元数量（非 compact 始终为 1） |
+| `ruleData` | `Object` | 规则扩展数据（规则私有） |
+
+### 9.3 DurationSegment
+
+`record DurationSegment`，不可变。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `beginTime` | `LocalDateTime` | 段起点 |
+| `endTime` | `LocalDateTime` | 段终点 |
+| `periodLabel` | `String` | 时段标签（"day"/"night"/"period-1"，规则自定义） |
+| `chargedMinutes` | `int` | 收费分钟数（免费段=0） |
+| `unitPrice` | `BigDecimal` | 单价 |
+| `chargedAmount` | `BigDecimal` | 应收金额（时段封顶后，周期封顶前） |
+| `periodCap` | `BigDecimal` | 该时段封顶金额（null=无封顶） |
+| `freePromotionId` | `String` | 免费段对应的 FreeTimeRange.id（非免费段为 null） |
+| `originalAmount` | `BigDecimal` | 按规则原价（封顶前；免费段非 0，用于等效金额计算） |
+
+### 9.4 PromotionUsage
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `promotionId` | `String` | 优惠来源 ID |
+| `type` | `BConstants.PromotionType` | 优惠类型 |
+| `source` | `BConstants.PromotionSource` | 优惠来源：`RULE`（方案内）/ `COUPON`（外部优惠券） |
+| `grantedMinutes` | `long` | 授予的总分钟数 |
+| `usedMinutes` | `long` | 实际使用的分钟数 |
+| `usedFrom` | `LocalDateTime` | 实际使用区间起点 |
+| `usedTo` | `LocalDateTime` | 实际使用区间终点 |
+| `equivalentAmount` | `BigDecimal` | 等效优惠金额 |
+
+---
+
+## 10. 计费规则
+
+### 10.1 dayNight（日夜分时段计费）
+
+白天/夜间使用不同单价，支持周期封顶和混合单元。
+
+```java
+import cn.shang.charging.charge.rules.daynight.DayNightConfig;
+
+DayNightConfig config = new DayNightConfig()
+        .setId("daynight-1")
+        .setDayBeginMinute(8 * 60)        // 白天开始（分钟数：08:00）
+        .setDayEndMinute(20 * 60)         // 白天结束（分钟数：20:00）
+        .setDayUnitPrice(new BigDecimal("2"))
+        .setNightUnitPrice(new BigDecimal("1"))
+        .setMaxChargeOneDay(new BigDecimal("50"))  // 每日封顶
+        .setUnitMinutes(60)               // 计费单元 60 分钟
+        .setBlockWeight(new BigDecimal("0.5"));  // 跨日夜混合单元权重
+```
+
+| 配置项 | 类型 | 说明 |
+|--------|------|------|
+| `dayBeginMinute` | `int` | 白天开始（从 00:00 起算的分钟数） |
+| `dayEndMinute` | `int` | 白天结束 |
+| `dayUnitPrice` | `BigDecimal` | 白天单价 |
+| `nightUnitPrice` | `BigDecimal` | 夜间单价 |
+| `maxChargeOneDay` | `BigDecimal` | 每日封顶金额（周期封顶） |
+| `unitMinutes` | `int` | 计费单元时长（分钟） |
+| `blockWeight` | `BigDecimal` | 跨日夜混合单元价格权重 |
+
+### 10.2 relativeTime（相对时间段计费）
+
+按周期内偏移分钟数划分时段，每个时段有独立单价。
+
+```java
+import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
+import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
+
+RelativeTimeConfig config = new RelativeTimeConfig()
+        .setId("relative-1")
+        .setMaxChargeOneCycle(new BigDecimal("30"))
+        .setPeriods(List.of(
+                new RelativeTimePeriod()
+                        .setBeginMinute(0)
+                        .setEndMinute(720)         // 0:00 - 12:00
+                        .setUnitMinutes(60)
+                        .setUnitPrice(new BigDecimal("1")),
+                new RelativeTimePeriod()
+                        .setBeginMinute(720)
+                        .setEndMinute(1440)        // 12:00 - 24:00
+                        .setUnitMinutes(60)
+                        .setUnitPrice(new BigDecimal("2"))
+        ));
+```
+
+### 10.3 compositeTime（混合时间计费）
+
+最灵活的规则：支持自然时段、时段独立封顶、跨时段模式。
+
+```java
+import cn.shang.charging.charge.rules.compositetime.*;
+
+CompositeTimeConfig config = new CompositeTimeConfig()
+        .setId("composite-1")
+        .setMaxChargeOneCycle(new BigDecimal("50"))
+        .setIncompleteUnitChargeMode(BConstants.IncompleteUnitChargeMode.FULL_CHARGE)
+        .setPeriods(List.of(
+                CompositePeriod.builder()
+                        .beginMinute(0)
+                        .endMinute(1440)
+                        .unitMinutes(60)
+                        .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
+                        .naturalPeriods(List.of(
+                                new NaturalPeriod(8 * 60, 20 * 60, new BigDecimal("2")),  // 白天
+                                new NaturalPeriod(20 * 60, 24 * 60, new BigDecimal("1"))  // 夜间
+                        ))
+                        .build()
+        ));
+```
+
+### 10.4 flatFree（统一免费计费）
+
+全部免费，常用于调试或特殊场景。
+
+```java
+import cn.shang.charging.charge.rules.flatfree.FlatFreeConfig;
+
+FlatFreeConfig config = FlatFreeConfig.builder()
+        .id("flat-free-1")
+        .build();
+```
+
+---
+
+## 11. 优惠系统
+
+### 11.1 优惠类型
+
+| 类型 | 枚举值 | 说明 |
+|------|--------|------|
+| 免费时间段 | `FREE_RANGE` | 指定时间段内免费（如 12:00-14:00 免费） |
+| 免费分钟数 | `FREE_MINUTES` | 从窗口起点顺序分配 N 分钟免费 |
+| 智能免费分钟 | `SMART_FREE_MINUTES` | 仅 DURATION_GLOBAL 模式，按单价降序优先覆盖高价时段 |
+| 金额减免 | `AMOUNT` | 直接减免金额 |
+| 折扣 | `DISCOUNT` | 按比例折扣（如 0.8 = 8 折） |
+
+### 11.2 外部免费分钟数
+
+```java
+import cn.shang.charging.promotion.pojo.PromotionGrant;
+import cn.shang.charging.billing.pojo.BConstants;
+
+PromotionGrant freeMinutes = PromotionGrant.builder()
+        .id("coupon-30min")
+        .type(BConstants.PromotionType.FREE_MINUTES)
+        .source(BConstants.PromotionSource.COUPON)
+        .freeMinutes(30)
+        .priority(1)
+        .build();
+
+request.setExternalPromotions(List.of(freeMinutes));
+```
+
+### 11.3 外部免费时段
 
 ```java
 PromotionGrant freeRange = PromotionGrant.builder()
@@ -348,24 +679,26 @@ PromotionGrant freeRange = PromotionGrant.builder()
         .build();
 ```
 
-### 气泡型免费时段
+### 11.4 气泡型免费时段
 
 ```java
+import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
+
 PromotionGrant bubbleRange = PromotionGrant.builder()
         .id("bubble-free")
         .type(BConstants.PromotionType.FREE_RANGE)
-        .rangeType(FreeTimeRangeType.BUBBLE)
+        .rangeType(FreeTimeRangeType.BUBBLE)  // 延长周期边界
         .beginTime(beginTime)
         .endTime(endTime)
         .priority(1)
         .build();
 ```
 
-`AMOUNT` 和 `DISCOUNT` 当前已作为优惠类型能力接入：会被 `PromotionEngine` 汇总，并由 `AmountDiscountApplier` 作用到结算结果；但它们仍不是独立 `PromotionRuleType`。
+`FreeTimeRangeType` 枚举：
+- `NORMAL`：普通免费时段，不影响周期边界
+- `BUBBLE`：气泡型，延长周期边界，后续时间段边界整体后移
 
-### 智能免费分钟数（SMART_FREE_MINUTES）
-
-`SMART_FREE_MINUTES` 与 `FREE_MINUTES` 字段相同（都走 `freeMinutes`），区别在 `type`。它仅在 `DURATION_GLOBAL` 模式下消费——规则侧用自身价格信息按单价降序优先覆盖高价时段；其他模式遇到 `SMART_FREE_MINUTES` 会抛异常。
+### 11.5 智能免费分钟数
 
 ```java
 PromotionGrant smartFreeMinutes = PromotionGrant.builder()
@@ -377,86 +710,24 @@ PromotionGrant smartFreeMinutes = PromotionGrant.builder()
         .build();
 ```
 
-同时存在普通 `FREE_MINUTES` 与 `SMART_FREE_MINUTES` 时，按 `priority` 排序各自分配，后分配者跳过已被占用的时段。`SMART_FREE_MINUTES` 不计入简化计算的总免费分钟数判断（仅标量透传到 `DurationGlobalStrategy`）。
+**限制**：`SMART_FREE_MINUTES` 仅在 `DURATION_GLOBAL` 模式下消费。其他模式遇到此类型会抛出 `IllegalStateException`。
+
+### 11.6 优惠叠加规则
+
+- 多个 `AMOUNT` 优惠：金额求和
+- 多个 `DISCOUNT` 优惠：取最小折扣率（如 min(0.8, 0.9) = 0.8）
+- `FREE_RANGE` 和 `FREE_MINUTES` 可同时存在，由引擎合并处理
+- `FREE_MINUTES` 与 `SMART_FREE_MINUTES` 共用 `freeMinutes` 字段，按 `priority` 排序各自分配
 
 ---
 
-## 11. 计费规则配置
-
-### `dayNight`
-
-```java
-DayNightConfig config = new DayNightConfig()
-        .setId("daynight-1")
-        .setDayBeginMinute(8 * 60)
-        .setDayEndMinute(20 * 60)
-        .setDayUnitPrice(new BigDecimal("2"))
-        .setNightUnitPrice(new BigDecimal("1"))
-        .setMaxChargeOneDay(new BigDecimal("50"))
-        .setUnitMinutes(60)
-        .setBlockWeight(new BigDecimal("0.5"));
-```
-
-`blockWeight` 用于跨日夜混合单元的最终价格判断。当前 `dayNight` 已支持混合单元和封顶单元。
-
-### `relativeTime`
-
-```java
-RelativeTimeConfig config = new RelativeTimeConfig()
-        .setId("relative-1")
-        .setMaxChargeOneCycle(new BigDecimal("30"))
-        .setPeriods(List.of(
-                new RelativeTimePeriod()
-                        .setBeginMinute(0)
-                        .setEndMinute(720)
-                        .setUnitMinutes(60)
-                        .setUnitPrice(new BigDecimal("1")),
-                new RelativeTimePeriod()
-                        .setBeginMinute(720)
-                        .setEndMinute(1440)
-                        .setUnitMinutes(60)
-                        .setUnitPrice(new BigDecimal("2"))
-        ));
-```
-
-### `compositeTime`
-
-```java
-CompositeTimeConfig config = new CompositeTimeConfig()
-        .setId("composite-1")
-        .setMaxChargeOneCycle(new BigDecimal("50"))
-        .setInsufficientUnitMode(InsufficientUnitMode.FULL)
-        .setPeriods(List.of(
-                CompositePeriod.builder()
-                        .beginMinute(0)
-                        .endMinute(1440)
-                        .unitMinutes(60)
-                        .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
-                        .naturalPeriods(List.of(
-                                new NaturalPeriod(8 * 60, 20 * 60, new BigDecimal("2")),
-                                new NaturalPeriod(20 * 60, 24 * 60, new BigDecimal("1"))
-                        ))
-                        .build()
-        ));
-```
-
-### `flatFree`
-
-```java
-FlatFreeConfig config = FlatFreeConfig.builder()
-        .id("flat-free-1")
-        .build();
-```
-
-完整规则能力和限制见 `docs/billing-engine-capabilities-zh.md`。
-
----
-
-## 13. 方案切换
+## 12. 方案切换（多段计费）
 
 当计费方案会随时间变化时，使用 `schemeChanges`：
 
 ```java
+import cn.shang.charging.billing.pojo.SchemeChange;
+
 List<SchemeChange> changes = List.of(
         new SchemeChange()
                 .setLastSchemeId("scheme-a")
@@ -465,47 +736,120 @@ List<SchemeChange> changes = List.of(
 );
 
 BillingRequest request = new BillingRequest();
-request.setBeginTime(beginTime);
-request.setEndTime(endTime);
+request.setBeginTime(LocalDateTime.of(2026, 5, 8, 9, 0));
+request.setEndTime(LocalDateTime.of(2026, 5, 8, 18, 0));
 request.setSchemeChanges(changes);
 request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
 ```
 
-`SEGMENT_LOCAL` 表示每段独立起算。`GLOBAL_ORIGIN`（全局起算 + 分段截取）已废弃（TODO-20260706-003）：减法方案未实现，externalPool 跨段共享已替代其外部优惠一致性目标。`SegmentCalculationMode` 仅保留 `SINGLE` / `SEGMENT_LOCAL`。
+引擎自动按 `changeTime` 切割为多段，各段使用对应方案的规则。
+
+### SegmentCalculationMode
+
+| 值 | 说明 |
+|------|------|
+| `SINGLE` | 仅单个分段（无方案切换时使用） |
+| `SEGMENT_LOCAL` | 分段独立起算（各段从自身起点开始计算） |
+
+---
+
+## 13. 时间取整
+
+处理计费时间中的秒数，适用于停车收费等"进场多算、出场不算"场景。
+
+| 模式 | 说明 |
+|------|------|
+| `KEEP_SECONDS` | 保留秒数，不做处理 |
+| `TRUNCATE_BOTH` | 开始和结束时间都直接去掉秒数 |
+| `CEIL_BEGIN_TRUNCATE_END` | 开始时间向上取整（+1分钟），结束时间去秒。**默认值** |
+| `TRUNCATE_BEGIN_CEIL_END` | 开始时间去秒，结束时间向上取整 |
+
+```java
+// 方式1：在请求中设置
+request.setTimeRoundingMode(TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+
+// 方式2：调用时指定（请求中的设置优先）
+billingTemplate.calculate(request, TimeRoundingMode.TRUNCATE_BOTH);
+
+// 方式3：不指定，默认使用 CEIL_BEGIN_TRUNCATE_END
+billingTemplate.calculate(request);
+```
 
 ---
 
 ## 14. 优惠等效金额
 
+### 14.1 独立计算
+
 ```java
 Map<String, BigDecimal> equivalents = billingTemplate.calculatePromotionEquivalents(request);
+// 返回：优惠ID → 等效金额
 ```
 
-等效金额基于完整计费结果计算，不依赖查询时点投影。查询不影响完整结算结果。
+### 14.2 按需计算 + 自动回填
 
-### 14.1 按需计算 + 回填（TODO-20260706-003）
-
-设置 `BillingRequest.equivalentAmountSpec`（`EquivalentAmountSpec`，`promotionIds` + `types`，`null`=不限）后，`BillingService.calculate` 会在结算后调用消去法，把精确等效金额回填到 `PromotionUsage.equivalentAmount`（覆盖策略侧"原价之和"近似值），并汇总到 `BillingResult.totalEquivalentAmount`（与 `finalAmount` 同级）。
+设置 `BillingRequest.equivalentAmountSpec` 后，引擎会在结算后自动用消去法计算并回填：
 
 ```java
+import cn.shang.charging.billing.pojo.EquivalentAmountSpec;
+import java.util.Set;
+
 request.setEquivalentAmountSpec(EquivalentAmountSpec.builder()
-        .promotionIds(Set.of("coupon-1"))      // null=不限 id（全部）
-        .types(Set.of(BConstants.PromotionType.FREE_RANGE))  // null=不限类型
+        .promotionIds(Set.of("coupon-1"))          // null = 不限 id
+        .types(Set.of(BConstants.PromotionType.FREE_RANGE))  // null = 不限类型
         .build());
+
 BillingResult result = billingTemplate.calculate(request);
-// result.getTotalEquivalentAmount()：命中优惠的等效金额之和（spec==null 时为 null）
-// result.getPromotionUsages().get(i).getEquivalentAmount()：spec 命中的被回填
+
+// 结果中：
+// result.getTotalEquivalentAmount() → 命中优惠的等效金额之和
+// result.getPromotionUsages().get(i).getEquivalentAmount() → 被回填为精确值
 ```
 
-`equivalentAmountSpec == null`（默认）时不计算，`totalEquivalentAmount` 为 `null`，`PromotionUsage.equivalentAmount` 保持策略侧近似值。`PromotionUsage.source`（`RULE` 方案内 / `COUPON` 外部等）从优惠来源透传，可区分方案内与外部优惠。
+### 14.3 EquivalentAmountSpec
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `promotionIds` | `Set<String>` | 指定优惠 ID（null=不限，全部参与） |
+| `types` | `Set<BConstants.PromotionType>` | 指定优惠类型（null=不限） |
+
+两个维度取交集。
+
+- `equivalentAmountSpec == null`（默认）→ 不计算等效金额，`totalEquivalentAmount` 为 `null`
+- `equivalentAmountSpec != null` → 按规格过滤，回填到 `PromotionUsage.equivalentAmount` 和 `BillingResult.totalEquivalentAmount`
 
 ---
 
-## 15. 自定义计费规则
+## 15. 计算模式详解
 
-### 15.1 定义配置
+| 模式 | 说明 | 产出类型 |
+|------|------|----------|
+| `CONTINUOUS` | 连续时间计费（边界驱动循环） | `BillingUnit`（含 compact 合并） |
+| `UNIT_BASED` | 固定单元对齐计费 | `BillingUnit` |
+| `DURATION_PERIOD` | 周期内时长计费，周期封顶+时段封顶 | `DurationSegment` |
+| `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘 | `DurationSegment` |
+
+### 规则族支持矩阵
+
+| 规则族 | CONTINUOUS | UNIT_BASED | DURATION_PERIOD | DURATION_GLOBAL |
+|--------|:----------:|:----------:|:---------------:|:---------------:|
+| `dayNight` | ✅ | ✅ | ✅ | ✅ |
+| `relativeTime` | ✅ | ❌ | ✅ | ✅ |
+| `naturalTime` | ✅ | ❌ | ✅ | ✅ |
+| `compositeTime` | ✅ | ❌ | ✅ | ✅ |
+| `flatFree` | ✅ | ✅ | ❌ | ❌ |
+
+---
+
+## 16. 自定义计费规则
+
+### 16.1 定义配置类
 
 ```java
+import cn.shang.charging.billing.pojo.RuleConfig;
+import lombok.Data;
+import java.math.BigDecimal;
+
 @Data
 public class MyRuleConfig implements RuleConfig {
     private String id;
@@ -513,21 +857,27 @@ public class MyRuleConfig implements RuleConfig {
 
     @Override
     public String getType() {
-        return "myRule";
+        return "myRule";  // 自定义规则类型标识
     }
 }
 ```
 
-### 15.2 实现规则
+### 16.2 实现规则
 
 ```java
+import cn.shang.charging.charge.rules.BillingRule;
+import cn.shang.charging.billing.pojo.*;
+import cn.shang.charging.promotion.pojo.PromotionAggregate;
+import java.util.Set;
+
 public class MyBillingRule implements BillingRule<MyRuleConfig> {
 
     @Override
     public BillingSegmentResult calculate(BillingContext context,
                                           MyRuleConfig config,
                                           PromotionAggregate promotionAggregate) {
-        // 规则必须是纯计算：只根据输入生成结果，不访问数据库或外部服务。
+        // 规则必须是纯计算：只根据输入生成结果，不访问数据库或外部服务
+        // ...
     }
 
     @Override
@@ -542,71 +892,120 @@ public class MyBillingRule implements BillingRule<MyRuleConfig> {
 }
 ```
 
-### 15.3 注册规则
+### 16.3 注册规则
 
 ```java
 billingRuleRegistry.register("myRule", new MyBillingRule());
 ```
 
-规则私有逻辑可以保存在 `ruleData` 中，
+### 规则开发原则
+
+1. **纯计算**：输入 → 输出，不访问数据库、不调用远程接口
+2. **无副作用**：不修改全局状态、不修改共享对象
+3. **确定性**：同样输入 → 同样输出
+4. **规则不相互调用**：引擎统一编排，规则 A 不调用规则 B
+5. **配置与实现分离**：`RuleConfig` 只描述参数，`BillingRule` 负责计算
 
 ---
 
-## 16. 常用枚举与常量
+## 17. 常用枚举与常量
 
-### `CalculationMode`
+### BConstants.CalculationMode
 
 | 值 | 说明 |
 |------|------|
-| `CONTINUOUS` | 连续时间计费，时间轴可被免费时段和规则边界切分 |
-| `UNIT_BASED` | 固定计费单元模式（当前仅 `dayNight` 门面下 `DayNightUnitBasedStrategy` 承载） |
-| `DURATION_PERIOD` | 周期内时长计费，周期封顶 + 时段封顶，产出 `DurationSegment` |
-| `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘，产出 `DurationSegment`；唯一消费 `SMART_FREE_MINUTES` 的模式 |
+| `CONTINUOUS` | 连续时间计费（边界驱动切断） |
+| `UNIT_BASED` | 固定单元对齐计费 |
+| `DURATION_PERIOD` | 周期内时长计费 |
+| `DURATION_GLOBAL` | 全局时长计费（唯一消费 SMART_FREE_MINUTES 的模式） |
 
-4 个规则族（`dayNight`/`relativeTime`/`naturalTime`/`compositeTime`）通过 `supportedCalculationModes()` 声明支持的模式：`dayNight` 支持 4 种；其余 3 族支持 `CONTINUOUS`/`DURATION_PERIOD`/`DURATION_GLOBAL`（不含 `UNIT_BASED`）。门面按请求模式分派到对应 `ModeStrategy`。
-
-### `PromotionType`
+### BConstants.PromotionType
 
 | 值 | 说明 |
 |------|------|
 | `FREE_RANGE` | 免费时间段 |
 | `FREE_MINUTES` | 免费分钟数（在窗口起点附近分配） |
-| `SMART_FREE_MINUTES` | 智能免费分钟数，仅 `DURATION_GLOBAL` 模式消费，按单价降序优先高价分配；非 GLOBAL 模式报错 |
-| `AMOUNT` | 金额减免，已作为优惠类型能力接入 |
-| `DISCOUNT` | 折扣优惠，已作为优惠类型能力接入 |
+| `SMART_FREE_MINUTES` | 智能免费分钟数（仅 DURATION_GLOBAL，按单价降序优先高价分配） |
+| `AMOUNT` | 金额减免 |
+| `DISCOUNT` | 折扣优惠 |
 
-### `ChargeRuleType`
+### BConstants.PromotionSource
+
+| 值 | 说明 |
+|------|------|
+| `RULE` | 方案内规则产生的优惠 |
+| `COUPON` | 外部优惠券 |
+
+### BConstants.ChargeRuleType
 
 | 常量 | 值 | 状态 |
 |------|------|------|
-| `DAY_NIGHT` | `dayNight` | 已实现 |
-| `RELATIVE_TIME` | `relativeTime` | 已实现 |
-| `COMPOSITE_TIME` | `compositeTime` | 已实现 |
-| `FLAT_FREE` | `flatFree` | 已实现 |
-| `TIMES` | `times` | 预留，当前无实现 |
-| `NATURAL_TIME` | `naturalTime` | 已实现 |
-| `NR_TIME_MIX` | `nrTimeMix` | 已废弃，由 `compositeTime` 覆盖 |
+| `DAY_NIGHT` | `"dayNight"` | 已实现 |
+| `RELATIVE_TIME` | `"relativeTime"` | 已实现 |
+| `NATURAL_TIME` | `"naturalTime"` | 已实现 |
+| `COMPOSITE_TIME` | `"compositeTime"` | 已实现 |
+| `FLAT_FREE` | `"flatFree"` | 已实现 |
+| `TIMES` | `"times"` | 预留，当前无实现 |
+| `NR_TIME_MIX` | `"nrTimeMix"` | **已废弃**，由 `compositeTime` 替代 |
+
+### BConstants.PromotionRuleType
+
+| 常量 | 值 |
+|------|------|
+| `FREE_MINUTES` | `"freeMinutes"` |
+| `START_FREE` | `"startFree"` |
+
+### BConstants.IncompleteUnitChargeMode
+
+| 值 | 说明 |
+|------|------|
+| `FULL_CHARGE` | 不足单元完整收费（默认） |
+| `PROPORTIONAL` | 按时长比例收费 |
+| `FREE` | 不足单元免费 |
+| `THRESHOLD_MINUTES` | 超过阈值分钟数后全额收费，否则免费 |
+| `THRESHOLD_RATIO` | 超过阈值比例后全额收费，否则按比例收费 |
+
+### BConstants.SegmentCalculationMode
+
+| 值 | 说明 |
+|------|------|
+| `SINGLE` | 仅单个分段 |
+| `SEGMENT_LOCAL` | 分段独立起算 |
+
+### TimeRoundingMode
+
+| 值 | 说明 |
+|------|------|
+| `KEEP_SECONDS` | 保留秒数 |
+| `TRUNCATE_BOTH` | 起止时间均去秒 |
+| `CEIL_BEGIN_TRUNCATE_END` | 开始向上取整，结束去秒（默认） |
+| `TRUNCATE_BEGIN_CEIL_END` | 开始去秒，结束向上取整 |
+
+### FreeTimeRangeType
+
+| 值 | 说明 |
+|------|------|
+| `NORMAL` | 普通免费时段 |
+| `BUBBLE` | 气泡型（延长周期边界） |
 
 ---
 
-## 17. 能力边界
+## 18. 设计原则与禁止事项
 
-当前能力边界以以下文档为准：
+### 核心引擎原则
 
-- `docs/billing-engine-capabilities-zh.md`
-- `docs/TODO.md`
-- `docs/tracking/items/`
+1. **核心引擎只负责计算** — 不处理缓存、数据库、持久化等副作用
+2. **规则必须是纯计算** — 输入→输出，确定性，无副作用
+3. **时间计算必须可重复** — 同样输入→同样输出
+4. **规则不应相互依赖** — 引擎统一编排，规则间不直接调用
+5. **配置与实现分离** — `RuleConfig` 只描述参数，`BillingRule` 负责计算
+6. **简单优先** — 简单场景零额外复杂度，高级特性隔离
 
-当本文和能力文档不一致时，应先以代码和能力文档为准，再修正本文。
+### 禁止事项
 
----
-
-## 18. 设计原则
-
-- `core` 只负责纯计费计算，不访问数据库、不做持久化。
-- 规则实现必须是确定性的纯计算。
-- 规则配置和规则实现分离。
-- 规则之间不相互调用，由引擎统一编排。
-- 查询时点金额直接按 IncompleteUnitChargeMode 计费，不依赖投影机制。
-
-
+| 禁止行为 | 错误示例 |
+|---------|---------|
+| 在规则中访问数据库 | `rule.calculate()` 内部查询数据库 |
+| 规则修改全局状态 | 修改全局变量、修改共享对象 |
+| 规则改变计费流程 | 改变引擎执行顺序 |
+| 规则之间相互调用 | `RuleA.calculate()` → `RuleB.calculate()` |
