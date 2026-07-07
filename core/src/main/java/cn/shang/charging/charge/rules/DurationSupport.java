@@ -124,6 +124,20 @@ public final class DurationSupport {
     }
 
     /**
+     * 统计 BUBBLE 免费段的总时长（分钟）。bubble 段不占用周期时长，用于 GLOBAL 模式周期数计算。
+     */
+    public static int sumBubbleDuration(List<HomogeneousSegment> segments) {
+        if (segments == null || segments.isEmpty()) return 0;
+        int sum = 0;
+        for (HomogeneousSegment seg : segments) {
+            if (seg.isBubble()) {
+                sum += seg.durationMinutes();
+            }
+        }
+        return sum;
+    }
+
+    /**
      * PERIOD 模式：周期内按时长计费。
      * <p>
      * - 时段封顶：周期内同 period 累计达 period.maxCharge，该 period 后续段 chargedAmount 削减（落盘）<br>
@@ -240,7 +254,10 @@ public final class DurationSupport {
         }
 
         int cycleMinutes = semantics.cycleMinutes();
-        int cycleCount = (int) Math.ceil((double) totalMinutes / cycleMinutes);
+        // bubble 免费段不占用周期时长：周期数按有效时长（总时长 - bubble 时长）算
+        int bubbleMinutes = sumBubbleDuration(segments);
+        int effectiveMinutes = Math.max((int) (totalMinutes - bubbleMinutes), 0);
+        int cycleCount = (int) Math.ceil((double) effectiveMinutes / cycleMinutes);
         if (cycleCount < 1) cycleCount = 1;
 
         int n = segments.size();

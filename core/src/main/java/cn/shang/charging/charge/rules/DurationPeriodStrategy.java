@@ -70,7 +70,7 @@ public final class DurationPeriodStrategy {
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
                     return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
-                            true, range.getId(), null);
+                            true, range.getId(), range.getRangeType(), null);
                 }
             }
             // 计算单元单价
