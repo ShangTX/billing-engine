@@ -62,67 +62,29 @@ public class BillingTemplate {
     }
 
     /**
-     * 应用时间取整（所有时间对齐到分钟）。
+     * 应用时间取整：统一向下取整（秒数置0）。
      * <p>
-     * 三步：
-     * <ol>
-     *   <li>计费时间（beginTime/endTime/calcEndTime）按 {@code mode} 取整（现有逻辑，默认
-     *       CEIL_BEGIN_TRUNCATE_END：计费尽量短）</li>
-     *   <li>-1 分钟守卫：取整后 {@code beginTime >= endTime} 时调到一致（计费 0）。场景：
-     *       ceil(begin) 超过 truncate(end)，如 begin=10:31:30→10:32, end=10:31:50→10:31</li>
-     *   <li>优惠时间（externalPromotions 的 FREE_RANGE）按「优惠尽量长」取整：begin 向下
-     *       （truncate）、end 向上（ceil）。独立于 {@code mode}，始终对齐到分钟，避免与计费
-     *       时间不对齐产生 0 分钟段</li>
-     * </ol>
+     * 引擎按分钟精度计算，所有时间（计费时间 + 外部优惠时间）在入口统一向下取整。
+     * 忽略 {@code mode}（保留参数向后兼容）；外部业务策略（如 beginTime 向上取整）请通过
+     * {@link TimeRounding} 自行预处理后再传入。
+     * <p>
+     * 向下取整不会产生 {@code beginTime > endTime} 的倒置（最多相等 → 计费 0），无需守卫。
      */
     private void applyTimeRounding(BillingRequest request, TimeRoundingMode mode) {
-        // 1. 计费时间取整（按 mode）
-        if (mode != null && request.getBeginTime() != null && request.getEndTime() != null) {
-            switch (mode) {
-                case KEEP_SECONDS:
-                    break;
-                case TRUNCATE_BOTH:
-                    request.setBeginTime(truncateSeconds(request.getBeginTime()));
-                    request.setEndTime(truncateSeconds(request.getEndTime()));
-                    break;
-                case CEIL_BEGIN_TRUNCATE_END:
-                    request.setBeginTime(ceilSeconds(request.getBeginTime()));
-                    request.setEndTime(truncateSeconds(request.getEndTime()));
-                    break;
-                case TRUNCATE_BEGIN_CEIL_END:
-                    request.setBeginTime(truncateSeconds(request.getBeginTime()));
-                    request.setEndTime(ceilSeconds(request.getEndTime()));
-                    break;
-            }
-
-            // 同步处理 calcEndTime
-            if (request.getCalcEndTime() != null) {
-                switch (mode) {
-                    case KEEP_SECONDS:
-                        break;
-                    case TRUNCATE_BOTH:
-                    case CEIL_BEGIN_TRUNCATE_END:
-                        request.setCalcEndTime(truncateSeconds(request.getCalcEndTime()));
-                        break;
-                    case TRUNCATE_BEGIN_CEIL_END:
-                        request.setCalcEndTime(ceilSeconds(request.getCalcEndTime()));
-                        break;
-                }
-            }
+        if (request.getBeginTime() != null) {
+            request.setBeginTime(TimeRounding.truncate(request.getBeginTime()));
         }
-
-        // 2. -1 分钟守卫：取整后 beginTime >= endTime 时调到一致（计费 0）
-        if (request.getBeginTime() != null && request.getEndTime() != null
-                && !request.getBeginTime().isBefore(request.getEndTime())) {
-            request.setBeginTime(request.getEndTime());
+        if (request.getEndTime() != null) {
+            request.setEndTime(TimeRounding.truncate(request.getEndTime()));
         }
-
-        // 3. 优惠时间取整：优惠尽量长（begin 向下 truncate, end 向上 ceil）
+        if (request.getCalcEndTime() != null) {
+            request.setCalcEndTime(TimeRounding.truncate(request.getCalcEndTime()));
+        }
         roundExternalPromotions(request);
     }
 
     /**
-     * 对外部优惠（FREE_RANGE）的时间按「优惠尽量长」取整：begin 向下、end 向上。
+     * 对外部优惠（FREE_RANGE）的时间统一向下取整。
      * 非 FREE_RANGE 类型（FREE_MINUTES/SMART_FREE_MINUTES/AMOUNT/DISCOUNT）无时间段，不处理。
      */
     private void roundExternalPromotions(BillingRequest request) {
@@ -134,32 +96,12 @@ public class BillingTemplate {
                 continue;
             }
             if (grant.getBeginTime() != null) {
-                grant.setBeginTime(truncateSeconds(grant.getBeginTime()));
+                grant.setBeginTime(TimeRounding.truncate(grant.getBeginTime()));
             }
             if (grant.getEndTime() != null) {
-                grant.setEndTime(ceilSeconds(grant.getEndTime()));
+                grant.setEndTime(TimeRounding.truncate(grant.getEndTime()));
             }
         }
-    }
-
-    /**
-     * 去掉秒数（秒数置0）
-     */
-    private LocalDateTime truncateSeconds(LocalDateTime time) {
-        if (time.getSecond() == 0 && time.getNano() == 0) {
-            return time;
-        }
-        return time.withSecond(0).withNano(0);
-    }
-
-    /**
-     * 向上取整（秒数大于0时，增加一分钟，秒数置0）
-     */
-    private LocalDateTime ceilSeconds(LocalDateTime time) {
-        if (time.getSecond() == 0 && time.getNano() == 0) {
-            return time;
-        }
-        return time.plusMinutes(1).withSecond(0).withNano(0);
     }
 
     /**

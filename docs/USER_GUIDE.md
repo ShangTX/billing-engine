@@ -755,46 +755,47 @@ request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCA
 
 ## 13. 时间取整
 
-引擎按**分钟精度**计费，所有时间通过 `BillingTemplate` 入口时对齐到分钟。取整遵循「对用户有利」原则：
+引擎按**分钟精度**计费，所有时间通过 `BillingTemplate` 入口时**统一向下取整**（秒数置0）。这是一条确定性规则，不区分计费时间与优惠时间、不带业务策略：
 
-| 时间类型 | 取整方向 | 原则 |
-|---------|---------|------|
-| 计费 `beginTime` | 向上（ceil） | 计费尽量短 |
-| 计费 `endTime` | 向下（truncate） | 计费尽量短 |
-| 优惠 `beginTime`（FREE_RANGE） | 向下（truncate） | 优惠尽量长 |
-| 优惠 `endTime`（FREE_RANGE） | 向上（ceil） | 优惠尽量长 |
+- `BillingRequest.beginTime` / `endTime` / `calcEndTime` → 向下取整
+- `externalPromotions` 中 `FREE_RANGE` 的 `beginTime` / `endTime` → 向下取整
 
-### 13.1 计费时间取整模式（`TimeRoundingMode`）
+向下取整不会产生 `beginTime > endTime` 的倒置（最多相等 → 计费 0），无需守卫。取整后所有时间对齐到分钟，`Duration.toMinutes()` 不损失精度，不产生 0 分钟段。
 
-控制 `BillingRequest.beginTime` / `endTime` / `calcEndTime` 的取整方式：
+### 13.1 业务策略由调用方预处理
 
-| 模式 | 说明 |
-|------|------|
-| `KEEP_SECONDS` | 保留秒数，不做处理（优惠时间仍按上表取整） |
-| `TRUNCATE_BOTH` | 开始和结束时间都直接去掉秒数 |
-| `CEIL_BEGIN_TRUNCATE_END` | 开始时间向上取整（+1分钟），结束时间去秒。**默认值** |
-| `TRUNCATE_BEGIN_CEIL_END` | 开始时间去秒，结束时间向上取整 |
+引擎不再提供向上取整模式（原 `TimeRoundingMode` 枚举保留向后兼容，但引擎忽略，统一向下）。调用方若有「进场多算」（beginTime 向上）、「优惠尽量长」（endTime 向上）等业务需求，应在构造 `BillingRequest` 前通过 `TimeRounding` 工具自行预处理：
 
 ```java
-// 方式1：在请求中设置
-request.setTimeRoundingMode(TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+import cn.shang.charging.wrapper.TimeRounding;
 
-// 方式2：调用时指定（请求中的设置优先）
-billingTemplate.calculate(request, TimeRoundingMode.TRUNCATE_BOTH);
+// 外部预处理：beginTime 向上取整（"进场多算"）
+LocalDateTime rawBegin = LocalDateTime.of(2026, 7, 7, 9, 0, 30);
+request.setBeginTime(TimeRounding.ceil(rawBegin));   // → 09:01:00
 
-// 方式3：不指定，默认使用 CEIL_BEGIN_TRUNCATE_END
-billingTemplate.calculate(request);
+// endTime 保持向下（引擎默认行为）
+request.setEndTime(endTime);                          // 引擎内部 truncate
+
+BillingResult result = billingTemplate.calculate(request);
+// 引擎对已对齐到分钟的时间向下取整是 no-op，外部预处理意图保留
 ```
 
-### 13.2 -1 分钟守卫
+`TimeRounding` 工具方法：
 
-计费时间取整后若 `beginTime >= endTime`（如 `begin=10:31:30` ceil→`10:32`，`end=10:31:50` truncate→`10:31`），引擎将两者调到一致（`beginTime = endTime`），计费 0 元，避免取整倒置导致分段异常。
+| 方法 | 说明 |
+|------|------|
+| `TimeRounding.truncate(time)` | 向下取整（秒数置0）。引擎内部统一使用 |
+| `TimeRounding.ceil(time)` | 向上取整（秒数>0 则 +1 分钟）。仅供外部预处理 |
 
-### 13.3 优惠时间取整（独立于 `TimeRoundingMode`）
+### 13.2 `TimeRoundingMode` 字段说明
 
-外部优惠（`BillingRequest.externalPromotions`）中 `FREE_RANGE` 类型的 `beginTime` / `endTime` **始终**按「优惠尽量长」取整（begin 向下、end 向上），不受 `TimeRoundingMode` 影响。这保证优惠时段与取整后的计费时间对齐，不产生 0 分钟段。`FREE_MINUTES` / `SMART_FREE_MINUTES` / `AMOUNT` / `DISCOUNT` 无时间段，不涉及。
+`BillingRequest.timeRoundingMode` 和 `BillingTemplate.calculate(request, mode)` 保留向后兼容，但**引擎忽略 `mode`**，始终统一向下取整。现有调用方无需移除该字段，但建议逐步迁移到外部预处理方式。
 
-> 注：引擎内部计算（边界驱动循环、免费分钟分配等）均按分钟精度，`Duration.toMinutes()` 截断秒数。建议调用方通过 `BillingTemplate` 入口传入时间，由引擎统一取整；直接使用 `BillingService` 时应自行保证时间对齐到分钟。
+### 13.3 直接使用 `BillingService`
+
+`BillingService` 不做取整，直接使用时应自行保证时间对齐到分钟（或接受 `toMinutes()` 截断秒数的精度损失）。推荐通过 `BillingTemplate` 入口，由引擎统一向下取整。
+
+> 注：引擎内部计算（边界驱动循环、免费分钟分配等）均按分钟精度。统一向下取整后秒数为0，`toMinutes()` 精确，无 0 分钟段与精度损失问题。
 
 ---
 
