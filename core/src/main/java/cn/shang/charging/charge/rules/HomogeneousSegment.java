@@ -15,13 +15,21 @@ import java.util.Objects;
  */
 public class HomogeneousSegment {
 
+    /** 段起点（含） */
     private final LocalDateTime beginTime;
+    /** 段终点（不含） */
     private final LocalDateTime endTime;
+    /** 单元单价（免费段为 0） */
     private final BigDecimal unitPrice;
+    /** 单元素始金额（按规则原价，封顶前；CONTINUOUS 免费段设 0，收费段 = unitPrice） */
     private final BigDecimal originalAmount;
+    /** 是否免费段 */
     private final boolean free;
+    /** 免费段对应的 FreeTimeRange.id（非免费段为 null） */
     private final String freePromotionId;
+    /** 免费时段类型：NORMAL（普通，占用周期）/ BUBBLE（气泡型，不占用周期）；仅免费段有意义，收费段始终 NORMAL */
     private final FreeTimeRangeType rangeType;
+    /** 规则特化数据（透传，不参与计费；可由子类或策略扩展使用） */
     private final Object ruleData;
 
     public HomogeneousSegment(LocalDateTime beginTime,
@@ -76,10 +84,6 @@ public class HomogeneousSegment {
         return freePromotionId;
     }
 
-    /**
-     * 免费时段类型：NORMAL（普通，占用周期）/ BUBBLE（气泡型，不占用周期）。
-     * 仅对免费段（{@link #isFree()}=true）有意义；收费段始终为 NORMAL。
-     */
     public FreeTimeRangeType getRangeType() {
         return rangeType;
     }
