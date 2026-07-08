@@ -46,6 +46,15 @@ public class DayNightConfig implements RuleConfig {
     CrossPeriodMode crossPeriodMode = CrossPeriodMode.BLOCK_WEIGHT;
 
     /**
+     * CONTINUOUS 模式是否在日夜边界切断单元。
+     * true（默认）：日夜边界切断单元，每单元纯 day/night（现状）。
+     * false：不在日夜边界切断，单元跨日夜时按 crossPeriodMode（默认 BLOCK_WEIGHT）+ blockWeight 归属白天/夜晚价。
+     * 仅 CONTINUOUS 模式生效；UNIT_BASED 固定单元对齐本就不切断；时长模式按时长计费不涉及单元归属。
+     */
+    @Builder.Default
+    Boolean splitDayNightBoundary = true;
+
+    /**
      * 白天价格
      */
     BigDecimal dayUnitPrice;

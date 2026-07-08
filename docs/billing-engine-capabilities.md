@@ -137,6 +137,7 @@ Capabilities:
 - `dayBeginMinute` and `dayEndMinute` define the day period.
 - `dayUnitPrice` and `nightUnitPrice` define the two prices.
 - `blockWeight` determines the final price of a mixed day/night unit.
+- `splitDayNightBoundary` (default `true`) controls whether CONTINUOUS splits units at the day/night boundary: when `false`, a unit spanning the boundary is priced by `crossPeriodMode` (default `BLOCK_WEIGHT`) + `blockWeight` (legacy semantics).
 - `maxChargeOneDay` applies a daily cap.
 - UNIT_BASED semantics are carried by `DayNightUnitBasedStrategy` (a strategy under the facade: fixed unit alignment + full-coverage-free).
 - `DURATION_PERIOD` / `DURATION_GLOBAL` are carried by the shared `DurationPeriodStrategy` / `DurationGlobalStrategy` (declared-on support, no rule-family-private implementation needed).

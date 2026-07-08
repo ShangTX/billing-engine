@@ -42,6 +42,7 @@ class DayNightParkingParityTest {
                 .dayUnitPrice(new BigDecimal("9.40"))
                 .nightUnitPrice(new BigDecimal("1.50"))
                 .maxChargeOneDay(new BigDecimal("158.27"))
+                .splitDayNightBoundary(false)  // 跨日夜单元按 blockWeight 归属（旧版本语义）
                 .build();
 
         BillingResult result = createService(config).calculate(baseRequest(beginTime, endTime));

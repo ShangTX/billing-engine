@@ -137,6 +137,7 @@ BillingRequest
 - `dayBeginMinute` 和 `dayEndMinute` 定义白天时段。
 - `dayUnitPrice` 和 `nightUnitPrice` 定义日夜价格。
 - `blockWeight` 决定跨日夜混合单元的最终价格。
+- `splitDayNightBoundary`（默认 `true`）控制 CONTINUOUS 是否在日夜边界切断单元：`false` 时单元跨日夜按 `crossPeriodMode`（默认 `BLOCK_WEIGHT`）+ `blockWeight` 归属白天/夜晚价（旧版本语义）。
 - `maxChargeOneDay` 支持每日封顶。
 - `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
 - UNIT_BASED 语义由 `DayNightUnitBasedStrategy` 承载（门面下策略，固定单元对齐 + 完整覆盖才免费）。

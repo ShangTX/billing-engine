@@ -571,7 +571,9 @@ DayNightConfig config = new DayNightConfig()
 | `nightUnitPrice` | `BigDecimal` | 夜间单价 |
 | `maxChargeOneDay` | `BigDecimal` | 每日封顶金额（周期封顶） |
 | `unitMinutes` | `int` | 计费单元时长（分钟） |
-| `blockWeight` | `BigDecimal` | 跨日夜混合单元价格权重 |
+| `blockWeight` | `BigDecimal` | 跨日夜混合单元价格权重（仅 BLOCK_WEIGHT 模式） |
+| `crossPeriodMode` | `CrossPeriodMode` | 跨时段处理模式（默认 BLOCK_WEIGHT） |
+| `splitDayNightBoundary` | `Boolean` | CONTINUOUS 是否在日夜边界切断单元（默认 true 切断；false 跨日夜按 crossPeriodMode 归属） |
 
 ### 10.2 relativeTime（相对时间段计费）
 

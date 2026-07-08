@@ -212,30 +212,28 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
 
         List<BoundaryProvider> providers = new ArrayList<>();
         providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, MINUTES_PER_CYCLE));
-        providers.add((current, e) -> {
-            List<LocalDateTime> result = new ArrayList<>();
-            LocalDateTime day = current.toLocalDate().atStartOfDay();
-            LocalDateTime candidateBegin = day.plusMinutes(dayBeginMin);
-            if (!candidateBegin.isAfter(current)) {
-                candidateBegin = candidateBegin.plusDays(1);
-            }
-            while (!candidateBegin.isAfter(e)) {
-                LocalDateTime candidateEnd;
-                if (dayBeginMin < dayEndMin) {
-                    candidateEnd = candidateBegin.toLocalDate().atStartOfDay().plusMinutes(dayEndMin);
-                } else {
-                    candidateEnd = candidateBegin.toLocalDate().plusDays(1).atStartOfDay().plusMinutes(dayEndMin);
+        // splitDayNightBoundary=true（默认）：日夜边界切断单元；false：不切断，单元跨日夜按 crossPeriodMode 归属
+        if (!Boolean.FALSE.equals(config.getSplitDayNightBoundary())) {
+            providers.add((current, e) -> {
+                // 返回 current 之后的 dayBegin/dayEnd 边界（检查当天与次日，覆盖 current 落在 day/night 时段的情况）
+                List<LocalDateTime> result = new ArrayList<>();
+                LocalDateTime day = current.toLocalDate().atStartOfDay();
+                for (int offset = 0; offset <= 1; offset++) {
+                    LocalDateTime dayStart = day.plusDays(offset);
+                    LocalDateTime dayBegin = dayStart.plusMinutes(dayBeginMin);
+                    LocalDateTime dayEnd = dayBeginMin < dayEndMin
+                            ? dayStart.plusMinutes(dayEndMin)
+                            : dayStart.plusDays(1).plusMinutes(dayEndMin);
+                    if (dayBegin.isAfter(current) && !dayBegin.isAfter(e)) {
+                        result.add(dayBegin);
+                    }
+                    if (dayEnd.isAfter(current) && !dayEnd.isAfter(e)) {
+                        result.add(dayEnd);
+                    }
                 }
-                if (candidateBegin.isAfter(current) && !candidateBegin.isAfter(e)) {
-                    result.add(candidateBegin);
-                }
-                if (candidateEnd.isAfter(current) && !candidateEnd.isAfter(e)) {
-                    result.add(candidateEnd);
-                }
-                candidateBegin = candidateBegin.plusDays(1);
-            }
-            return result;
-        });
+                return result;
+            });
+        }
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         providers.add((current, e) -> {
             List<LocalDateTime> result = new ArrayList<>();
