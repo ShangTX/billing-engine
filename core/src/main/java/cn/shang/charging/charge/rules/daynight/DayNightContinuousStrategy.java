@@ -19,7 +19,6 @@ import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -73,8 +72,9 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
 
         // CONTINUOUS 模式不支持 BUBBLE 免费时段（bubble 需 effective 周期，CONTINUOUS 未消费）
         ContinuousStrategy.assertNoBubbleSupported(freeTimeRanges);
-
+        // 周期封顶金额
         BigDecimal cycleCapAmount = dayNightSemantics.cycleCap(config);
+        // 是否使用简化
         boolean simplificationEnabled = context.getBillingConfigResolver() != null
             && ContinuousStrategy.isSimplificationEnabled(config, context.getBillingConfigResolver(), context, cycleCapAmount);
         int threshold = context.getBillingConfigResolver() != null
@@ -107,15 +107,8 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
             unit.setAccumulatedAmount(accumulatedAmount);
         }
 
-        final List<BillingUnit> finalAllUnits = allUnits;
         List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
-                freeTimeRanges, calcBegin, calcEnd,
-                rangeId -> finalAllUnits.stream()
-                        .filter(u -> u.isFree() && rangeId.equals(u.getFreePromotionId()))
-                        .map(u -> priceResolver.determineUnitPriceForContinuous(u.getBeginTime(), u.getEndTime(), config)
-                                .multiply(BigDecimal.valueOf(u.getDurationMinutes()))
-                                .divide(BigDecimal.valueOf(unitMinutes), 2, RoundingMode.HALF_UP))
-                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+                freeTimeRanges, calcBegin, calcEnd);
         List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
         if (materialized.getPromotionUsages() != null) {
             allUsages.addAll(materialized.getPromotionUsages());

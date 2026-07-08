@@ -6,13 +6,11 @@ import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.function.Function;
 
 /**
  * 优惠聚合工具类
@@ -27,22 +25,22 @@ public class PromotionAggregateUtil {
      * 为 FREE_RANGE 类型的免费时段产出 PromotionUsage。
      * <p>
      * 遍历 freeTimeRanges 中 promotionType=FREE_RANGE 的时段，计算其在计算窗口内的实际覆盖
-     * （usedFrom/usedTo/usedMinutes）和等效优惠金额（equivalentAmount，由回调按 range.id 聚合）。
+     * （usedFrom/usedTo/usedMinutes）。等效优惠金额（equivalentAmount）不在策略侧近似计算，
+     * 由 {@link cn.shang.charging.billing.PromotionEquivalentCalculator} 消去法按需回填
+     * （EquivalentAmountSpec 非 null 时）。
      * <p>
      * FREE_MINUTES 时段化后的 FreeTimeRange（promotionType=FREE_MINUTES）不在本方法范围，
      * 其 usage 由 FreeMinuteAllocator 产出。
      *
-     * @param freeTimeRanges             免费时段列表（含 FREE_RANGE 和 FREE_MINUTES 时段化结果）
-     * @param calcBegin                  计算窗口起点
-     * @param calcEnd                    计算窗口终点
-     * @param equivalentAmountByRangeId  按 range.id 聚合等效优惠金额的回调（免费段原价之和）
+     * @param freeTimeRanges 免费时段列表（含 FREE_RANGE 和 FREE_MINUTES 时段化结果）
+     * @param calcBegin      计算窗口起点
+     * @param calcEnd        计算窗口终点
      * @return FREE_RANGE 类型的 PromotionUsage 列表
      */
     public static List<PromotionUsage> buildFreeRangeUsages(
             List<FreeTimeRange> freeTimeRanges,
             LocalDateTime calcBegin,
-            LocalDateTime calcEnd,
-            Function<String, BigDecimal> equivalentAmountByRangeId) {
+            LocalDateTime calcEnd) {
         List<PromotionUsage> usages = new ArrayList<>();
         if (freeTimeRanges == null) {
             return usages;
@@ -58,11 +56,6 @@ public class PromotionAggregateUtil {
             }
             long usedMinutes = Duration.between(usedFrom, usedTo).toMinutes();
             long grantedMinutes = Duration.between(range.getBeginTime(), range.getEndTime()).toMinutes();
-            BigDecimal equivalent = equivalentAmountByRangeId != null
-                    ? equivalentAmountByRangeId.apply(range.getId()) : null;
-            if (equivalent == null) {
-                equivalent = BigDecimal.ZERO;
-            }
             usages.add(PromotionUsage.builder()
                     .promotionId(range.getId())
                     .type(BConstants.PromotionType.FREE_RANGE)
@@ -71,7 +64,6 @@ public class PromotionAggregateUtil {
                     .usedMinutes(usedMinutes)
                     .usedFrom(usedFrom)
                     .usedTo(usedTo)
-                    .equivalentAmount(equivalent)
                     .build());
         }
         return usages;

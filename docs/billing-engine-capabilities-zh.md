@@ -274,7 +274,7 @@ BillingRequest
 
 `PromotionEquivalentCalculator`（TODO-20260706-003 从 `billing-api` 迁入 `core` 的 `cn.shang.charging.billing` 包）使用消去法精确计算每个优惠的等效金额：依次排除某优惠后重算，差额即为该优惠的等效金额。
 
-- **按需计算**：`BillingRequest.equivalentAmountSpec`（`EquivalentAmountSpec`，`promotionIds` + `types`，`null`=不限）控制。`null`（默认）= 不计算，`PromotionUsage.equivalentAmount` 保持策略侧"原价之和"近似值，`BillingResult.totalEquivalentAmount` 为 `null`；非 `null` 时按规格过滤计算，回填到 `PromotionUsage.equivalentAmount`（覆盖近似值）与 `BillingResult.totalEquivalentAmount`（与 `finalAmount` 同级）。
+- **按需计算**：`BillingRequest.equivalentAmountSpec`（`EquivalentAmountSpec`，`promotionIds` + `types`，`null`=不限）控制。`null`（默认）= 不计算，`PromotionUsage.equivalentAmount` 为 `null`，`BillingResult.totalEquivalentAmount` 为 `null`；非 `null` 时按规格过滤计算，回填到 `PromotionUsage.equivalentAmount` 与 `BillingResult.totalEquivalentAmount`（与 `finalAmount` 同级）。策略侧不再近似计算等效金额，统一由消去法按需回填。
 - **多段 + 外部优惠**：`calculateWithContexts` 重放 `PromotionEngine.evaluate`（externalPool reset + 每段 evaluate + writeBack 推进），`cloneAndExclude` 在源层（externalPromotions / promotionRules 按 id）排除，跨段去重在每次消去迭代中重放。
 - **优惠来源**：`PromotionUsage.source`（`RULE` 方案内 / `COUPON` 外部等）从 `FreeTimeRange.source` / `FreeMinutes.source` 透传，调用方可区分方案内与外部优惠。
 

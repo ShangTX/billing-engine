@@ -99,14 +99,9 @@ public final class DurationGlobalStrategy {
         DurationSupport.DurationResult durationResult =
                 DurationSupport.buildGlobalMode(segments, totalMinutes, cycleCap, semantics, config, cycleOrigin);
 
-        // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 从 DurationSegment.originalAmount 聚合）
-        final List<DurationSegment> finalSegments = durationResult.segments;
+        // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 由 PromotionEquivalentCalculator 消去法按需回填）
         List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
-                regularFreeRanges, calcBegin, calcEnd,
-                rangeId -> finalSegments.stream()
-                        .filter(ds -> rangeId.equals(ds.freePromotionId()))
-                        .map(DurationSegment::originalAmount)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+                regularFreeRanges, calcBegin, calcEnd);
         List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
         // FREE_MINUTES usage：PERIOD/GLOBAL 统一来自时段化
         List<PromotionUsage> freeMinutesUsages = materialized != null && materialized.getPromotionUsages() != null

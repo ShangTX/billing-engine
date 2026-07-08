@@ -7,6 +7,7 @@ import cn.shang.charging.billing.SegmentBuilder;
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
+import cn.shang.charging.billing.pojo.EquivalentAmountSpec;
 import cn.shang.charging.billing.pojo.PromotionRuleConfig;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
@@ -32,10 +33,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * FREE_RANGE 免费段产出 PromotionUsage 测试（TODO-20260701-001）。
  * <p>
  * 验证 4 模式（CONTINUOUS/UNIT_BASED/PERIOD/GLOBAL）下 FREE_RANGE 产出 usage，
- * 含 promotionId / usedFrom / usedTo / usedMinutes / equivalentAmount。
+ * 含 promotionId / usedFrom / usedTo / usedMinutes / equivalentAmount（消去法）。
  * <p>
  * 场景：8:00-16:00（白天 8:00-20:00，dayUnitPrice 2.00），FREE_RANGE 11:00-12:00（1 小时）。
- * equivalentAmount = 1h × 2.00 = 2.00。
+ * equivalentAmount 由 PromotionEquivalentCalculator 消去法算 = 2.00（排除 FREE_RANGE 后金额上升 2.00）。
  */
 class FreeRangePromotionUsageTest {
 
@@ -94,6 +95,7 @@ class FreeRangePromotionUsageTest {
         request.setSchemeChanges(List.of());
         request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
         request.setSchemeId("scheme-1");
+        request.setEquivalentAmountSpec(EquivalentAmountSpec.builder().build());  // 启用消去法算 equivalentAmount
         request.setExternalPromotions(List.of(
                 PromotionGrant.builder()
                         .id("free-range-1")

@@ -135,13 +135,8 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
         }
 
         // 产出 FREE_RANGE 的 PromotionUsage（CONTINUOUS 免费单元 originalAmount=0）
-        final List<BillingUnit> finalAllUnits = allUnits;
         List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
-                freeTimeRanges, calcBegin, calcEnd,
-                rangeId -> finalAllUnits.stream()
-                        .filter(u -> u.isFree() && rangeId.equals(u.getFreePromotionId()))
-                        .map(BillingUnit::getOriginalAmount)
-                        .reduce(BigDecimal.ZERO, BigDecimal::add));
+                freeTimeRanges, calcBegin, calcEnd);
         List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
         if (materialized.getPromotionUsages() != null) {
             allUsages.addAll(materialized.getPromotionUsages());
