@@ -203,9 +203,12 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         int dayEndMin = config.getDayEndMinute();
         int unitMinutes = config.getUnitMinutes();
 
+        // 边界来源（BoundaryDrivenLoop 取所有 provider 返回边界的并集，按时间排序切断时间轴）：
         List<BoundaryProvider> providers = new ArrayList<>();
+        // 1. 周期结束边界（24h 循环，maxChargeOneDay 封顶周期）：cycleOrigin + k*1440
         providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, MINUTES_PER_CYCLE));
-        // splitDayNightBoundary=true（默认）：日夜边界切断单元；false：不切断，单元跨日夜按 crossPeriodMode 归属
+        // 2. 日夜边界（splitDayNightBoundary=true 默认）：在 dayBegin/dayEnd 切断单元，保证每单元纯 day/night；
+        //    false 时不切断，单元跨日夜由 determineUnitPriceForContinuous 按 crossPeriodMode（默认 BLOCK_WEIGHT）归属
         if (!Boolean.FALSE.equals(config.getSplitDayNightBoundary())) {
             providers.add((current, e) -> {
                 // 返回 current 之后的 dayBegin/dayEnd 边界（检查当天与次日，覆盖 current 落在 day/night 时段的情况）
@@ -227,7 +230,9 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                 return result;
             });
         }
+        // 3. 免费时段起止边界：FREE_RANGE 免费段切断单元，免费段内单元免费（CONTINUOUS 优惠语义）
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
+        // 4. 单元对齐边界：从 current 按 unitMinutes 步进，保证单元边界对齐（不足 unitMinutes 的末段由 calcEnd 截断）
         providers.add((current, e) -> {
             List<LocalDateTime> result = new ArrayList<>();
             LocalDateTime next = current.plusMinutes(unitMinutes);
@@ -237,6 +242,7 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
             }
             return result;
         });
+        // 5. 计算窗口终点：确保最后一段在 calcEnd 切断（不足 unitMinutes 的末段标记 isTruncated）
         providers.add(BoundaryProviders.calcEnd(end));
 
         List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(begin, end, providers,
