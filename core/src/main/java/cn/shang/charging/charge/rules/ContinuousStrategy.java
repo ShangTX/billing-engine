@@ -49,6 +49,15 @@ public final class ContinuousStrategy {
      *   <li>累计 + 周期切换（isCycleBoundary → 重置 cycleAccumulated + 推进 currentCycleBoundary）</li>
      * </ol>
      * 末尾对最后一个 period 应用 periodCap + 重算累计（hasPeriodCap 时）。
+     *
+     * @param segments             同质段列表（边界驱动产出）
+     * @param semantics            规则族语义（周期切换/periodCap/unitMinutes 等注入）
+     * @param context              计费上下文（提供 calcEnd 等）
+     * @param config               规则配置
+     * @param cycleOrigin          周期起点（周期边界锚定）
+     * @param calcBegin            计算窗口起点（子区间起点，简化路径头尾片段用）
+     * @param carryOverAccumulated 周期累计结转（null=0；简化路径每子区间独立起算传 null）
+     * @return BillingUnit 列表（含 compact 合并标记、截断标记、累计金额）
      */
     public static <C extends RuleConfig> List<BillingUnit> applyCapAndAccumulate(
             List<HomogeneousSegment> segments,
@@ -84,10 +93,12 @@ public final class ContinuousStrategy {
             boolean isLast = (i == segments.size() - 1);
             int segMinutes = seg.durationMinutes();
 
+            // 段内单元数：segMinutes / unitMinutes（同质段内单价一致，多单元可合并为 compact）
             int unitMinutes = semantics.unitMinutes(seg.getBeginTime(), config, cycleOrigin);
             int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
             if (subCount < 1) subCount = 1;
 
+            // 截断单元：末段不足 unitMinutes 且终点 = calcEnd（按不足单元计费模式处理）
             boolean isTruncated = isLast
                     && unitMinutes > 0
                     && segMinutes < unitMinutes
@@ -109,12 +120,14 @@ public final class ContinuousStrategy {
                 }
             }
 
+            // 周期封顶已触发：非免费段 + 周期累计 >= maxCharge -> 本段免费（标记 capLabel）
             boolean cycleCapped = false;
             if (maxCharge != null && maxCharge.compareTo(BigDecimal.ZERO) > 0
                     && !seg.isFree() && cycleAccumulated.compareTo(maxCharge) >= 0) {
                 cycleCapped = true;
             }
 
+            // 截断单元按不足单元计费模式判定是否免费（FREE/THRESHOLD_MINUTES/THRESHOLD_RATIO 可能免费）
             boolean incompleteFree = isTruncated && !seg.isFree() && !cycleCapped
                     && ContinuousStrategy.isIncompleteFree(segMinutes, unitMinutes,
                             semantics.incompleteMode(config),
@@ -125,6 +138,10 @@ public final class ContinuousStrategy {
                     ? seg.getOriginalAmount() : BigDecimal.ZERO;
             BigDecimal unitPrice = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
 
+            // charged 计算（三支）：
+            //   1) 免费/封顶/不足免费 -> 0
+            //   2) 截断单元 -> computeIncompleteCharge（按不足单元计费模式）
+            //   3) 正常单元 -> originalPerSub × subCount，受周期封顶预算（maxCharge - cycleAccumulated）限制
             BigDecimal charged;
             if (seg.isFree() || cycleCapped || incompleteFree) {
                 charged = BigDecimal.ZERO;
@@ -151,6 +168,7 @@ public final class ContinuousStrategy {
                 cycleAccumulated = cycleAccumulated.add(charged);
             }
 
+            // compact：多子单元同价合并标记（subCount > 1 且非截断），CompactMerger 跨段合并时复用
             boolean isCompact = !isTruncated && subCount > 1;
 
             BillingUnit unit = BillingUnit.builder()
@@ -191,6 +209,10 @@ public final class ContinuousStrategy {
      * 对 units 列表中 [startIndex, end) 范围内的收费单元应用时段独立封顶。
      * 从最后一个收费单元开始削减，削减为 0 标记 free + PERIOD_CAP。
      * 削减会破坏 compact 合并前提，命中单元标记为非 compact。
+     *
+     * @param units      BillingUnit 列表（原地修改 [startIndex, end) 范围）
+     * @param startIndex period 起始索引（前一 period 结束位置）
+     * @param maxCharge  period 独立封顶金额
      */
     public static void applyPeriodCapToUnits(List<BillingUnit> units, int startIndex, BigDecimal maxCharge) {
         if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
@@ -199,6 +221,7 @@ public final class ContinuousStrategy {
         if (startIndex >= units.size()) {
             return;
         }
+        // period 内收费单元（免费单元不参与削减）
         List<BillingUnit> periodUnits = units.subList(startIndex, units.size());
         List<BillingUnit> chargeableUnits = new ArrayList<>(periodUnits.stream()
                 .filter(u -> !u.isFree())
@@ -212,10 +235,12 @@ public final class ContinuousStrategy {
                 .map(BillingUnit::getChargedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // 未超 periodCap，无需削减
         if (totalCharge.compareTo(maxCharge) <= 0) {
             return;
         }
 
+        // 超额部分：从最后一个收费单元往前削减，削减为 0 标记 free + PERIOD_CAP
         BigDecimal excess = totalCharge.subtract(maxCharge);
 
         for (int i = chargeableUnits.size() - 1; i >= 0 && excess.compareTo(BigDecimal.ZERO) > 0; i--) {
@@ -245,6 +270,8 @@ public final class ContinuousStrategy {
 
     /**
      * 时段封顶削减后重新计算 accumulatedAmount（削减只改变 chargedAmount，需重算前缀累计）。
+     *
+     * @param units BillingUnit 列表（原地重算 accumulatedAmount）
      */
     public static void recomputeAccumulatedAmounts(List<BillingUnit> units) {
         BigDecimal accumulated = BigDecimal.ZERO;
@@ -256,6 +283,10 @@ public final class ContinuousStrategy {
 
     /**
      * 计算时间点相对周期起点的偏移分钟数（供 Semantics 实现复用）。
+     *
+     * @param cycleOrigin 周期起点
+     * @param time        目标时间点
+     * @return 偏移分钟数（time - cycleOrigin）
      */
     public static long minutesFromOrigin(LocalDateTime cycleOrigin, LocalDateTime time) {
         return Duration.between(cycleOrigin, time).toMinutes();
@@ -291,6 +322,12 @@ public final class ContinuousStrategy {
      * <p>
      * 从 {@code AbstractTimeBasedRule} 搬入；{@code cycleCapAmount} 由调用方通过
      * {@link RuleSemantics#cycleCap} 解析后传入，避免对 {@code getCycleCapAmount} 的继承依赖。
+     *
+     * @param config         规则配置（getSimplifiedSupported 可显式禁用）
+     * @param configResolver 配置解析器（getSimplifiedCycleThreshold 阈值，0=禁用）
+     * @param context        计费上下文（disableSimplification 可禁用）
+     * @param cycleCapAmount 周期封顶金额（必须 >0 才简化）
+     * @return true 启用简化
      */
     public static <C extends RuleConfig> boolean isSimplificationEnabled(C config,
                                                                           BillingConfigResolver configResolver,
@@ -329,6 +366,13 @@ public final class ContinuousStrategy {
      * <p>
      * 从 {@code AbstractTimeBasedRule} 搬入；{@code cycleMinutes} 由调用方传入，
      * 避免对 {@code getCycleMinutes} 的继承依赖。
+     *
+     * @param beginCycleIndex 起始周期索引（0-based）
+     * @param cycleCount      周期数（连续无优惠完整周期）
+     * @param cycleCapAmount  周期封顶金额（每周期 chargedAmount）
+     * @param calcBegin       计算起点（周期边界锚定）
+     * @param cycleMinutes    周期长度（分钟）
+     * @return 简化 BillingUnit（chargedAmount = cycleCapAmount × cycleCount，ruleData.isSimplified=true）
      */
     public static BillingUnit buildSimplifiedUnit(int beginCycleIndex,
                                                    int cycleCount,
@@ -340,7 +384,7 @@ public final class ContinuousStrategy {
         LocalDateTime endTime = getCycleBoundary(beginCycleIndex + cycleCount, calcBegin, cycleMinutes);
         BigDecimal totalAmount = cycleCapAmount.multiply(BigDecimal.valueOf(cycleCount));
 
-        // 构建 ruleData
+        // ruleData 标记简化单元（供结果识别：isSimplified=true，含周期索引/数量/封顶金额）
         Map<String, Object> ruleData = new HashMap<>();
         ruleData.put("cycleIndex", beginCycleIndex);
         ruleData.put("simplifiedCycleCount", cycleCount);
@@ -423,6 +467,16 @@ public final class ContinuousStrategy {
 
     /**
      * 判定不足单元在该模式下是否免费（用于设置 free/freePromotionId）。
+     * <p>
+     * FREE：总是免费；THRESHOLD_MINUTES：segMinutes &lt; thresholdMinutes 免费；
+     * THRESHOLD_RATIO：ratio &lt; thresholdRatio 免费；FULL_CHARGE/PROPORTIONAL：不免费。
+     *
+     * @param segMinutes       截断单元实际时长
+     * @param unitMinutes      完整单元时长
+     * @param mode             不足单元计费模式
+     * @param thresholdMinutes THRESHOLD_MINUTES 阈值（null 视为 0）
+     * @param thresholdRatio   THRESHOLD_RATIO 阈值（null 视为 0）
+     * @return true 表示该截断单元免费
      */
     public static boolean isIncompleteFree(int segMinutes,
                                             int unitMinutes,
