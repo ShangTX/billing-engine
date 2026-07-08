@@ -33,10 +33,6 @@
    - 新增枚举: `FULL_CHARGE`, `PROPORTIONAL`, `FREE`, `THRESHOLD_MINUTES`, `THRESHOLD_RATIO`
    - 配置字段已添加到 `DayNightConfig`, `RelativeTimeConfig`, `NaturalTimeConfig`
 
-5. **优惠扩展**
-   - `PromotionGrant` 新增 `AMOUNT`, `DISCOUNT` 类型支持
-   - 新增 `AmountDiscountApplier` 处理金额减免和折扣
-
 ### 测试覆盖
 
 - `DayNightParkingParityTest` - 日夜规则停车语义验证
@@ -134,7 +130,6 @@ charge/
 │   │       └ CompositeTimePeriodResolver.java
 │   ├── promotion/
 │   │   ├── PromotionEngine.java
-│   │   ├── AmountDiscountApplier.java
 │   │   ├── ExternalPromotionPool.java      # 外部优惠跨段共享可用量池（FREE_MINUTES/SMART_FREE_MINUTES）
 │   │   └ pojo/
 │   │       ├── PromotionGrant.java

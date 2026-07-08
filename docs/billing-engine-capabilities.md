@@ -211,12 +211,7 @@ Implemented promotion grant types:
 | `FREE_MINUTES` | Free minutes allocated into non-free gaps (allocated near the window start, pre-materialized) |
 | `SMART_FREE_MINUTES` | Smart free minutes, consumed only in `DURATION_GLOBAL` mode; the rule side allocates them highest-price-first using `RuleSemantics.priceAt`. Non-GLOBAL modes throw. Shares the `freeMinutes` field with `FREE_MINUTES`; multiple grants allocate independently by `priority`. |
 
-Reserved or partially documented promotion types:
-
-| Type | Status |
-|------|--------|
-| `AMOUNT` | Reserved, not implemented as a complete promotion rule |
-| `DISCOUNT` | Reserved, not implemented as a complete promotion rule |
+> Amount/discount (AMOUNT/DISCOUNT) has been removed from the engine; the business system settles them on the final amount.
 
 Implemented promotion rules:
 
@@ -237,15 +232,14 @@ Free range type:
 
 ## 7. Promotion Aggregation
 
-`PromotionEngine` collects rule-based and external grants, then produces a `PromotionAggregate`. External promotions (`externalPromotions`) share a cross-segment pool (`ExternalPromotionPool`), used once per parking: each segment takes the remaining amount from the pool, and writes back deductions from `PromotionUsage` after the segment, not duplicated across segments. In-scheme promotions are segment-local. AMOUNT/DISCOUNT are one-shot per parking, do not participate in free-range splitting, and are settled by `AmountDiscountApplier` afterwards.
+`PromotionEngine` collects rule-based and external grants, then produces a `PromotionAggregate`. External promotions (`externalPromotions`) share a cross-segment pool (`ExternalPromotionPool`), used once per parking: each segment takes the remaining amount from the pool, and writes back deductions from `PromotionUsage` after the segment, not duplicated across segments. In-scheme promotions are segment-local.
 
 Current aggregation stages:
 
 1. Collect grants from `PromotionRuleConfig`.
 2. Add external `PromotionGrant` entries from the request.
-3. Summarize AMOUNT/DISCOUNT promotions.
-4. Merge explicit `FREE_RANGE` promotions through `FreeTimeRangeMerger`.
-5. Produce a canonical intermediate form: merged `FREE_RANGE` ranges + unmaterialized `FREE_MINUTES` list (`freeMinutesList`) + `AMOUNT`/`DISCOUNT` scalars.
+3. Merge explicit `FREE_RANGE` promotions through `FreeTimeRangeMerger`.
+4. Produce a canonical intermediate form: merged `FREE_RANGE` ranges + unmaterialized `FREE_MINUTES` list (`freeMinutesList`) + `SMART_FREE_MINUTES` scalar passthrough.
 
 `FREE_MINUTES` materialization is delegated to strategies (TODO-20260702-004): `PromotionEngine` no longer materializes centrally, avoiding the aggregation layer coupling to "rule + mode" to decide output form. CONTINUOUS/UNIT_BASED/DURATION_PERIOD strategies materialize via `RuleSupport.materializeFreeMinutes` (`FreeMinuteAllocator`), merged with `FREE_RANGE`; the DURATION_GLOBAL strategy also materializes FREE_MINUTES (allocated near the window start) and additionally consumes `SMART_FREE_MINUTES` (highest-price-first allocation using `RuleSemantics.priceAt` to split equal-price windows). `SMART_FREE_MINUTES` is passed through as a scalar (`smartFreeMinutesList`), is not materialized at the aggregate layer, and is not counted in the simplification total-free-minutes check. `PromotionUsage` (FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES) and `PromotionCarryOver` are produced strategy-side; `PromotionCarryOver` is built via `PromotionAggregateUtil.buildCarryOver` and written back to the aggregate. Non-GLOBAL modes throw on `SMART_FREE_MINUTES` (enforced by `BillingCalculator`).
 
@@ -303,7 +297,6 @@ Current known gaps are tracked in `docs/TODO.md` and `docs/tracking/items/`.
 
 Important current gaps include:
 
-- `AMOUNT` and `DISCOUNT` are wired in as promotion-type capabilities but are still not independent `PromotionRuleType` entries.
 - Reserved rule constants such as `times` remain unimplemented; `nrTimeMix` is deprecated and covered by `compositeTime`.
 - `SMART_FREE_MINUTES` is supported only in `DURATION_GLOBAL` mode; other modes throw on it (by design, complexity is confined to GLOBAL).
 - Materialized-index revenue estimation: the engine only provides the implementation surface (producing validMinutes/accumulatedAmount etc.); storage/indexing is up to the business layer (TODO-20260630-002).

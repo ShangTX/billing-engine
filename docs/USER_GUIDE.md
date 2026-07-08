@@ -646,8 +646,8 @@ FlatFreeConfig config = FlatFreeConfig.builder()
 | 免费时间段 | `FREE_RANGE` | 指定时间段内免费（如 12:00-14:00 免费） |
 | 免费分钟数 | `FREE_MINUTES` | 从窗口起点顺序分配 N 分钟免费 |
 | 智能免费分钟 | `SMART_FREE_MINUTES` | 仅 DURATION_GLOBAL 模式，按单价降序优先覆盖高价时段 |
-| 金额减免 | `AMOUNT` | 直接减免金额 |
-| 折扣 | `DISCOUNT` | 按比例折扣（如 0.8 = 8 折） |
+
+> 金额减免（AMOUNT）/折扣（DISCOUNT）已移出引擎，由业务系统在最终金额上自行结算。
 
 ### 11.2 外部免费分钟数
 
@@ -714,8 +714,6 @@ PromotionGrant smartFreeMinutes = PromotionGrant.builder()
 
 ### 11.6 优惠叠加规则
 
-- 多个 `AMOUNT` 优惠：金额求和
-- 多个 `DISCOUNT` 优惠：取最小折扣率（如 min(0.8, 0.9) = 0.8）
 - `FREE_RANGE` 和 `FREE_MINUTES` 可同时存在，由引擎合并处理
 - `FREE_MINUTES` 与 `SMART_FREE_MINUTES` 共用 `freeMinutes` 字段，按 `priority` 排序各自分配
 
@@ -974,8 +972,6 @@ billingRuleRegistry.register("myRule", new MyBillingRule());
 | `FREE_RANGE` | 免费时间段 |
 | `FREE_MINUTES` | 免费分钟数（在窗口起点附近分配） |
 | `SMART_FREE_MINUTES` | 智能免费分钟数（仅 DURATION_GLOBAL，按单价降序优先高价分配） |
-| `AMOUNT` | 金额减免 |
-| `DISCOUNT` | 折扣优惠 |
 
 ### BConstants.PromotionSource
 

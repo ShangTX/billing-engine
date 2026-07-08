@@ -212,12 +212,7 @@ BillingRequest
 | `FREE_MINUTES` | 可分配到非免费空隙中的免费分钟数（窗口起点附近分配，前置时段化） |
 | `SMART_FREE_MINUTES` | 智能免费分钟数，仅 `DURATION_GLOBAL` 模式消费，规则侧按单价降序优先高价分配；非 GLOBAL 模式报错；与 `FREE_MINUTES` 共用 `freeMinutes` 字段，按 `priority` 排序各自分配 |
 
-预留或未完整实现的优惠类型：
-
-| 类型 | 状态 |
-|------|------|
-| `AMOUNT` | 已实现为优惠类型能力；当前通过 `PromotionEngine` 汇总并由 `AmountDiscountApplier` 应用，不属于独立 `PromotionRuleType` |
-| `DISCOUNT` | 已实现为优惠类型能力；当前通过 `PromotionEngine` 汇总并由 `AmountDiscountApplier` 应用，不属于独立 `PromotionRuleType` |
+> 金额减免/折扣（AMOUNT/DISCOUNT）已移出引擎，由业务系统在最终金额上自行结算。
 
 已实现优惠规则：
 
@@ -238,15 +233,14 @@ BillingRequest
 
 ## 7. 优惠聚合
 
-`PromotionEngine` 收集规则优惠和外部优惠，并输出 `PromotionAggregate`。外部优惠（`externalPromotions`）跨段共享可用量池（`ExternalPromotionPool`），整笔停车享一次：每段从池取剩余量，段后从 `PromotionUsage` 回写扣减，多分段不重复。方案内优惠每段独立。AMOUNT/DISCOUNT 整笔一次性，不参与免费段切分，由 `AmountDiscountApplier` 事后结算。
+`PromotionEngine` 收集规则优惠和外部优惠，并输出 `PromotionAggregate`。外部优惠（`externalPromotions`）跨段共享可用量池（`ExternalPromotionPool`），整笔停车享一次：每段从池取剩余量，段后从 `PromotionUsage` 回写扣减，多分段不重复。方案内优惠每段独立。
 
 当前流程：
 
 1. 从 `PromotionRuleConfig` 收集优惠 grant。
 2. 加入请求中的外部 `PromotionGrant`。
-3. 汇总 AMOUNT/DISCOUNT 优惠。
-4. 通过 `FreeTimeRangeMerger` 合并显式 `FREE_RANGE`。
-5. 产出规范中间形式：合并后的 `FREE_RANGE` 时段 + 未时段化的 `FREE_MINUTES` 列表（`freeMinutesList`）+ `AMOUNT`/`DISCOUNT` 标量。
+3. 通过 `FreeTimeRangeMerger` 合并显式 `FREE_RANGE`。
+4. 产出规范中间形式：合并后的 `FREE_RANGE` 时段 + 未时段化的 `FREE_MINUTES` 列表（`freeMinutesList`）+ `SMART_FREE_MINUTES` 标量透传。
 
 `FREE_MINUTES` 时段化下放到策略侧（TODO-20260702-004）：`PromotionEngine` 不再集中时段化，避免聚合层按"规则+模式"决定产出形式。CONTINUOUS/UNIT_BASED/DURATION_PERIOD 策略经 `RuleSupport.materializeFreeMinutes`（`FreeMinuteAllocator`）自行时段化（与 `FREE_RANGE` 合并）；DURATION_GLOBAL 策略同样时段化（FREE_MINUTES 在窗口起点附近分配），并额外消费 `SMART_FREE_MINUTES`（按单价降序优先高价分配，规则侧用 `RuleSemantics.priceAt` 切同价时段）。`SMART_FREE_MINUTES` 由聚合层标量透传（`smartFreeMinutesList`），不参与时段化，不计入简化计算的总免费分钟数判断。`PromotionUsage`（FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES）与 `PromotionCarryOver` 由策略侧产出，`PromotionCarryOver` 经 `PromotionAggregateUtil.buildCarryOver` 构建后写回 aggregate。非 GLOBAL 模式遇到 `SMART_FREE_MINUTES` 由 `BillingCalculator` 抛异常。
 
@@ -305,7 +299,6 @@ BillingRequest
 
 重要缺口包括：
 
-- `AMOUNT` 和 `DISCOUNT` 已作为优惠类型能力接入，但当前仍不是独立 `PromotionRuleType`。
 - `times` 仍为预留规则常量；`nrTimeMix` 已废弃并由 `compositeTime` 覆盖。
 - `SMART_FREE_MINUTES` 仅 `DURATION_GLOBAL` 模式支持；其余模式遇之报错（按设计，复杂度锁定在 GLOBAL 内）。
 - 物化索引预估收入能力：引擎只提供实现可能（产出 validMinutes/accumulatedAmount 等），存储/索引由业务层实现（TODO-20260630-002）。

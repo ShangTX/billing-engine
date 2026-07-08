@@ -10,10 +10,10 @@
 
 ```mermaid
 flowchart TD
-    Req["BillingRequest<br/>beginTime/endTime<br/>schemeChanges<br/>externalPromotions (FREE_MINUTES/SMART_FREE_MINUTES/FREE_RANGE/AMOUNT/DISCOUNT)<br/>equivalentAmountSpec (按需等效金额)<br/>segmentCalculationMode"]
+    Req["BillingRequest<br/>beginTime/endTime<br/>schemeChanges<br/>externalPromotions (FREE_MINUTES/SMART_FREE_MINUTES/FREE_RANGE)<br/>equivalentAmountSpec (按需等效金额)<br/>segmentCalculationMode"]
 
     Req --> Seg["SegmentBuilder.buildSegments<br/>按 schemeChanges 切分段"]
-    Seg --> Pool["ExternalPromotionPool.init<br/>外部优惠跨段共享<br/>FREE_MINUTES/SMART_FREE_MINUTES/FREE_RANGE: 跨段共享剩余量<br/>AMOUNT/DISCOUNT: 整笔一次性，不进核心计算"]
+    Seg --> Pool["ExternalPromotionPool.init<br/>外部优惠跨段共享<br/>FREE_MINUTES/SMART_FREE_MINUTES/FREE_RANGE: 跨段共享剩余量"]
 
     Pool --> Loop{"遍历每个 BillingSegment"}
     Loop --> Ctx["resolveSegmentContext（calculate/prepareContexts 共享）<br/>解析 calculationMode + externalPool 等"]
@@ -21,7 +21,7 @@ flowchart TD
     Ctx --> Window["CalculationWindowFactory.create<br/>SINGLE / SEGMENT_LOCAL<br/>(GLOBAL_ORIGIN 已废弃)"]
     Window --> Cfg["BillingConfigResolver<br/>resolveChargingRule → RuleConfig.type<br/>resolvePromotionRules 方案内优惠<br/>resolveCalculationMode (单一枚举四值)<br/>外部优惠可能被方案内优惠覆盖而未使用"]
 
-    Cfg --> PE["PromotionEngine.evaluate<br/>产出规范中间形式<br/>① 收集规则 grant + 外部 grant<br/>② FreeTimeRangeMerger 合并 FREE_RANGE<br/>→ freeTimeRanges（仅 FREE_RANGE）<br/>→ freeMinutesList（未时段化 FREE_MINUTES）<br/>→ smartFreeMinutesList（SMART_FREE_MINUTES 标量透传）<br/>→ freeMinutes 标量（简化判定用，不含 SMART）<br/>→ amountDiscounts/totalAmountDiscount/bestDiscountRate"]
+    Cfg --> PE["PromotionEngine.evaluate<br/>产出规范中间形式<br/>① 收集规则 grant + 外部 grant<br/>② FreeTimeRangeMerger 合并 FREE_RANGE<br/>→ freeTimeRanges（仅 FREE_RANGE）<br/>→ freeMinutesList（未时段化 FREE_MINUTES）<br/>→ smartFreeMinutesList（SMART_FREE_MINUTES 标量透传）<br/>→ freeMinutes 标量（简化判定用，不含 SMART）"]
 
     PE --> BC["BillingCalculator.calculate<br/>① ruleRegistry.get(type) 取门面规则<br/>② 校验 supportedCalculationModes 含请求模式<br/>③ SMART_FREE_MINUTES 仅 DURATION_GLOBAL 允许，否则抛异常<br/>④ rule.calculate → 门面分派"]
 
@@ -42,7 +42,7 @@ flowchart TD
     S1 --> Writeback
     S2 --> Writeback
 
-    Writeback --> SegRes["BillingSegmentResult<br/>billingUnits / durationSegments<br/>chargedAmount / chargedDuration<br/>calculationMode / cycleCapApplied<br/>promotionAggregate / promotionUsages<br/>originalAmount / discountSavedAmount / amountDiscount / finalAmount"]
+    Writeback --> SegRes["BillingSegmentResult<br/>billingUnits / durationSegments<br/>chargedAmount / chargedDuration<br/>calculationMode / cycleCapApplied<br/>promotionAggregate / promotionUsages"]
     SegRes --> Loop
     Loop -->|所有段完成| RA
 
@@ -50,7 +50,6 @@ flowchart TD
     RA --> Merge["CompactMerger.merge BillingUnit<br/>跨段连续相同单元合并（跨边界不合并）<br/>合并 DurationSegment / 合并 PromotionUsage"]
     Merge --> Final["finalAmount = 各分段 chargedAmount 之和"]
     Final --> Out["BillingResult<br/>units / durationSegments / promotionUsages<br/>finalAmount / totalEquivalentAmount / calculationEndTime"]
-    Out --> AD["AmountDiscountApplier (billing-api)<br/>事后统一结算 AMOUNT/DISCOUNT<br/>不参与核心计费"]
 ```
 
 ---
@@ -62,7 +61,7 @@ flowchart TD
 - **四层架构编排**：`RuleSemantics`（层 0，描述"是什么"）→ `BoundaryDrivenLoop`（层 1，纯调度）→ `ModeStrategy`（层 2，描述"怎么算"）→ `BillingRule` 门面（层 3，纯分派）。`BillingService` 编排分段与外部优惠池，不直接读数据库也不决定业务规则。
 - **resolveSegmentContext 共享**：`calculate` 与 `prepareContexts` 共用 `resolveSegmentContext`（解析 `calculationMode` 与 `externalPool` 等），保证 `PromotionEquivalentCalculator` 等效金额与 `calculate` 解析一致。
 - **GLOBAL_ORIGIN 已废弃**（TODO-20260706-003）：externalPool 跨段共享替代其外部优惠一致性目标；`SegmentCalculationMode` 仅保留 `SINGLE` / `SEGMENT_LOCAL`。
-- **外部优惠跨段共享池**（`ExternalPromotionPool`）：段前 `remaining()` 取剩余量，段后 `writeBack(usages)` 扣减；AMOUNT/DISCOUNT 整笔透传不扣。
+- **外部优惠跨段共享池**（`ExternalPromotionPool`）：段前 `remaining()` 取剩余量，段后 `writeBack(usages)` 扣减。
 - **无跨段状态传递**：CONTINUE 模式已移除，`previousCarryOver`/`previousAccumulatedAmount`/`ruleState`/`promotionCarryOver` 均不存在。分段每段独立计算，`ResultAssembler` 拼接结果。
 
 ### 2.2 PromotionEngine.evaluate（聚合层，中间形式）
@@ -75,7 +74,6 @@ flowchart TD
 | `freeMinutesList` | 未时段化的 FREE_MINUTES 列表 |
 | `smartFreeMinutesList` | SMART_FREE_MINUTES 标量透传（不时段化、不计入简化判定） |
 | `freeMinutes` | 标量 = `freeMinutesList` 求和（简化计算判定用，不含 SMART） |
-| `amountDiscounts` / `totalAmountDiscount` / `bestDiscountRate` | AMOUNT/DISCOUNT 标量 |
 
 `PromotionUsage`（FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES）由策略侧产出，按来源从本段结果分辨实际使用量后回写 externalPool。
 
