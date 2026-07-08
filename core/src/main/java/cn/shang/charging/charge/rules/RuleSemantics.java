@@ -33,18 +33,27 @@ public interface RuleSemantics<C extends RuleConfig> {
 
     /**
      * 周期起点（DayNight 用自然日，可为 null；其余用计费起点或分段起点）。
+     *
+     * @param context 计费上下文（提供计算窗口、分段起点等定位信息）
      */
     LocalDateTime cycleOrigin(BillingContext context);
 
     /**
      * 初始周期边界（calcBegin 所在周期的结束边界）。
      * ContinuousStrategy 维护 currentCycleBoundary 状态，从初始值开始。
+     *
+     * @param cycleOrigin 周期起点
+     * @param calcBegin   计算窗口起点
      */
     LocalDateTime initialCycleBoundary(LocalDateTime cycleOrigin, LocalDateTime calcBegin);
 
     /**
      * 判断 seg 是否越过当前周期边界（seg 跨越周期边界时返回 true，触发 cycleAccumulated 重置）。
      * 无状态查询，仅看 seg 与 currentCycleBoundary。
+     *
+     * @param seg                  待判定的同质段
+     * @param currentCycleBoundary 当前周期边界（seg 越过此边界则触发周期切换）
+     * @param cycleOrigin          周期起点（NaturalTime 滑动窗口不依赖此参数）
      */
     boolean isCycleBoundary(HomogeneousSegment seg, LocalDateTime currentCycleBoundary, LocalDateTime cycleOrigin);
 
@@ -54,6 +63,10 @@ public interface RuleSemantics<C extends RuleConfig> {
      *   <li>固定周期（DayNight/RelativeTime/CompositeTime）：基于 currentCycleBoundary 或 cycleOrigin 推进</li>
      *   <li>滑动窗口（NaturalTime）：基于 segEndTime 推进</li>
      * </ul>
+     *
+     * @param segEndTime           当前段结束时间（滑动窗口据此推进一个周期）
+     * @param currentCycleBoundary 当前周期边界（固定周期据此推进）
+     * @param cycleOrigin          周期起点
      */
     LocalDateTime nextCycleBoundary(LocalDateTime segEndTime, LocalDateTime currentCycleBoundary, LocalDateTime cycleOrigin);
 
@@ -62,11 +75,17 @@ public interface RuleSemantics<C extends RuleConfig> {
     /**
      * 指定时间点的单元时长（分钟）。
      * DayNight/NaturalTime 全局统一；RelativeTime/CompositeTime 按 period。
+     *
+     * @param time        时间点
+     * @param config      规则配置
+     * @param cycleOrigin 周期起点（RelativeTime/CompositeTime 按周期内偏移定位 period）
      */
     int unitMinutes(LocalDateTime time, C config, LocalDateTime cycleOrigin);
 
     /**
      * 是否配置了时段独立封顶（periodCap）。仅 CompositeTime 返回 true。
+     *
+     * @param config 规则配置
      */
     default boolean hasPeriodCap(C config) {
         return false;
@@ -75,6 +94,10 @@ public interface RuleSemantics<C extends RuleConfig> {
     /**
      * 指定时间点所在时段的独立封顶金额（null 表示该时段无独立封顶）。
      * 仅 CompositeTime 提供非 null 值。
+     *
+     * @param time        时间点
+     * @param config      规则配置
+     * @param cycleOrigin 周期起点（按周期内偏移定位 period）
      */
     default BigDecimal periodCap(LocalDateTime time, C config, LocalDateTime cycleOrigin) {
         return null;
@@ -83,6 +106,10 @@ public interface RuleSemantics<C extends RuleConfig> {
     /**
      * 指定时间点所在时段的唯一标识（用于 periodStartIndex 跟踪时段切换）。
      * 同一时段返回相同 key，不同时段返回不同 key。
+     *
+     * @param time        时间点
+     * @param config      规则配置
+     * @param cycleOrigin 周期起点（按周期内偏移定位 period）
      */
     default String periodKey(LocalDateTime time, C config, LocalDateTime cycleOrigin) {
         return "default";
@@ -91,6 +118,10 @@ public interface RuleSemantics<C extends RuleConfig> {
     /**
      * 时长模式下该时间点所在时段的人类可读标签（如 "day"/"night"/"period-1"）。
      * 默认与 {@link #periodKey} 一致；DayNight 等需人类可读标签的规则族覆盖。
+     *
+     * @param time        时间点
+     * @param config      规则配置
+     * @param cycleOrigin 周期起点（按周期内偏移定位 period）
      */
     default String periodLabel(LocalDateTime time, C config, LocalDateTime cycleOrigin) {
         return periodKey(time, config, cycleOrigin);
@@ -105,6 +136,9 @@ public interface RuleSemantics<C extends RuleConfig> {
      * 同价段直接返回该单价；跨价段按规则族 crossPeriodMode 解析（如 BEGIN_TIME_PRICE / PROPORTIONAL）。
      * 由各规则族委托自家 priceResolver 实现。
      *
+     * @param begin       区间起点
+     * @param end         区间终点
+     * @param config      规则配置
      * @param cycleOrigin 周期起点（RelativeTime/CompositeTime 按 cycleOrigin 算周期内偏移定位 period；
      *                    DayNight/NaturalTime 用自然日内分钟，不依赖此参数）
      */
@@ -125,6 +159,8 @@ public interface RuleSemantics<C extends RuleConfig> {
 
     /**
      * 周期封顶金额（maxChargeOneDay / maxChargeOneCycle）。
+     *
+     * @param config 规则配置
      */
     BigDecimal cycleCap(C config);
 
@@ -137,9 +173,24 @@ public interface RuleSemantics<C extends RuleConfig> {
 
     // ==================== 不足单元 ====================
 
+    /**
+     * 不足单元计费模式（不满一个 unitMinutes 的余数如何收费）。
+     *
+     * @param config 规则配置
+     */
     BConstants.IncompleteUnitChargeMode incompleteMode(C config);
 
+    /**
+     * THRESHOLD_MINUTES 阈值（分钟）：余数达到此值收全额，否则免费。null 视为 0。
+     *
+     * @param config 规则配置
+     */
     Integer thresholdMinutes(C config);
 
+    /**
+     * THRESHOLD_RATIO 阈值（余数/单元时长 &ge; 此比例时按比例收费，否则免费）。null 视为 0。
+     *
+     * @param config 规则配置
+     */
     BigDecimal thresholdRatio(C config);
 }
