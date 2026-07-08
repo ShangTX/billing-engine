@@ -26,8 +26,6 @@ public class BConstants {
      * 优惠模式
      */
     public enum PromotionType {
-        AMOUNT, // 金额
-        DISCOUNT, // 折扣
         FREE_RANGE, // 免费时间段
         FREE_MINUTES, // 免费分钟数（从窗口起点顺序分配）
         SMART_FREE_MINUTES, // 智能免费分钟数（仅 DURATION_GLOBAL 消费，按单价降序优先高价分配；TODO-20260706-002 阶段5）

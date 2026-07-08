@@ -85,7 +85,7 @@ public class BillingTemplate {
 
     /**
      * 对外部优惠（FREE_RANGE）的时间统一向下取整。
-     * 非 FREE_RANGE 类型（FREE_MINUTES/SMART_FREE_MINUTES/AMOUNT/DISCOUNT）无时间段，不处理。
+     * 非 FREE_RANGE 类型（FREE_MINUTES/SMART_FREE_MINUTES）无时间段，不处理。
      */
     private void roundExternalPromotions(BillingRequest request) {
         if (request.getExternalPromotions() == null) {

@@ -25,7 +25,7 @@ public class PromotionUsage {
 
     /** 优惠来源ID（对应 PromotionGrant.id 或 PromotionRuleConfig.id） */
     private String promotionId;
-    /** 优惠类型：FREE_RANGE / FREE_MINUTES / SMART_FREE_MINUTES / AMOUNT / DISCOUNT */
+    /** 优惠类型：FREE_RANGE / FREE_MINUTES / SMART_FREE_MINUTES */
     private BConstants.PromotionType type;
     /** 优惠来源：RULE（方案内规则）/ COUPON（外部优惠券） */
     private BConstants.PromotionSource source;

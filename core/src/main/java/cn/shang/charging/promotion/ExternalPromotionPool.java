@@ -23,7 +23,6 @@ import java.util.Map;
  * <ul>
  *   <li>FREE_MINUTES / SMART_FREE_MINUTES：按分钟扣减剩余量</li>
  *   <li>FREE_RANGE：按时段扣减（已用时段从剩余时段减去，可能分裂）</li>
- *   <li>AMOUNT/DISCOUNT：整笔一次性，不跨段扣减，每段全量透传（事后由 AmountDiscountApplier 结算）</li>
  * </ul>
  * <p>
  * TODO-20260706-002 阶段5：SMART_FREE_MINUTES 跨段共享，与 FREE_MINUTES 同样按分钟扣减。
@@ -38,8 +37,6 @@ public final class ExternalPromotionPool {
     private final Map<String, BConstants.PromotionType> minutesType = new HashMap<>();
     // id -> 剩余 FREE_RANGE 时段
     private final Map<String, List<FreeTimeRange>> remainingRanges = new LinkedHashMap<>();
-    // AMOUNT/DISCOUNT 全量透传（整笔一次性，不扣减）
-    private final List<PromotionGrant> amountDiscountGrants = new ArrayList<>();
 
     /**
      * 用外部优惠初始化池。
@@ -63,7 +60,6 @@ public final class ExternalPromotionPool {
                     FreeTimeRange range = toFreeTimeRange(grant);
                     remainingRanges.put(grant.getId(), new ArrayList<>(List.of(range)));
                 }
-                case AMOUNT, DISCOUNT -> amountDiscountGrants.add(grant);
                 default -> { /* 未知类型，忽略 */ }
             }
         }
@@ -80,14 +76,13 @@ public final class ExternalPromotionPool {
         remainingMinutes.clear();
         minutesType.clear();
         remainingRanges.clear();
-        amountDiscountGrants.clear();
         init(externalPromotions);
     }
 
     /**
      * 构造剩余外部优惠 PromotionGrant 列表（给本段 PromotionEngine）。
      * <p>
-     * FREE_MINUTES/FREE_RANGE 产出剩余量；AMOUNT/DISCOUNT 全量透传。
+     * FREE_MINUTES/FREE_RANGE 产出剩余量。
      */
     public List<PromotionGrant> remaining() {
         List<PromotionGrant> result = new ArrayList<>();
@@ -115,8 +110,6 @@ public final class ExternalPromotionPool {
                 result.add(toPromotionGrant(r, orig));
             }
         }
-        // AMOUNT/DISCOUNT 全量透传
-        result.addAll(amountDiscountGrants);
         return result;
     }
 

@@ -7,26 +7,21 @@ import cn.shang.charging.promotion.rules.PromotionRule;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
 import lombok.AllArgsConstructor;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 优惠计算engine
  * <p>
- * 支持五种优惠类型：
+ * 支持三种免费类优惠类型：
  * - FREE_RANGE: 免费时间段
  * - FREE_MINUTES: 免费分钟数（从窗口起点顺序分配）
  * - SMART_FREE_MINUTES: 智能免费分钟数（仅 DURATION_GLOBAL 消费，按单价降序优先高价分配）
- * - AMOUNT: 金额减免
- * - DISCOUNT: 折扣优惠
  * <p>
- * 优惠叠加顺序：先折扣后减免，多个 AMOUNT 总和扣除，多个 DISCOUNT 取最优折扣。
+ * AMOUNT/DISCOUNT（金额减免/折扣）已移出引擎，由业务系统在最终金额上自行结算。
  * <p>
  * TODO-20260702-004：FREE_MINUTES 时段化下放到策略侧。本引擎只产出规范中间形式
- * （合并后的 FREE_RANGE 时段 + 未时段化的 FREE_MINUTES / SMART_FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量），
+ * （合并后的 FREE_RANGE 时段 + 未时段化的 FREE_MINUTES / SMART_FREE_MINUTES 列表），
  * 不再集中时段化。CONTINUOUS/UNIT_BASED/PERIOD 策略自行时段化 FREE_MINUTES，
  * DurationGlobalStrategy 按优先高价分配 SMART_FREE_MINUTES，其余模式遇 SMART_FREE_MINUTES 报错。
  * PromotionUsage 与 PromotionCarryOver 由策略侧产出。
@@ -45,7 +40,6 @@ public class PromotionEngine {
         List<FreeTimeRange> timeRangePromotions = new ArrayList<>();
         List<FreeMinutes> freeMinutesPromotions = new ArrayList<>();
         List<FreeMinutes> smartFreeMinutesPromotions = new ArrayList<>();
-        List<PromotionAggregate.AmountDiscount> amountDiscounts = new ArrayList<>();
 
         // 2.1 来自优惠规则（按方案 + 时间段）
         for (PromotionRuleConfig ruleConfig : context.getPromotionRules()) {
@@ -59,12 +53,6 @@ public class PromotionEngine {
                 }
                 if (grant.getType() == BConstants.PromotionType.SMART_FREE_MINUTES) {
                     smartFreeMinutesPromotions.add(convertMinutesFromRule(grant));
-                }
-                if (grant.getType() == BConstants.PromotionType.AMOUNT) {
-                    amountDiscounts.add(convertAmountFromGrant(grant));
-                }
-                if (grant.getType() == BConstants.PromotionType.DISCOUNT) {
-                    amountDiscounts.add(convertDiscountFromGrant(grant));
                 }
             });
         }
@@ -81,12 +69,6 @@ public class PromotionEngine {
                 if (externalPromotion.getType() == BConstants.PromotionType.SMART_FREE_MINUTES) {
                     smartFreeMinutesPromotions.add(convertMinutesFromRule(externalPromotion));
                 }
-                if (externalPromotion.getType() == BConstants.PromotionType.AMOUNT) {
-                    amountDiscounts.add(convertAmountFromGrant(externalPromotion));
-                }
-                if (externalPromotion.getType() == BConstants.PromotionType.DISCOUNT) {
-                    amountDiscounts.add(convertDiscountFromGrant(externalPromotion));
-                }
             }
         }
 
@@ -102,11 +84,7 @@ public class PromotionEngine {
                 .mapToLong(fm -> fm.getMinutes())
                 .sum();
 
-        // 4️⃣ 计算 AMOUNT/DISCOUNT 优惠汇总
-        BigDecimal totalAmountDiscount = calculateTotalAmountDiscount(amountDiscounts);
-        BigDecimal bestDiscountRate = calculateBestDiscountRate(amountDiscounts);
-
-        // 产出规范中间形式：FREE_RANGE 时段 + 未时段化 FREE_MINUTES / SMART_FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量。
+        // 产出规范中间形式：FREE_RANGE 时段 + 未时段化 FREE_MINUTES / SMART_FREE_MINUTES 列表。
         // FREE_MINUTES 时段化、SMART_FREE_MINUTES 优先高价分配、PromotionUsage 由策略侧产出。
         // TODO-20260706-002 阶段5：SMART_FREE_MINUTES 标量透传，仅 DurationGlobalStrategy 消费。
         return PromotionAggregate.builder()
@@ -114,9 +92,6 @@ public class PromotionEngine {
                 .freeMinutes(totalFreeMinutes)
                 .freeMinutesList(freeMinutesPromotions)
                 .smartFreeMinutesList(smartFreeMinutesPromotions)
-                .amountDiscounts(amountDiscounts.isEmpty() ? null : amountDiscounts)
-                .totalAmountDiscount(totalAmountDiscount)
-                .bestDiscountRate(bestDiscountRate)
                 .build();
     }
 
@@ -168,54 +143,6 @@ public class PromotionEngine {
                 .priority(grant.getPriority())
                 .source(grant.getSource())
                 .build();
-    }
-
-    /**
-     * 将金额减免优惠转换为 AmountDiscount
-     */
-    private PromotionAggregate.AmountDiscount convertAmountFromGrant(PromotionGrant grant) {
-        return PromotionAggregate.AmountDiscount.builder()
-                .id(grant.getId())
-                .type(BConstants.PromotionType.AMOUNT)
-                .amount(grant.getAmount())
-                .priority(grant.getPriority())
-                .build();
-    }
-
-    /**
-     * 将折扣优惠转换为 AmountDiscount
-     */
-    private PromotionAggregate.AmountDiscount convertDiscountFromGrant(PromotionGrant grant) {
-        return PromotionAggregate.AmountDiscount.builder()
-                .id(grant.getId())
-                .type(BConstants.PromotionType.DISCOUNT)
-                .discountRate(grant.getDiscountRate())
-                .priority(grant.getPriority())
-                .build();
-    }
-
-    /**
-     * 计算总金额减免（所有 AMOUNT 优惠的总和）
-     */
-    private BigDecimal calculateTotalAmountDiscount(List<PromotionAggregate.AmountDiscount> amountDiscounts) {
-        return amountDiscounts.stream()
-                .filter(ad -> ad.getType() == BConstants.PromotionType.AMOUNT)
-                .filter(ad -> ad.getAmount() != null)
-                .map(PromotionAggregate.AmountDiscount::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    /**
-     * 计算最优折扣率（所有 DISCOUNT 中折扣力度最大的 = 最小值）
-     * 如 0.8（8折）比 0.9（9折）更优
-     */
-    private BigDecimal calculateBestDiscountRate(List<PromotionAggregate.AmountDiscount> amountDiscounts) {
-        return amountDiscounts.stream()
-                .filter(ad -> ad.getType() == BConstants.PromotionType.DISCOUNT)
-                .filter(ad -> ad.getDiscountRate() != null)
-                .map(PromotionAggregate.AmountDiscount::getDiscountRate)
-                .min(BigDecimal::compareTo)
-                .orElse(BigDecimal.ONE);
     }
 
 }

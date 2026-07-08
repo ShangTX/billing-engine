@@ -122,9 +122,6 @@ public class PromotionAggregateUtil {
             .freeMinutes(filteredFreeMinutes)
             .freeMinutesList(filteredFreeMinutesList)
             .smartFreeMinutesList(filteredSmartFreeMinutesList)
-            .amountDiscounts(original.getAmountDiscounts())
-            .totalAmountDiscount(original.getTotalAmountDiscount())
-            .bestDiscountRate(original.getBestDiscountRate())
             .build();
     }
 }
