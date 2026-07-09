@@ -69,7 +69,7 @@ Segment calculation modes:
 
 | Mode | Current meaning |
 |------|-----------------|
-| `CONTINUOUS` | The boundary-driven loop is the only calculation path: find the nearest boundary (free-range start/end, period end, cycle end, unit alignment, calcEnd) and jump to it, producing one homogeneous segment per iteration; compact units are a natural byproduct. |
+| `CONTINUOUS` | The boundary-driven loop is the only calculation path: find the nearest boundary (free-range start/end, period end, cycle end, calcEnd) and jump to it, producing one homogeneous segment per iteration; within a segment splits into compact (full units) + truncated (remainder) by subCount + remainder. |
 | `UNIT_BASED` | Fixed unit alignment + full-coverage-free; does not use the boundary-driven loop. Currently carried only by `DayNightUnitBasedStrategy` under the `dayNight` facade. |
 | `DURATION_PERIOD` | Duration billing within a cycle, with cycle cap and period cap. Emits `DurationSegment`. |
 | `DURATION_GLOBAL` | Global duration billing, caps multiplied by cycle count. Emits `DurationSegment`. The only mode that consumes `SMART_FREE_MINUTES`. |
@@ -83,7 +83,7 @@ Segment calculation modes:
 | Shared scheduling layer | Yes | No | Yes | Yes |
 | FREE_MINUTES handling | Pre-materialized (from start) | Pre-materialized (from start) | Pre-materialized (from start) | Pre-materialized (from start) + SMART_FREE_MINUTES |
 | SMART_FREE_MINUTES | Error | Error | Error | Rule-side highest-price-first allocation |
-| compact merge | Yes | No | No | No |
+| compact merge | Produced in-segment | No | No | No |
 | Simplified calculation | Global-gap | None | None | None |
 | Cap basis | Per-cycle cap | Daily cap | In-cycle cap | Global cap × cycle count |
 
@@ -116,12 +116,13 @@ Boundary-driven framework abstractions:
 
 | Abstraction | Responsibility |
 |-------------|----------------|
-| `BoundaryProvider` | Boundary source interface; rules register their own boundaries (free ranges, period ends, cycle ends, unit alignment, etc.) |
+| `BoundaryProvider` | Boundary source interface; rules register their own boundaries (free ranges, period ends, cycle ends, etc.; CONTINUOUS no longer includes unit alignment) |
 | `BoundaryProviders` | Boundary source factory + `findNearest` |
 | `HomogeneousSegment` | Homogeneous segment, the minimal product of the boundary-driven loop |
 | `HomogeneousSegmentCalculator` | Homogeneous segment → BillingUnit (with compact merge) |
-| `CompactMerger` | Generic compact merger, merges consecutive identical units across segments |
 | `BoundaryDrivenLoop` | Public loop entry (`run`), pure scheduling; shared by CONTINUOUS and duration strategies; UNIT_BASED does not use it |
+
+> CONTINUOUS produces compact directly within a segment (`ContinuousStrategy.applyCapAndAccumulate` splits into compact + truncated by subCount + remainder; on cap hit splits by budget keeping `CYCLE_CAP`/`PERIOD_CAP` markers), no cross-segment merge (`ResultAssembler` flat-collects). dayNight day/night boundary snaps to unit edge + point-in-time pricing keeps each segment pure day/night.
 
 ---
 

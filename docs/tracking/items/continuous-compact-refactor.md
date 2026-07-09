@@ -4,7 +4,35 @@
 - 类型: refactor
 - 优先级: P2
 - source_git: 8d4c20f
-- 状态: 待讨论
+- 状态: done
+- completed_at: 2026-07-09
+- completed_git: （见实现提交）
+
+## 实施结果（2026-07-09 完成）
+
+### 方案（snap + 时间点定价）
+原受阻项 1 的解法：改造日夜边界 Provider，移除单元对齐后通过 snap + 时间点定价保证正确性。
+
+- **日夜边界 snap 到 unit edge**（`splitDayNightBoundary=false`）：跨越单元 `[unitStart, unitEnd]` 整体归入 `blockWeight` 占优侧同质段。snap 方向按占优侧与边界类型（dayEnd/dayBegin）判定：day 占优 + dayEnd -> snap unitEnd（归前段 day）；day 占优 + dayBegin -> snap unitStart（归后段 day）；night 占优 + dayEnd -> snap unitStart（归后段 night）；night 占优 + dayBegin -> snap unitEnd（归前段 night）。边界恰好落在 unit edge 时非跨越单元，直接用原边界。
+- **时间点定价（不用窗口算 dayMinutes）**：snap 到 unitStart 时后段起点落在 b 前非占优侧，段起点时间点会给错单价，故 snap provider 在 `snapUsDayFlag` 记录归属；`buildSegmentForDayNight` 段归属 = `snapUsDayFlag.getOrDefault(current, isInDay(current))`，`unitPrice = day ? dayUnitPrice : nightUnitPrice`。其余段（纯段 / snap unitEnd 前段）起点必在占优侧，用段起点时间点 `isInDay(current)` 即可。
+- BLOCK_WEIGHT（默认）下 snap 归属等价原窗口判定，金额回归不变（`DayNightParkingParityTest` 69.50、`DayNightContinuousCrossPeriodTest` 9.40/10.90 均保持）。
+
+### 已完成
+- **移除 4 个 CONTINUOUS 策略的单元对齐 provider**（DayNight/RelativeTime/NaturalTime/CompositeTime）。DayNight 日夜边界 snap 到 unit edge；其余 3 策略 period 边界切断，段不跨 period，定价用 period 价（时间点等价）。
+- **`applyCapAndAccumulate` 一段多 BillingUnit**：段拆为 compact（`subCount` 个整单元）+ truncated（`remainder` 余数）。`isTruncated = remainder > 0`（任何段），修复 PROPORTIONAL 非末段不足段 bug。免费段/封顶/末段不足免费整段免费不拆分。
+- **封顶 budget 分拆**：cycleCap 与 periodCap 统一为 budget-based（取最严约束），封顶时 compact 拆为收费整单元 + 部分削减单元 + 免费单元，保留 cap 免费标记（`CYCLE_CAP`/`PERIOD_CAP`）。移除 post-hoc `applyPeriodCapToUnits`/`recomputeAccumulatedAmounts`。
+- **移除 `CompactMerger`**：`ResultAssembler` 直接 `flatMap`，跨分段不合并（保留分段边界，更直观）。删除 `CompactMerger.java` + `CompactMergerTest.java`。
+- 全量 117 个测试通过，无回归。
+
+### 行为变化
+- CONTINUOUS 长周期直接产出 compact（少边界、少对象、少迭代）。
+- 跨分段连续相同单元不再合并（保留分段边界）。
+- `DayNightUnitBased`（UNIT_BASED）移除 CompactMerger 后不合并，每单元独立产出（保留单元边界）。
+- PROPORTIONAL 非末段不足段按比例收费（bug 修复，FULL_CHARGE 不受影响）。
+
+## 验证命令
+- 编译：`./mvnw -pl core,bill-test -am compile`
+- 全量测试：`./mvnw test`（117 通过）
 
 ## 背景
 
@@ -27,7 +55,7 @@
 - `CompositeTimeContinuousStrategy.calculateBoundaryDriven`
 - `NaturalTimeContinuousStrategy.calculate`
 
-移除后边界只剩：`cycleEnd` + 时段边界（日夜/period/自然时段）+ `freeRangeEdges` + `calcEnd`。同质段 = 其他边界切断的片段，可能 > 1 单元、= 1 单元、< 1 单元。
+移除后边界只剩：`cycleEnd` + 时段边界（日夜/period/自然时段）+ `freeRangeEdges` + `calcEnd`。同质段 = 其他边界切断的片段，可能 > 1 单元、= 1 单元、< 1 单元。DayNight 日夜边界 snap 到 unit edge，保证段边界对齐 unit、跨越单元归占优侧。
 
 ### 2. applyCapAndAccumulate 改造（一段多 BillingUnit）
 
@@ -41,31 +69,32 @@ for seg:
   remainder = segMinutes % unitMinutes
 
   # 免费段/封顶/不足免费：整段免费（不拆分）
-  if seg.isFree() || cycleCapped || incompleteFree:
+  if seg.isFree() || cycleCapped || periodCapped || incompleteFree:
     产出 1 个免费 BillingUnit（segMinutes，charged=0）
     continue
 
-  # compact 部分（subCount > 0：整单元）
+  # combined 预算（cycleCap 与 periodCap 取最严）
+  budget = min(cycleBudget, periodBudget)
+
+  # compact 部分（subCount > 0：整单元，封顶时拆为收费 + 部分削减 + 免费）
   if subCount > 0:
     fullTotal = originalPerSub * subCount
-    budget = max(0, maxCharge - cycleAccumulated)
     compactCharged = min(fullTotal, budget)
-    产出 compact BillingUnit（subCount 单元，compact=subCount>1，charged=compactCharged）
-    cycleAccumulated += compactCharged; accumulated += compactCharged
+    if compactCharged < fullTotal:  # 封顶削减，按 unitPrice 拆分
+      产出 charged compact + partial unit + free unit
+    else:
+      产出 compact BillingUnit（subCount 单元，compact=subCount>1，charged=fullTotal）
 
   # truncated 部分（remainder > 0：不足单元）
   if remainder > 0:
-    truncCharged = computeIncompleteCharge(unitPrice, remainder, unitMinutes, mode)
-    budget = max(0, maxCharge - cycleAccumulated)
-    truncCharged = min(truncCharged, budget)
+    truncCharged = min(computeIncompleteCharge(...), budget)
     产出 truncated BillingUnit（remainder min，isTruncated=true，charged=truncCharged）
-    cycleAccumulated += truncCharged; accumulated += truncCharged
 ```
 
 关键改变：
 - **isTruncated = remainder > 0**（任何段，非仅末段）-> 修复 PROPORTIONAL 非末段不足段 bug
 - **免费段不拆分**（整段免费，保持现状语义）
-- **封顶 budget 在 compact + truncated 间分配**
+- **封顶 budget 取 cycleCap/periodCap 最严约束**，封顶时 compact 拆分保留 cap 免费标记
 - **compact 直接产出**（`subCount > 1`，无需 CompactMerger）
 
 ### 3. 移除 CompactMerger
@@ -80,13 +109,22 @@ for seg:
 
 保持原设计（compact + truncated 分开），以保留标记清晰性。
 
-## 待讨论问题
+## 待讨论问题（已确认）
 
-1. **PROPORTIONAL 行为改变**：修复非末段不足段 bug（按比例），但可能破坏依赖现状（全额）的测试。是否接受？
-2. **DayNightUnitBased**：不用 BoundaryDrivenLoop，移除 CompactMerger 后连续相同单元不合并。是否需单独改造（内部 compact）？建议接受不合并（直观）。
-3. **CompactConsistencyAssert 不兼容封顶削减**：[第 49 行](../../../bill-test/src/test/java/cn/shang/charging/CompactConsistencyAssert.java) `subCharged × count == chargedAmount` 假设 compact 未封顶。改造后封顶削减的 compact `chargedAmount = budget < unitPrice × subCount`，断言失败。需调整（允许 `chargedAmount <= unitPrice × count`）。
-4. **产出形式**：compact + truncated 分开（原设计）vs 合并为 1 个 BillingUnit（像 PERIOD）。原设计保留标记清晰性，但一段两 BillingUnit。
-5. **跨分段不合并**：移除 CompactMerger，分段边界保留。符合直观性偏好。
+1. ~~**PROPORTIONAL 行为改变**：修复非末段不足段 bug（按比例），但可能破坏依赖现状（全额）的测试。是否接受？~~
+   **结论：接受修复。** 这是明确的 bug，`isTruncated = remainder > 0`，任何段有不足单元部分都按比例收费。FULL_CHARGE 不受影响。
+
+2. ~~**DayNightUnitBased**：不用 BoundaryDrivenLoop，移除 CompactMerger 后连续相同单元不合并。是否需单独改造（内部 compact）？~~
+   **结论：接受不合并。** 保留分段边界，更直观，不增加代码量。
+
+3. ~~**CompactConsistencyAssert 不兼容封顶削减**：`subCharged × count == chargedAmount` 假设 compact 未封顶。改造后封顶削减的 compact `chargedAmount = budget < unitPrice × subCount`，断言失败。需调整。~~
+   **结论：放宽为 `≤`。** 原则：结果正确、逻辑简单、输出易懂。`chargedAmount <= unitPrice × count`，允许封顶削减。
+
+4. ~~**产出形式**：compact + truncated 分开（原设计）vs 合并为 1 个 BillingUnit（像 PERIOD）。~~
+   **结论：分开。** compact 保留 `compact=true` 标记 + `count`，truncated 保留 `isTruncated=true`。一段最多多个 BillingUnit，标记清晰，查询语义明确。
+
+5. ~~**跨分段不合并**：移除 CompactMerger，分段边界保留。是否符合直观性偏好？~~
+   **结论：接受不合并。** 分段边界保留，直观，与问题 2 结论一致。
 
 ## 影响评估
 
@@ -111,36 +149,39 @@ for seg:
 | 测试 | 影响 |
 |------|------|
 | `CompactMergerTest` | 删除 |
-| `CompactParityAndConsistencyTest` | 金额不变；`CompactConsistencyAssert` 封顶削减断言需调整；`dayNight_compactWithDailyCap` 会失败 |
-| `DayNightUnitBasedRuleTest` | 注释更新；compact 验证更新（不再合并） |
-| `DayNightParkingParityTest` | 金额不变，单元数减少（合并） |
-| `DayNightContinuousCrossPeriodTest` | 金额不变，单元合并 |
+| `CompactParityAndConsistencyTest` | 金额不变；自洽性通过 |
+| `DayNightUnitBasedRuleTest` | fixedAlignment 期望改为 2 个独立单元（不合并） |
+| `DayNightParkingParityTest` | 金额不变（69.50），单元数减少（compact） |
+| `DayNightContinuousCrossPeriodTest` | 金额不变（9.40/10.90） |
 | `FreeMinutesMaterializationTest` | CONTINUOUS 用例无不足段，不受影响 |
 | `DurationBillingModeTest` | PERIOD/GLOBAL，不受影响 |
+| `CompositeTimeSmokeTest` | unitBased 期望改为 1 compact（CONTINUOUS compact） |
+| `CompositeTimePeriodCapTest` | periodCap 封顶分拆，通过 |
 
 ## 涉及文件
 
 ### 修改
-- `core/.../charge/rules/ContinuousStrategy.java`（`applyCapAndAccumulate` 改造）
-- `core/.../charge/rules/daynight/DayNightContinuousStrategy.java`（移除单元对齐）
+- `core/.../charge/rules/ContinuousStrategy.java`（`applyCapAndAccumulate` 改造：一段多 BillingUnit + 封顶分拆）
+- `core/.../charge/rules/daynight/DayNightContinuousStrategy.java`（移除单元对齐 + snap + 时间点定价）
 - `core/.../charge/rules/relativetime/RelativeTimeContinuousStrategy.java`（移除单元对齐）
 - `core/.../charge/rules/compositetime/CompositeTimeContinuousStrategy.java`（移除单元对齐）
 - `core/.../charge/rules/naturaltime/NaturalTimeContinuousStrategy.java`（移除单元对齐）
-- `core/.../settlement/ResultAssembler.java`（移除 `CompactMerger.merge`）
+- `core/.../settlement/ResultAssembler.java`（移除 `CompactMerger.merge`，直接 flatMap）
 
 ### 删除
 - `core/.../charge/rules/CompactMerger.java`
 - `bill-test/.../CompactMergerTest.java`
 
 ### 测试更新
-- `CompactParityAndConsistencyTest`（封顶一致性）
-- `DayNightUnitBasedRuleTest`
-- 其他单元数断言
+- `CompactParityAndConsistencyTest`（一致性验证）
+- `DayNightUnitBasedRuleTest`（fixedAlignment 不合并）
+- `CompositeTimeSmokeTest`（unitBased compact）
 
 ### 文档
 - `billing-engine-current-flow-zh.md` / `calculation-flow-zh.md`（流程图移除 CompactMerger）
 - `billing-engine-capabilities(-zh).md`（CompactMerger 能力移除）
 - `USER_GUIDE.md`（compact 说明）
+- `AGENTS.md`（关键类列表移除 CompactMerger）
 
 ## 风险
 
@@ -162,5 +203,5 @@ for seg:
 
 ## 参考
 
-- 详细方案：`/.claude/plans/continuous-compact-refactor.md`
+- 详细方案：`/.claude/plans/continuous-compact-refactor.md`、`/.claude/plans/continuous-compact-impl.md`
 - PERIOD 整除+余数逻辑参考：`DurationSupport.chargeByMode`

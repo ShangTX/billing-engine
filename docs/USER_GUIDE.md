@@ -201,7 +201,7 @@ BillingService.calculate()
 ├── BillingConfigResolver                # 调用方实现：解析每个分段的规则、优惠、模式
 ├── PromotionEngine.evaluate()           # 聚合优惠（免费时段、免费分钟、折扣、减免）
 ├── BillingCalculator.calculate()        # 分派到具体 BillingRule 执行计费
-└── ResultAssembler.assemble()           # 汇总分段结果，跨段 compact 合并
+└── ResultAssembler.assemble()           # 汇总分段结果（compact 段内直接产出，跨段不合并）
 ```
 
 ### 4.2 关键接口/类
@@ -507,8 +507,8 @@ BillingResult result = billingTemplate.calculate(request);
 | `accumulatedAmount` | `BigDecimal` | 段内累计金额（从分段起点到本单元的 chargedAmount 之和） |
 | `free` | `boolean` | 是否被优惠完全覆盖（免费） |
 | `freePromotionId` | `String` | 免费原因（优惠 ID 或特殊标记如 `"PERIOD_CAP"`、`"CYCLE_CAP"`） |
-| `isTruncated` | `Boolean` | 是否被 calcEndTime 截断（不足一个完整单元） |
-| `compact` | `boolean` | 是否为 compact 单元（合并了 N 个连续相同子单元） |
+| `isTruncated` | `Boolean` | 是否不足一个完整单元（含末段截断与段内余数，按不足单元计费模式处理） |
+| `compact` | `boolean` | 是否为 compact 单元（段内 N 个连续相同整单元合并产出） |
 | `count` | `int` | compact 单元代表的子单元数量（非 compact 始终为 1） |
 | `ruleData` | `Object` | 规则扩展数据（规则私有） |
 
@@ -846,7 +846,7 @@ BillingResult result = billingTemplate.calculate(request);
 
 | 模式 | 说明 | 产出类型 |
 |------|------|----------|
-| `CONTINUOUS` | 连续时间计费（边界驱动循环） | `BillingUnit`（含 compact 合并） |
+| `CONTINUOUS` | 连续时间计费（边界驱动循环，段内直接产出 compact） | `BillingUnit`（含 compact） |
 | `UNIT_BASED` | 固定单元对齐计费 | `BillingUnit` |
 | `DURATION_PERIOD` | 周期内时长计费，周期封顶+时段封顶 | `DurationSegment` |
 | `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘 | `DurationSegment` |

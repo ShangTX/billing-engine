@@ -5,19 +5,17 @@ import cn.shang.charging.billing.pojo.*;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.compositetime.*;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
-import cn.shang.charging.charge.rules.daynight.DayNightRule;
-import cn.shang.charging.charge.rules.flatfree.FlatFreeConfig;
 import cn.shang.charging.charge.rules.flatfree.FlatFreeRule;
-import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
-import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
-import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
-import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
+import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionConfig;
 import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
+import cn.shang.charging.promotion.rules.startfree.StartFreePromotionRule;
+import cn.shang.charging.promotion.rules.startfree.StartFreePromotionConfig;
+import cn.shang.charging.billing.pojo.PromotionRuleConfig;
 import cn.shang.charging.settlement.ResultAssembler;
 import cn.shang.charging.util.JacksonUtils;
 
@@ -25,10 +23,8 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * 计费测试运行器 —— 方便指定计费参数与规则配置，运行得到完整计费结果。
@@ -40,7 +36,8 @@ import java.util.Set;
  * </ol>
  * <p>
  * 支持全部 4 种计算模式（{@link BConstants.CalculationMode}）、3 种规则族
- * （dayNight / relativeTime / compositeTime）、外部优惠（免费时段 / 免费分钟 / 智能免费分钟）、
+ * （dayNight / relativeTime / compositeTime）、
+ * 外部优惠（免费时段 / 免费分钟 / 智能免费分钟）、优惠规则配置（前N分钟免费）、
  * 方案切换、等效金额计算。
  * <p>
  * 新增自定义场景：复制 {@link #scenario1_dayNight_continuous()} 改参数即可，
@@ -62,11 +59,13 @@ public class BillingPlaygroundTest {
         System.out.println("=".repeat(72));
 
         // ▼▼▼ 在这里选择/修改要运行的场景 ▼▼▼
-        run(scenario1_dayNight_continuous());        // 日夜分时段 + 连续计费 + 免费时段
-        run(scenario2_dayNight_durationGlobal());   // 日夜 + 全局时长计费 + 智能免费分钟
-        run(scenario3_compositeTime_period());      // 混合时段 + 周期时长计费 + 免费分钟
-        run(scenario4_schemeSwitch());              // 方案切换（多段计费）
-        run(scenario5_withEquivalentAmount());      // 等效金额计算
+//        run(scenario1_dayNight_continuous());        // 日夜分时段 + 连续计费 + 免费时段
+//        run(scenario2_dayNight_durationGlobal());   // 日夜 + 全局时长计费 + 智能免费分钟
+//        run(scenario3_compositeTime_period());      // 混合时段 + 周期时长计费 + 免费分钟
+//        run(scenario4_schemeSwitch());              // 方案切换（多段计费）
+//        run(scenario5_withEquivalentAmount());      // 等效金额计算
+//        run(scenario6_startFree());                   // 前N分钟免费（START_FREE）
+        run(scenario_cust());
         // ▲▲▲ 在这里选择/修改要运行的场景 ▲▲▲
     }
 
@@ -243,6 +242,76 @@ public class BillingPlaygroundTest {
                 .build();
     }
 
+    /**
+     * 场景6：前N分钟免费（START_FREE）优惠规则。
+     * <p>
+     * START_FREE 从计费起点生成免费时段，与 FREE_RANGE 按优先级合并，
+     * 不会像 FREE_MINUTES 那样避开已有免费时段。
+     */
+    static Scenario scenario6_startFree() {
+        return Scenario.builder()
+                .name("日夜分时段 + CONTINUOUS + 前30分钟免费")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 8, 12))
+                .endTime(LocalDateTime.of(2026, 7, 7, 21, 36))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-startfree")
+                        .setDayBeginMinute(8 * 60)
+                        .setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2"))
+                        .setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60)
+                        .setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5")))
+                .promotionRuleConfigs(List.of(
+                        new FreeMinutesPromotionConfig().setMinutes(20)
+                                .setId("fn-min-20").setPriority(2)
+                ))
+                .promotionRuleConfigs(List.of(
+                        StartFreePromotionConfig.builder()
+                                .id("start-free-30")
+                                .minutes(30)
+                                .priority(1)
+                                .build()))
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())  // null = 不限，全部参与
+                .build();
+    }
+
+
+    /**
+     * 场景5：开启等效金额计算（消去法精确计算每个优惠使金额减少多少）。
+     */
+    static Scenario scenario_cust() {
+        return Scenario.builder()
+                .name("常规金额计算")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 5, 13))
+                .endTime(LocalDateTime.of(2026, 7, 7, 21, 36))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-eq")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .externalPromotions(List.of(
+                        PromotionGrant.builder()
+                                .id("free-range-2h")
+                                .type(BConstants.PromotionType.FREE_RANGE)
+                                .source(BConstants.PromotionSource.COUPON)
+                                .priority(1)
+                                .beginTime(LocalDateTime.of(2026, 7, 7, 11, 0))
+                                .endTime(LocalDateTime.of(2026, 7, 7, 13, 0))
+                                .build()))
+                .promotionRuleConfigs(List.of(
+                        StartFreePromotionConfig.builder()
+                                .id("start-free-30")
+                                .minutes(30)
+                                .priority(1)
+                                .build()))
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())  // null = 不限，全部参与
+                .build();
+    }
     // ==================== 引擎执行与结果打印 ====================
 
     /**
@@ -264,6 +333,7 @@ public class BillingPlaygroundTest {
 
         PromotionRuleRegistry promotionRuleRegistry = new PromotionRuleRegistry();
         promotionRuleRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
+        promotionRuleRegistry.register(BConstants.PromotionRuleType.START_FREE, new StartFreePromotionRule());
 
         PromotionEngine promotionEngine = new PromotionEngine(
                 resolver, new FreeTimeRangeMerger(), promotionRuleRegistry);
@@ -329,7 +399,7 @@ public class BillingPlaygroundTest {
                                                                    LocalDateTime segmentStart,
                                                                    LocalDateTime segmentEnd,
                                                                    Map<String, Object> context) {
-                return List.of();
+                return scenario.promotionRuleConfigs != null ? scenario.promotionRuleConfigs : List.of();
             }
         };
     }
@@ -441,7 +511,7 @@ public class BillingPlaygroundTest {
 
         // 完整结果 JSON 序列化（方便复制、对比、传给前端）
         System.out.println("\n【完整结果 JSON】");
-        System.out.println(JacksonUtils.toPrettyJsonString(result));
+        System.out.println(JacksonUtils.toJsonString(result));
 
         System.out.println("\n" + "─".repeat(72));
     }
@@ -453,7 +523,9 @@ public class BillingPlaygroundTest {
         return Boolean.TRUE.equals(((Map<String, Object>) rawMap).get("isSimplified"));
     }
 
-    /** 构建 SchemeChange（SchemeChange 的 setter 非链式，用辅助方法简化） */
+    /**
+     * 构建 SchemeChange（SchemeChange 的 setter 非链式，用辅助方法简化）
+     */
     static SchemeChange buildSchemeChange(String lastSchemeId, String nextSchemeId, LocalDateTime changeTime) {
         SchemeChange sc = new SchemeChange();
         sc.setLastSchemeId(lastSchemeId);
@@ -476,11 +548,17 @@ public class BillingPlaygroundTest {
         public LocalDateTime endTime;
         public BConstants.CalculationMode calculationMode;
         public RuleConfig ruleConfig;
-        /** 方案切换场景：schemeId → 规则配置（与 ruleConfig 二选一） */
+        /**
+         * 方案切换场景：schemeId → 规则配置（与 ruleConfig 二选一）
+         */
         public Map<String, RuleConfig> ruleConfigByScheme;
         public String schemeId;
         public List<SchemeChange> schemeChanges;
         public List<PromotionGrant> externalPromotions;
+        /**
+         * 优惠规则配置（如 START_FREE）
+         */
+        public List<PromotionRuleConfig> promotionRuleConfigs;
         public TimeRoundingMode timeRoundingMode;
         public EquivalentAmountSpec equivalentAmountSpec;
 
@@ -489,20 +567,67 @@ public class BillingPlaygroundTest {
         }
     }
 
-    /** Scenario 构建器（手写，避免引入 Lombok @Builder 依赖歧义） */
+    /**
+     * Scenario 构建器（手写，避免引入 Lombok @Builder 依赖歧义）
+     */
     public static class ScenarioBuilder {
         private final Scenario s = new Scenario();
 
-        public ScenarioBuilder name(String v) { s.name = v; return this; }
-        public ScenarioBuilder beginTime(LocalDateTime v) { s.beginTime = v; return this; }
-        public ScenarioBuilder endTime(LocalDateTime v) { s.endTime = v; return this; }
-        public ScenarioBuilder calculationMode(BConstants.CalculationMode v) { s.calculationMode = v; return this; }
-        public ScenarioBuilder ruleConfig(RuleConfig v) { s.ruleConfig = v; return this; }
-        public ScenarioBuilder schemeId(String v) { s.schemeId = v; return this; }
-        public ScenarioBuilder schemeChanges(List<SchemeChange> v) { s.schemeChanges = v; return this; }
-        public ScenarioBuilder externalPromotions(List<PromotionGrant> v) { s.externalPromotions = v; return this; }
-        public ScenarioBuilder timeRoundingMode(TimeRoundingMode v) { s.timeRoundingMode = v; return this; }
-        public ScenarioBuilder equivalentAmountSpec(EquivalentAmountSpec v) { s.equivalentAmountSpec = v; return this; }
+        public ScenarioBuilder name(String v) {
+            s.name = v;
+            return this;
+        }
+
+        public ScenarioBuilder beginTime(LocalDateTime v) {
+            s.beginTime = v;
+            return this;
+        }
+
+        public ScenarioBuilder endTime(LocalDateTime v) {
+            s.endTime = v;
+            return this;
+        }
+
+        public ScenarioBuilder calculationMode(BConstants.CalculationMode v) {
+            s.calculationMode = v;
+            return this;
+        }
+
+        public ScenarioBuilder ruleConfig(RuleConfig v) {
+            s.ruleConfig = v;
+            return this;
+        }
+
+        public ScenarioBuilder schemeId(String v) {
+            s.schemeId = v;
+            return this;
+        }
+
+        public ScenarioBuilder schemeChanges(List<SchemeChange> v) {
+            s.schemeChanges = v;
+            return this;
+        }
+
+        public ScenarioBuilder externalPromotions(List<PromotionGrant> v) {
+            s.externalPromotions = v;
+            return this;
+        }
+
+        public ScenarioBuilder promotionRuleConfigs(List<PromotionRuleConfig> v) {
+            s.promotionRuleConfigs = v;
+            return this;
+        }
+
+        public ScenarioBuilder timeRoundingMode(TimeRoundingMode v) {
+            s.timeRoundingMode = v;
+            return this;
+        }
+
+        public ScenarioBuilder equivalentAmountSpec(EquivalentAmountSpec v) {
+            s.equivalentAmountSpec = v;
+            return this;
+        }
+
         public Scenario build() {
             if (s.calculationMode == null) {
                 s.calculationMode = BConstants.CalculationMode.CONTINUOUS;

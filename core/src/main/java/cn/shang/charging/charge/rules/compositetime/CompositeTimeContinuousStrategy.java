@@ -259,17 +259,6 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
         });
         providers.add(BoundaryProviders.cycleEnd(billingOrigin, MINUTES_PER_CYCLE));
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
-        // 单元对齐（当前 period 的 unitMinutes）
-        providers.add((current, e) -> {
-            long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
-            long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
-            CompositePeriod period = periodResolver.findPeriodForMinute((int) positionInCycle, config.getPeriods());
-            LocalDateTime next = current.plusMinutes(period.getUnitMinutes());
-            if (next.isAfter(current) && !next.isAfter(e)) {
-                return List.of(next);
-            }
-            return List.of();
-        });
         providers.add(BoundaryProviders.calcEnd(end));
 
         // 边界驱动循环

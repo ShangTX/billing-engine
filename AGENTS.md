@@ -137,7 +137,6 @@ BillingService.calculate()
 - `RuleSupport` - FREE_MINUTES 时段化（`materializeFreeMinutes`），CONTINUOUS 与时长策略共用
 - `DurationSupport` - 时长策略共享工具（`segmentCharge` / `segmentOriginalCharge` / `DurationResult` / `buildPeriodMode` / `buildGlobalMode`）
 - `BoundaryProvider` / `BoundaryProviders` / `HomogeneousSegment` - 边界驱动框架抽象
-- `CompactMerger` - compact 单元合并器（跨分段连续相同单元合并）
 - `BillingTemplate` - 便捷 API 入口（billing-api 模块）
 - `BillingResultViewer` - 查询时点视图逻辑（含 compact 单元子单元投影）
 - `PromotionEquivalentCalculator` - 优惠等效金额计算（core 模块，TODO-20260706-003 从 billing-api 迁入；消去法 + `EquivalentAmountSpec` 按需过滤）
@@ -222,7 +221,7 @@ BillingService.calculate()
 
 门面按请求模式分派到对应 `ModeStrategy`。新增规则族只需实现 `RuleSemantics` + 门面即可获得 4 模式（正交解耦，N+M 实现点而非 N×M）。
 
-边界驱动框架关键类：`BoundaryProvider`、`BoundaryProviders`、`HomogeneousSegment`、`HomogeneousSegmentCalculator`、`CompactMerger`、`BoundaryDrivenLoop`，均位于 `core` 的 `charge.rules` 包，公共循环入口为 `BoundaryDrivenLoop.run`（CONTINUOUS 策略与时长策略直接调用，UNIT_BASED 不走该层）。
+边界驱动框架关键类：`BoundaryProvider`、`BoundaryProviders`、`HomogeneousSegment`、`HomogeneousSegmentCalculator`、`BoundaryDrivenLoop`，均位于 `core` 的 `charge.rules` 包，公共循环入口为 `BoundaryDrivenLoop.run`（CONTINUOUS 策略与时长策略直接调用，UNIT_BASED 不走该层）。CONTINUOUS 段内直接产出 compact（`ContinuousStrategy.applyCapAndAccumulate` 按 subCount + remainder 拆为 compact + truncated，封顶时按 budget 分拆保留 cap 标记），跨分段不合并。
 
 ---
 

@@ -69,7 +69,7 @@ BillingRequest
 
 | 模式 | 当前语义 |
 |------|----------|
-| `CONTINUOUS` | 边界驱动循环为唯一计算路径：找到最近边界（免费时段起止、时段结束、周期结束、单元对齐、calcEnd）跳过去，一次迭代产出一个同质段，compact 单元为自然产物 |
+| `CONTINUOUS` | 边界驱动循环为唯一计算路径：找到最近边界（免费时段起止、时段结束、周期结束、calcEnd）跳过去，一次迭代产出一个同质段；段内按 subCount+remainder 拆为 compact（整单元）+ truncated（余数），compact 为段内直接产物 |
 | `UNIT_BASED` | 固定单元对齐 + 完整覆盖才免费，不走边界驱动公共循环；当前仅 `dayNight` 门面下 `DayNightUnitBasedStrategy` 承载 |
 | `DURATION_PERIOD` | 周期内时长计费，周期封顶 + 时段封顶，产出 `DurationSegment` |
 | `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘，产出 `DurationSegment`；唯一消费 `SMART_FREE_MINUTES` 的模式 |
@@ -83,7 +83,7 @@ BillingRequest
 | 公共调度层 | 用 | 不用 | 用 | 用 |
 | FREE_MINUTES 处理 | 前置时段化(起点) | 前置时段化(起点) | 前置时段化(起点) | 前置时段化(起点) + SMART_FREE_MINUTES |
 | SMART_FREE_MINUTES | 报错 | 报错 | 报错 | 规则侧优先高价分配 |
-| compact 合并 | 有 | 无 | 无 | 无 |
+| compact 合并 | 段内直接产出 | 无 | 无 | 无 |
 | 简化计算 | 全局空隙 | 无 | 无 | 无 |
 | 封顶基准 | 逐周期封顶 | 每日封顶 | 周期内封顶 | 全局封顶 × 周期数 |
 
@@ -116,12 +116,13 @@ BillingRequest
 
 | 抽象 | 职责 |
 |------|------|
-| `BoundaryProvider` | 边界来源接口，规则注册自己的边界（免费时段、时段结束、周期结束、单元对齐等） |
+| `BoundaryProvider` | 边界来源接口，规则注册自己的边界（免费时段、时段结束、周期结束等；CONTINUOUS 不再含单元对齐） |
 | `BoundaryProviders` | 边界来源工厂 + `findNearest` 最近边界查找 |
 | `HomogeneousSegment` | 同质段，边界驱动循环的最小产出 |
 | `HomogeneousSegmentCalculator` | 同质段 → BillingUnit（含 compact 合并） |
-| `CompactMerger` | 通用 compact 合并器，跨分段连续相同单元合并 |
 | `BoundaryDrivenLoop` | 公共循环入口（`run`），纯调度，CONTINUOUS 与时长策略共享；UNIT_BASED 不走该层 |
+
+> CONTINUOUS 段内直接产出 compact（`ContinuousStrategy.applyCapAndAccumulate` 按 subCount + remainder 拆为 compact + truncated，封顶时按 budget 分拆保留 `CYCLE_CAP`/`PERIOD_CAP` 标记），跨分段不合并（`ResultAssembler` 直接 flat 汇总）。dayNight 日夜边界 snap 到 unit edge + 时间点定价保证段内纯 day/night。
 
 ---
 

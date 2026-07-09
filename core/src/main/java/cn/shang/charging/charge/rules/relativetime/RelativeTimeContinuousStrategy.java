@@ -104,22 +104,6 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
             return result;
         });
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
-        // 单元对齐：每个 unitMinutes 步长产生一个边界
-        providers.add((current, end) -> {
-            List<LocalDateTime> result = new ArrayList<>();
-            // 找到当前点的 unitMinutes 网格：向下对齐到单元起点
-            long minutesFromOrigin = Duration.between(cycleOriginBegin, current).toMinutes();
-            RelativeTimePeriod period = periodResolver.findPeriodForMinute(
-                    (int) (((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE),
-                    periods);
-            int unitMinutes = period.getUnitMinutes();
-            LocalDateTime next = current.plusMinutes(unitMinutes);
-            while (!next.isAfter(end)) {
-                result.add(next);
-                next = next.plusMinutes(unitMinutes);
-            }
-            return result;
-        });
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
         // 边界驱动循环

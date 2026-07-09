@@ -5,13 +5,11 @@ import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.DurationSegment;
-import cn.shang.charging.charge.rules.CompactMerger;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -20,7 +18,7 @@ import java.util.stream.Stream;
  * <p>
  * 将多个 {@link BillingSegmentResult} 合并为最终的 {@link BillingResult}：
  * <ul>
- *   <li>跨分段连续相同单元做 compact 合并（{@link CompactMerger}）</li>
+ *   <li>汇总所有计费单元（compact 由各分段 CONTINUOUS 策略直接产出，跨分段不合并，保留分段边界）</li>
  *   <li>汇总时长计费段（DURATION_PERIOD/DURATION_GLOBAL 模式）</li>
  *   <li>汇总优惠使用情况（PromotionUsage）</li>
  *   <li>计算最终金额 = 各分段 chargedAmount 之和</li>
@@ -35,13 +33,11 @@ public class ResultAssembler {
     public BillingResult assemble(BillingRequest request,
                                   List<BillingSegmentResult> segmentResultList) {
 
-        // 汇总所有计费单元，并对跨分段的连续相同单元做 compact 合并
-        List<BillingUnit> allUnits = CompactMerger.merge(
-                segmentResultList.stream()
-                        .map(BillingSegmentResult::getBillingUnits)
-                        .flatMap(Collection::stream)
-                        .toList()
-        );
+        // 汇总所有计费单元（compact 由 CONTINUOUS 策略段内直接产出，跨分段不合并，保留分段边界更直观）
+        List<BillingUnit> allUnits = segmentResultList.stream()
+                .map(BillingSegmentResult::getBillingUnits)
+                .flatMap(Collection::stream)
+                .toList();
 
         // 汇总时长计费段（时长计费模式）
         List<DurationSegment> allDurationSegments = segmentResultList.stream()

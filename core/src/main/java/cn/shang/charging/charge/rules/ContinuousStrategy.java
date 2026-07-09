@@ -81,10 +81,10 @@ public final class ContinuousStrategy {
         BigDecimal cycleAccumulated = carryOverAccumulated != null ? carryOverAccumulated : BigDecimal.ZERO;
         LocalDateTime currentCycleBoundary = semantics.initialCycleBoundary(cycleOrigin, calcBegin);
 
-        // periodCap 跟踪：当前 period key 及其在 units 列表的起始索引
+        // periodCap 跟踪：当前 period key、封顶金额及 period 内累计（budget-based，与 cycleCap 统一在段处理时削减）
         String currentPeriodKey = null;
         BigDecimal currentPeriodCap = null;
-        int periodStartIndex = 0;
+        BigDecimal periodAccumulated = BigDecimal.ZERO;
 
         BigDecimal accumulated = BigDecimal.ZERO;
 
@@ -93,30 +93,27 @@ public final class ContinuousStrategy {
             boolean isLast = (i == segments.size() - 1);
             int segMinutes = seg.durationMinutes();
 
-            // 段内单元数：segMinutes / unitMinutes（同质段内单价一致，多单元可合并为 compact）
+            // 段内单元数与余数：移除单元对齐后段可跨多单元，拆为 compact（整单元）+ truncated（余数）
             int unitMinutes = semantics.unitMinutes(seg.getBeginTime(), config, cycleOrigin);
             int subCount = unitMinutes > 0 ? segMinutes / unitMinutes : 1;
-            if (subCount < 1) subCount = 1;
+            int remainder = unitMinutes > 0 ? segMinutes % unitMinutes : 0;
+            if (unitMinutes <= 0) {
+                subCount = 1;
+                remainder = 0;
+            }
 
-            // 截断单元：末段不足 unitMinutes 且终点 = calcEnd（按不足单元计费模式处理）
-            boolean isTruncated = isLast
-                    && unitMinutes > 0
-                    && segMinutes < unitMinutes
-                    && seg.getEndTime().equals(calcEnd);
-
-            // periodCap：时段切换时对前一 period 应用独立封顶
+            // periodCap：时段切换时重置 period 累计（budget-based，封顶在段处理时按预算削减）
             if (hasPeriodCap) {
                 String periodKey = semantics.periodKey(seg.getBeginTime(), config, cycleOrigin);
                 BigDecimal periodCap = semantics.periodCap(seg.getBeginTime(), config, cycleOrigin);
                 if (currentPeriodKey == null) {
                     currentPeriodKey = periodKey;
                     currentPeriodCap = periodCap;
-                    periodStartIndex = units.size();
+                    periodAccumulated = BigDecimal.ZERO;
                 } else if (!periodKey.equals(currentPeriodKey)) {
-                    applyPeriodCapToUnits(units, periodStartIndex, currentPeriodCap);
                     currentPeriodKey = periodKey;
                     currentPeriodCap = periodCap;
-                    periodStartIndex = units.size();
+                    periodAccumulated = BigDecimal.ZERO;
                 }
             }
 
@@ -126,9 +123,17 @@ public final class ContinuousStrategy {
                     && !seg.isFree() && cycleAccumulated.compareTo(maxCharge) >= 0) {
                 cycleCapped = true;
             }
+            // 时段封顶已触发：非免费段 + period 累计 >= periodCap -> 本段免费（标记 PERIOD_CAP）
+            boolean periodCapped = false;
+            if (hasPeriodCap && currentPeriodCap != null && currentPeriodCap.compareTo(BigDecimal.ZERO) > 0
+                    && !seg.isFree() && periodAccumulated.compareTo(currentPeriodCap) >= 0) {
+                periodCapped = true;
+            }
 
-            // 截断单元按不足单元计费模式判定是否免费（FREE/THRESHOLD_MINUTES/THRESHOLD_RATIO 可能免费）
-            boolean incompleteFree = isTruncated && !seg.isFree() && !cycleCapped
+            // 末段不足单元按不足单元计费模式判定是否免费（FREE/THRESHOLD_MINUTES/THRESHOLD_RATIO 可能免费）
+            // 仅末段可因不足而免费（与原有行为一致）；非末段不足段仅按比例收费（PROPORTIONAL 修复）
+            boolean isLastShort = isLast && subCount == 0 && remainder > 0 && seg.getEndTime().equals(calcEnd);
+            boolean incompleteFree = isLastShort && !seg.isFree() && !cycleCapped && !periodCapped
                     && ContinuousStrategy.isIncompleteFree(segMinutes, unitMinutes,
                             semantics.incompleteMode(config),
                             semantics.thresholdMinutes(config),
@@ -138,56 +143,190 @@ public final class ContinuousStrategy {
                     ? seg.getOriginalAmount() : BigDecimal.ZERO;
             BigDecimal unitPrice = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
 
-            // charged 计算（三支）：
-            //   1) 免费/封顶/不足免费 -> 0
-            //   2) 截断单元 -> computeIncompleteCharge（按不足单元计费模式）
-            //   3) 正常单元 -> originalPerSub × subCount，受周期封顶预算（maxCharge - cycleAccumulated）限制
-            BigDecimal charged;
-            if (seg.isFree() || cycleCapped || incompleteFree) {
-                charged = BigDecimal.ZERO;
-            } else if (isTruncated) {
-                charged = ContinuousStrategy.computeIncompleteCharge(unitPrice, segMinutes, unitMinutes,
-                        semantics.incompleteMode(config),
-                        semantics.thresholdMinutes(config),
-                        semantics.thresholdRatio(config));
-            } else {
-                BigDecimal budget = maxCharge != null
-                        ? maxCharge.subtract(cycleAccumulated)
-                        : null;
-                if (budget != null && budget.signum() < 0) budget = BigDecimal.ZERO;
+            // 免费段/封顶/末段不足免费：整段免费（不拆分），产出 1 个免费 BillingUnit
+            if (seg.isFree() || cycleCapped || periodCapped || incompleteFree) {
+                units.add(BillingUnit.builder()
+                        .beginTime(seg.getBeginTime())
+                        .endTime(seg.getEndTime())
+                        .durationMinutes(segMinutes)
+                        .unitPrice(unitPrice)
+                        .originalAmount(BigDecimal.ZERO)
+                        .free(true)
+                        .freePromotionId(cycleCapped ? capLabel
+                                : (periodCapped ? "PERIOD_CAP"
+                                : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId())))
+                        .chargedAmount(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                        .accumulatedAmount(accumulated)
+                        .ruleData(seg.getRuleData())
+                        .compact(false)
+                        .count(1)
+                        .isTruncated(subCount == 0 && remainder > 0)
+                        .build());
+                // 免费不累计 cycleAccumulated/periodAccumulated；周期切换仍判定
+                if (semantics.isCycleBoundary(seg, currentCycleBoundary, cycleOrigin)) {
+                    currentCycleBoundary = semantics.nextCycleBoundary(seg.getEndTime(), currentCycleBoundary, cycleOrigin);
+                    cycleAccumulated = BigDecimal.ZERO;
+                }
+                continue;
+            }
+
+            // combined 预算：cycleCap 与 periodCap 取最严约束，封顶时 compact 拆为收费 + 免费部分
+            BigDecimal cycleBudget = (maxCharge != null && maxCharge.compareTo(BigDecimal.ZERO) > 0)
+                    ? maxCharge.subtract(cycleAccumulated) : null;
+            if (cycleBudget != null && cycleBudget.signum() < 0) cycleBudget = BigDecimal.ZERO;
+            BigDecimal periodBudget = (hasPeriodCap && currentPeriodCap != null && currentPeriodCap.compareTo(BigDecimal.ZERO) > 0)
+                    ? currentPeriodCap.subtract(periodAccumulated) : null;
+            if (periodBudget != null && periodBudget.signum() < 0) periodBudget = BigDecimal.ZERO;
+
+            // compact 部分：subCount 个整单元，同质段内单价一致；封顶时拆为收费整单元 + 部分削减单元 + 免费单元
+            if (subCount > 0) {
                 BigDecimal fullTotal = originalPerSub.multiply(BigDecimal.valueOf(subCount));
-                if (budget != null && fullTotal.compareTo(budget) > 0) {
-                    charged = budget.setScale(2, RoundingMode.HALF_UP);
+                // 取最严预算及对应 cap 标签
+                BigDecimal budget = cycleBudget;
+                String capHit = capLabel;
+                if (periodBudget != null && (budget == null || periodBudget.compareTo(budget) < 0)) {
+                    budget = periodBudget;
+                    capHit = "PERIOD_CAP";
+                }
+                BigDecimal compactCharged = budget != null ? fullTotal.min(budget) : fullTotal;
+
+                if (compactCharged.compareTo(fullTotal) < 0 && originalPerSub.compareTo(BigDecimal.ZERO) > 0) {
+                    // 封顶削减：按 unitPrice 拆分
+                    int chargedCount = compactCharged.divide(originalPerSub, 0, RoundingMode.DOWN).intValue();
+                    BigDecimal partialCharged = compactCharged.subtract(originalPerSub.multiply(BigDecimal.valueOf(chargedCount)));
+                    int partialUsed = partialCharged.compareTo(BigDecimal.ZERO) > 0 ? 1 : 0;
+                    int freeCount = subCount - chargedCount - partialUsed;
+                    LocalDateTime cursor = seg.getBeginTime();
+                    LocalDateTime compactEnd = seg.getBeginTime().plusMinutes((long) subCount * unitMinutes);
+                    if (chargedCount > 0) {
+                        BigDecimal chargedTotal = originalPerSub.multiply(BigDecimal.valueOf(chargedCount));
+                        accumulated = accumulated.add(chargedTotal);
+                        cycleAccumulated = cycleAccumulated.add(chargedTotal);
+                        periodAccumulated = periodAccumulated.add(chargedTotal);
+                        units.add(BillingUnit.builder()
+                                .beginTime(cursor)
+                                .endTime(cursor.plusMinutes((long) chargedCount * unitMinutes))
+                                .durationMinutes(chargedCount * unitMinutes)
+                                .unitPrice(unitPrice)
+                                .originalAmount(chargedTotal)
+                                .free(false)
+                                .chargedAmount(chargedTotal.setScale(2, RoundingMode.HALF_UP))
+                                .accumulatedAmount(accumulated)
+                                .ruleData(seg.getRuleData())
+                                .compact(chargedCount > 1)
+                                .count(chargedCount)
+                                .isTruncated(false)
+                                .build());
+                        cursor = cursor.plusMinutes((long) chargedCount * unitMinutes);
+                    }
+                    if (partialUsed > 0) {
+                        accumulated = accumulated.add(partialCharged);
+                        cycleAccumulated = cycleAccumulated.add(partialCharged);
+                        periodAccumulated = periodAccumulated.add(partialCharged);
+                        units.add(BillingUnit.builder()
+                                .beginTime(cursor)
+                                .endTime(cursor.plusMinutes(unitMinutes))
+                                .durationMinutes(unitMinutes)
+                                .unitPrice(unitPrice)
+                                .originalAmount(originalPerSub)
+                                .free(false)
+                                .freePromotionId(capHit)
+                                .chargedAmount(partialCharged.setScale(2, RoundingMode.HALF_UP))
+                                .accumulatedAmount(accumulated)
+                                .ruleData(seg.getRuleData())
+                                .compact(false)
+                                .count(1)
+                                .isTruncated(false)
+                                .build());
+                        cursor = cursor.plusMinutes(unitMinutes);
+                    }
+                    if (freeCount > 0) {
+                        units.add(BillingUnit.builder()
+                                .beginTime(cursor)
+                                .endTime(compactEnd)
+                                .durationMinutes(freeCount * unitMinutes)
+                                .unitPrice(unitPrice)
+                                .originalAmount(BigDecimal.ZERO)
+                                .free(true)
+                                .freePromotionId(capHit)
+                                .chargedAmount(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                                .accumulatedAmount(accumulated)
+                                .ruleData(seg.getRuleData())
+                                .compact(freeCount > 1)
+                                .count(freeCount)
+                                .isTruncated(false)
+                                .build());
+                    }
                 } else {
-                    charged = fullTotal;
+                    compactCharged = compactCharged.setScale(2, RoundingMode.HALF_UP);
+                    accumulated = accumulated.add(compactCharged);
+                    cycleAccumulated = cycleAccumulated.add(compactCharged);
+                    periodAccumulated = periodAccumulated.add(compactCharged);
+                    LocalDateTime compactEnd = seg.getBeginTime().plusMinutes((long) subCount * unitMinutes);
+                    units.add(BillingUnit.builder()
+                            .beginTime(seg.getBeginTime())
+                            .endTime(compactEnd)
+                            .durationMinutes(subCount * unitMinutes)
+                            .unitPrice(unitPrice)
+                            .originalAmount(fullTotal)
+                            .free(false)
+                            .chargedAmount(compactCharged)
+                            .accumulatedAmount(accumulated)
+                            .ruleData(seg.getRuleData())
+                            .compact(subCount > 1)
+                            .count(subCount)
+                            .isTruncated(false)
+                            .build());
                 }
             }
 
-            accumulated = accumulated.add(charged);
-            if (!seg.isFree() && !cycleCapped && !incompleteFree) {
-                cycleAccumulated = cycleAccumulated.add(charged);
+            // truncated 部分：不足一个整单元的余数，按不足单元计费模式处理（isTruncated=true），受 combined 预算限制
+            if (remainder > 0) {
+                BigDecimal truncOrig = ContinuousStrategy.computeIncompleteCharge(unitPrice, remainder, unitMinutes,
+                        semantics.incompleteMode(config),
+                        semantics.thresholdMinutes(config),
+                        semantics.thresholdRatio(config));
+                BigDecimal truncCycleBudget = (maxCharge != null && maxCharge.compareTo(BigDecimal.ZERO) > 0)
+                        ? maxCharge.subtract(cycleAccumulated) : null;
+                if (truncCycleBudget != null && truncCycleBudget.signum() < 0) truncCycleBudget = BigDecimal.ZERO;
+                BigDecimal truncPeriodBudget = (hasPeriodCap && currentPeriodCap != null && currentPeriodCap.compareTo(BigDecimal.ZERO) > 0)
+                        ? currentPeriodCap.subtract(periodAccumulated) : null;
+                if (truncPeriodBudget != null && truncPeriodBudget.signum() < 0) truncPeriodBudget = BigDecimal.ZERO;
+                BigDecimal truncBudget = truncCycleBudget;
+                String truncCapHit = capLabel;
+                if (truncPeriodBudget != null && (truncBudget == null || truncPeriodBudget.compareTo(truncBudget) < 0)) {
+                    truncBudget = truncPeriodBudget;
+                    truncCapHit = "PERIOD_CAP";
+                }
+                BigDecimal truncCharged = truncBudget != null ? truncOrig.min(truncBudget) : truncOrig;
+                truncCharged = truncCharged.setScale(2, RoundingMode.HALF_UP);
+                boolean truncModeFree = ContinuousStrategy.isIncompleteFree(remainder, unitMinutes,
+                        semantics.incompleteMode(config),
+                        semantics.thresholdMinutes(config),
+                        semantics.thresholdRatio(config));
+                boolean truncFree = truncModeFree || truncCharged.compareTo(BigDecimal.ZERO) == 0;
+                LocalDateTime truncBegin = seg.getBeginTime().plusMinutes((long) subCount * unitMinutes);
+                accumulated = accumulated.add(truncCharged);
+                if (!truncFree) {
+                    cycleAccumulated = cycleAccumulated.add(truncCharged);
+                    periodAccumulated = periodAccumulated.add(truncCharged);
+                }
+                units.add(BillingUnit.builder()
+                        .beginTime(truncBegin)
+                        .endTime(seg.getEndTime())
+                        .durationMinutes(remainder)
+                        .unitPrice(unitPrice)
+                        .originalAmount(truncOrig)
+                        .free(truncFree)
+                        .freePromotionId(truncFree ? (truncModeFree ? "INCOMPLETE_FREE" : truncCapHit) : null)
+                        .chargedAmount(truncCharged)
+                        .accumulatedAmount(accumulated)
+                        .ruleData(seg.getRuleData())
+                        .compact(false)
+                        .count(1)
+                        .isTruncated(true)
+                        .build());
             }
-
-            // compact：多子单元同价合并标记（subCount > 1 且非截断），CompactMerger 跨段合并时复用
-            boolean isCompact = !isTruncated && subCount > 1;
-
-            BillingUnit unit = BillingUnit.builder()
-                    .beginTime(seg.getBeginTime())
-                    .endTime(seg.getEndTime())
-                    .durationMinutes(segMinutes)
-                    .unitPrice(unitPrice)
-                    .originalAmount(originalPerSub.multiply(BigDecimal.valueOf(subCount)))
-                    .free(seg.isFree() || cycleCapped || incompleteFree)
-                    .freePromotionId(cycleCapped ? capLabel
-                            : (incompleteFree ? "INCOMPLETE_FREE" : seg.getFreePromotionId()))
-                    .chargedAmount(charged)
-                    .accumulatedAmount(accumulated)
-                    .ruleData(seg.getRuleData())
-                    .compact(isCompact)
-                    .count(isCompact ? subCount : 1)
-                    .isTruncated(isTruncated)
-                    .build();
-            units.add(unit);
 
             // 周期切换：seg 越过当前周期边界时重置累计 + 推进边界
             if (semantics.isCycleBoundary(seg, currentCycleBoundary, cycleOrigin)) {
@@ -196,89 +335,7 @@ public final class ContinuousStrategy {
             }
         }
 
-        // periodCap：对最后一个 period 应用独立封顶 + 重算累计
-        if (hasPeriodCap && currentPeriodKey != null) {
-            applyPeriodCapToUnits(units, periodStartIndex, currentPeriodCap);
-            recomputeAccumulatedAmounts(units);
-        }
-
         return units;
-    }
-
-    /**
-     * 对 units 列表中 [startIndex, end) 范围内的收费单元应用时段独立封顶。
-     * 从最后一个收费单元开始削减，削减为 0 标记 free + PERIOD_CAP。
-     * 削减会破坏 compact 合并前提，命中单元标记为非 compact。
-     *
-     * @param units      BillingUnit 列表（原地修改 [startIndex, end) 范围）
-     * @param startIndex period 起始索引（前一 period 结束位置）
-     * @param maxCharge  period 独立封顶金额
-     */
-    public static void applyPeriodCapToUnits(List<BillingUnit> units, int startIndex, BigDecimal maxCharge) {
-        if (maxCharge == null || maxCharge.compareTo(BigDecimal.ZERO) <= 0) {
-            return;
-        }
-        if (startIndex >= units.size()) {
-            return;
-        }
-        // period 内收费单元（免费单元不参与削减）
-        List<BillingUnit> periodUnits = units.subList(startIndex, units.size());
-        List<BillingUnit> chargeableUnits = new ArrayList<>(periodUnits.stream()
-                .filter(u -> !u.isFree())
-                .toList());
-
-        if (chargeableUnits.isEmpty()) {
-            return;
-        }
-
-        BigDecimal totalCharge = chargeableUnits.stream()
-                .map(BillingUnit::getChargedAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // 未超 periodCap，无需削减
-        if (totalCharge.compareTo(maxCharge) <= 0) {
-            return;
-        }
-
-        // 超额部分：从最后一个收费单元往前削减，削减为 0 标记 free + PERIOD_CAP
-        BigDecimal excess = totalCharge.subtract(maxCharge);
-
-        for (int i = chargeableUnits.size() - 1; i >= 0 && excess.compareTo(BigDecimal.ZERO) > 0; i--) {
-            BillingUnit unit = chargeableUnits.get(i);
-            BigDecimal charged = unit.getChargedAmount();
-
-            if (charged.compareTo(excess) >= 0) {
-                unit.setChargedAmount(charged.subtract(excess).setScale(2, RoundingMode.HALF_UP));
-                if (unit.getChargedAmount().compareTo(BigDecimal.ZERO) == 0) {
-                    unit.setFree(true);
-                    unit.setFreePromotionId("PERIOD_CAP");
-                }
-                excess = BigDecimal.ZERO;
-            } else {
-                unit.setChargedAmount(BigDecimal.ZERO);
-                unit.setFree(true);
-                unit.setFreePromotionId("PERIOD_CAP");
-                excess = excess.subtract(charged);
-            }
-            // 削减破坏 compact 合并前提，标记为非 compact
-            if (unit.isCompact()) {
-                unit.setCompact(false);
-                unit.setCount(1);
-            }
-        }
-    }
-
-    /**
-     * 时段封顶削减后重新计算 accumulatedAmount（削减只改变 chargedAmount，需重算前缀累计）。
-     *
-     * @param units BillingUnit 列表（原地重算 accumulatedAmount）
-     */
-    public static void recomputeAccumulatedAmounts(List<BillingUnit> units) {
-        BigDecimal accumulated = BigDecimal.ZERO;
-        for (BillingUnit unit : units) {
-            accumulated = accumulated.add(unit.getChargedAmount());
-            unit.setAccumulatedAmount(accumulated);
-        }
     }
 
     /**

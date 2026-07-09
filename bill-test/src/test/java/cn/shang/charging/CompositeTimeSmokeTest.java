@@ -37,7 +37,11 @@ class CompositeTimeSmokeTest {
         );
 
         assertEquals(0, BigDecimal.valueOf(2).compareTo(result.getChargedAmount()));
-        assertEquals(2, result.getBillingUnits().size());
+        // CONTINUOUS 段内直接产出 compact：8:00-10:00 单时段 2 单元合并为 1 个 compact（count=2）
+        assertEquals(1, result.getBillingUnits().size());
+        BillingUnit unit = result.getBillingUnits().get(0);
+        assertTrue(unit.isCompact());
+        assertEquals(2, unit.getCount());
     }
 
     @Test

@@ -92,16 +92,6 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
             return List.of();
         });
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
-        // 单元对齐：每个 unitMinutes 步长产生一个边界
-        providers.add((current, end) -> {
-            List<LocalDateTime> result = new ArrayList<>();
-            LocalDateTime next = current.plusMinutes(unitMinutes);
-            while (!next.isAfter(end)) {
-                result.add(next);
-                next = next.plusMinutes(unitMinutes);
-            }
-            return result;
-        });
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
         // 边界驱动循环

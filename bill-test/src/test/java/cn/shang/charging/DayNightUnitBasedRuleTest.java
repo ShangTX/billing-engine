@@ -40,14 +40,15 @@ class DayNightUnitBasedRuleTest {
     @Test
     void fixedAlignment_basicCalculation() {
         // 8:00-10:00，60min 单元，日间 2 元，应收 2 单元 × 2 = 4 元
-        // 两个相同单元会被 ResultAssembler 的 CompactMerger 合并为 1 个 compact 单元（count=2）
+        // UNIT_BASED 每单元独立产出；移除 CompactMerger 后不跨段合并，保留单元边界（更直观）
         BillingResult result = calculate(null, LocalDateTime.of(2026, 4, 20, 8, 0), LocalDateTime.of(2026, 4, 20, 10, 0));
         assertEquals(0, new BigDecimal("4.00").compareTo(result.getFinalAmount()));
-        assertEquals(1, result.getUnits().size());
-        BillingUnit unit = result.getUnits().get(0);
-        assertTrue(unit.isCompact());
-        assertEquals(2, unit.getCount());
-        assertEquals(120, unit.getDurationMinutes());
+        assertEquals(2, result.getUnits().size());
+        result.getUnits().forEach(u -> {
+            assertFalse(u.isCompact());
+            assertEquals(60, u.getDurationMinutes());
+            assertEquals(0, new BigDecimal("2.00").compareTo(u.getChargedAmount()));
+        });
     }
 
     @Test

@@ -47,7 +47,7 @@ flowchart TD
     Loop -->|所有段完成| RA
 
     RA["ResultAssembler.assemble"]
-    RA --> Merge["CompactMerger.merge BillingUnit<br/>跨段连续相同单元合并（跨边界不合并）<br/>合并 DurationSegment / 合并 PromotionUsage"]
+    RA --> Merge["flat汇总 BillingUnit<br/>compact 段内直接产出（跨段不合并）<br/>合并 DurationSegment / 合并 PromotionUsage"]
     Merge --> Final["finalAmount = 各分段 chargedAmount 之和"]
     Final --> Out["BillingResult<br/>units / durationSegments / promotionUsages<br/>finalAmount / totalEquivalentAmount / calculationEndTime"]
 ```
@@ -106,7 +106,7 @@ flowchart TD
 
 ### 2.5 ResultAssembler.assemble（汇总层）
 
-- `CompactMerger.merge` 合并跨段连续相同 BillingUnit（跨分段边界不合并）。
+- flat 汇总各分段 BillingUnit（compact 由 CONTINUOUS 策略段内直接产出，跨分段不合并，保留分段边界更直观）。
 - 合并 `DurationSegment`（时长模式）与 `PromotionUsage`。
 - **finalAmount = 各分段 `chargedAmount` 之和**（不再有 CONTINUE 三分支；CONTINUE 已移除）。
 - 计算 `calculationEndTime`。
