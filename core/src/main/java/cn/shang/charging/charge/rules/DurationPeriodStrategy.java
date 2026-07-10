@@ -11,6 +11,7 @@ import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
+import cn.shang.charging.charge.rules.PricingState;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -65,7 +66,8 @@ public final class DurationPeriodStrategy {
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
         // 边界驱动循环
-        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next) -> {
+        PricingState state = null; // 向后兼容：暂不需要状态管理
+        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next, s) -> {
             // 检查免费时段
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
@@ -76,7 +78,7 @@ public final class DurationPeriodStrategy {
             // 计算单元单价
             BigDecimal unitPrice = semantics.priceAt(current, next, config, cycleOrigin);
             return new HomogeneousSegment(current, next, unitPrice, unitPrice, false, null, null);
-        });
+        }, state);
 
         // 简化计算判断（FREE_MINUTES 时段化后免费段参与 gaps，简化能正确处理，不再保守排除）
         boolean simplificationEnabled = context.getBillingConfigResolver() != null

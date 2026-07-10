@@ -95,7 +95,7 @@ final class CompositeTimeSemantics implements RuleSemantics<CompositeTimeConfig>
     @Override
     public BoundaryProvider periodBoundaryProvider(CompositeTimeConfig config, LocalDateTime cycleOrigin) {
         List<CompositePeriod> periods = config.getPeriods();
-        return (current, end) -> {
+        return (current, end, state) -> {
             List<LocalDateTime> result = new ArrayList<>();
             long minutesFromOrigin = Duration.between(cycleOrigin, current).toMinutes();
             long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;

@@ -11,6 +11,7 @@ import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
+import cn.shang.charging.charge.rules.PricingState;
 import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
@@ -84,7 +85,7 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
         List<BoundaryProvider> providers = new ArrayList<>();
         providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, MINUTES_PER_CYCLE));
         // 周期内 period 结束：从当前位置算到下一个 period.endMinute
-        providers.add((current, end) -> {
+        providers.add((current, end, state) -> {
             List<LocalDateTime> result = new ArrayList<>();
             long minutesFromOrigin = Duration.between(cycleOriginBegin, current).toMinutes();
             long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
@@ -107,7 +108,8 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
         // 边界驱动循环
-        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next) -> {
+        PricingState state = null; // 向后兼容：暂不需要状态管理
+        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next, s) -> {
             // 检查是否被免费时段完全覆盖
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
@@ -124,7 +126,7 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
             // 不足单元也收全额：segment 时长 = next - current（由 boundary-driven 已对齐到 unit grid 或 boundary）
             return new HomogeneousSegment(current, next, unitPrice, unitPrice,
                     false, null, null);
-        });
+        }, state);
 
         // 应用封顶 + 累计 + 截断标记（自然日 24h 周期内统计）
         List<BillingUnit> allUnits = ContinuousStrategy.applyCapAndAccumulate(segments, relativeTimeSemantics,

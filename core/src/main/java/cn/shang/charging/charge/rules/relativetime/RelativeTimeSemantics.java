@@ -76,7 +76,7 @@ final class RelativeTimeSemantics implements RuleSemantics<RelativeTimeConfig> {
     @Override
     public BoundaryProvider periodBoundaryProvider(RelativeTimeConfig config, LocalDateTime cycleOrigin) {
         List<RelativeTimePeriod> periods = config.getPeriods();
-        return (current, end) -> {
+        return (current, end, state) -> {
             List<LocalDateTime> result = new ArrayList<>();
             long minutesFromOrigin = Duration.between(cycleOrigin, current).toMinutes();
             long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;

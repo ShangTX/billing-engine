@@ -10,6 +10,7 @@ import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
+import cn.shang.charging.charge.rules.PricingState;
 import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.charge.rules.SimplificationSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
@@ -204,6 +205,15 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         LocalDateTime cycleOriginBegin = context.getBeginTime();
         int unitMinutes = config.getUnitMinutes();
 
+        // 初始化 PricingState：根据起点判断初始价格
+        boolean isInDayAtBegin = isInDay(begin, config.getDayBeginMinute(), config.getDayEndMinute());
+        BigDecimal initialUnitPrice = isInDayAtBegin ? config.getDayUnitPrice() : config.getNightUnitPrice();
+        PricingState state = PricingState.builder()
+                .currentUnitPrice(initialUnitPrice)
+                .unitMinutes(unitMinutes)
+                .cycleOrigin(cycleOriginBegin)
+                .build();
+
         // 边界来源（BoundaryDrivenLoop 取所有 provider 返回边界的并集，按时间排序切断时间轴）：
         List<BoundaryProvider> providers = new ArrayList<>();
         // 1. 周期结束边界（24h 循环，maxChargeOneDay 封顶周期）：cycleOrigin + k*1440
@@ -216,7 +226,8 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         providers.add(BoundaryProviders.calcEnd(end));
 
         List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(begin, end, providers,
-                (current, next) -> buildSegmentForDayNight(current, next, config, freeTimeRanges));
+                (current, next, stateParam) -> buildSegmentForDayNight(current, next, config, freeTimeRanges, stateParam),
+                state);
 
         return ContinuousStrategy.applyCapAndAccumulate(segments, dayNightSemantics, context, config,
                 cycleOriginBegin, begin, null);
@@ -261,7 +272,7 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
      * @return BoundaryProvider lambda，返回当前范围内的日夜边界列表
      */
     private BoundaryProvider createDayNightBoundaryProvider(DayNightConfig config) {
-        return (current, end) -> {
+        return (current, end, state) -> {
             List<LocalDateTime> boundaries = new ArrayList<>(1);
 
             // 1.首先确认日夜边界位置，day-night 和 night-day
@@ -275,10 +286,17 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                 return boundaries; // 范围内无边界
             }
 
+            // 判断边界类型：是 dayBegin 还是 dayEnd
+            boolean isDayBeginBoundary = isDayBeginBoundaryPoint(nearestBoundary, dayBeginMin);
+
             // 3. 根据splitDayNightBoundary配置决定是否需要snap
             if (config.getSplitDayNightBoundary() == null || config.getSplitDayNightBoundary()) {
                 // 3-1. 截断处理，直接以此日夜边界作为此次边界
                 boundaries.add(nearestBoundary);
+                // 截断模式：边界处立即切换价格
+                // dayBegin 边界：从 night 切到 day；dayEnd 边界：从 day 切到 night
+                BigDecimal newPrice = isDayBeginBoundary ? config.getDayUnitPrice() : config.getNightUnitPrice();
+                state.setCurrentUnitPrice(newPrice);
             } else {
                 // 3-2. 非截断处理snap
                 // 4.1 snap 计算从current开始对齐单元边界，找到包含nearestBoundary的单元
@@ -294,6 +312,9 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                 if (nearestBoundary.equals(unitStart) || nearestBoundary.equals(unitEnd)) {
                     // 边界恰好落在单元边界上，未跨越
                     boundaries.add(nearestBoundary);
+                    // snap 模式：snap 到边界后也要切换价格
+                    BigDecimal newPrice = isDayBeginBoundary ? config.getDayUnitPrice() : config.getNightUnitPrice();
+                    state.setCurrentUnitPrice(newPrice);
                 } else {
                     // 4.2 snap 处理跨越情况，判断此单元归属于前一个日夜分段还是后一个日夜分段
                     int dayMinutes = countDayMinutes(unitStart, unitEnd, dayBeginMin, dayEndMin);
@@ -301,16 +322,22 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                             .compareTo(config.getBlockWeight().multiply(BigDecimal.valueOf(unitMinutes))) >= 0;
 
                     // 按单元起点判断边界类型：unitStart在night时段=dayBegin边界，在day时段=dayEnd边界
-                    boolean isDayBeginBoundary = isInDay(unitStart, dayBeginMin, dayEndMin);
+                    boolean isDayBeginBoundaryFromUnit = isInDay(unitStart, dayBeginMin, dayEndMin);
 
                     // 4.3 snap 根据边界类型和归属判断决定snap方向
                     LocalDateTime snapped;
                     if (belongsToDay) {
                         // day占优：dayBegin snap到unitEnd（入day），dayEnd snap到unitStart（留day）
-                        snapped = isDayBeginBoundary ? unitEnd : unitStart;
+                        snapped = isDayBeginBoundaryFromUnit ? unitEnd : unitStart;
+                        // snap 到 unitEnd 后切到 day，snap 到 unitStart 后仍保持 day（因为单元归属 day）
+                        BigDecimal newPrice = config.getDayUnitPrice();
+                        state.setCurrentUnitPrice(newPrice);
                     } else {
                         // night占优：dayBegin snap到unitEnd（整个单元留night），dayEnd snap到unitEnd（入night）
-                        snapped = isDayBeginBoundary ? unitEnd : unitEnd;
+                        snapped = isDayBeginBoundaryFromUnit ? unitEnd : unitEnd;
+                        // snap 到 unitEnd 后切到 night（无论哪种情况）
+                        BigDecimal newPrice = config.getNightUnitPrice();
+                        state.setCurrentUnitPrice(newPrice);
                     }
 
                     boundaries.add(snapped);
@@ -379,16 +406,16 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
     private HomogeneousSegment buildSegmentForDayNight(LocalDateTime current,
                                                        LocalDateTime next,
                                                        DayNightConfig config,
-                                                       List<FreeTimeRange> freeTimeRanges) {
+                                                       List<FreeTimeRange> freeTimeRanges,
+                                                       PricingState state) {
         for (FreeTimeRange range : freeTimeRanges) {
             if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
                 return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
                         true, range.getId(), null);
             }
         }
-        // TODO: 用户需要实现日夜定价逻辑
-        boolean day = isInDay(current, config.getDayBeginMinute(), config.getDayEndMinute());
-        BigDecimal unitPrice = day ? config.getDayUnitPrice() : config.getNightUnitPrice();
+        // 从 PricingState 读取价格，无需重复判断 isInDay()
+        BigDecimal unitPrice = state.getCurrentUnitPrice();
         return new HomogeneousSegment(current, next, unitPrice, unitPrice,
                 false, null, null);
     }
@@ -403,5 +430,13 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         }
         // 开始时间晚于结束时间，说明是到次日结束时间为白天，时间应晚于开始或早于开始
         return minute >= dayBeginMin || minute < dayEndMin;
+    }
+
+    /**
+     * 判断某个时间点是否是 dayBegin 边界（night 到 day 的切换点）。
+     */
+    private static boolean isDayBeginBoundaryPoint(LocalDateTime time, int dayBeginMin) {
+        int minute = time.getHour() * 60 + time.getMinute();
+        return minute == dayBeginMin;
     }
 }

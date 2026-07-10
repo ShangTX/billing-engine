@@ -10,6 +10,7 @@ import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
+import cn.shang.charging.charge.rules.PricingState;
 import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
@@ -82,7 +83,7 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
         // 边界来源：自然时段边界 + 免费时段起止 + 计费单元对齐 + calcEnd
         // 周期对齐在跨周期封顶处由 cycleAccumulated 单独处理
         List<BoundaryProvider> providers = new ArrayList<>();
-        providers.add((current, end) -> {
+        providers.add((current, end, state) -> {
             int currentMinute = current.getHour() * 60 + current.getMinute();
             int periodEnd = periodResolver.findNextPeriodBoundary(currentMinute, periods);
             LocalDateTime periodBoundary = current.plusMinutes(periodEnd - currentMinute);
@@ -95,7 +96,8 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
         // 边界驱动循环
-        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next) -> {
+        PricingState state = null; // 向后兼容：暂不需要状态管理
+        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next, s) -> {
             // 检查是否在免费时段内
             FreeTimeRange covering = findCoveringRange(current, freeTimeRanges);
             if (covering != null) {
@@ -106,7 +108,7 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
             BigDecimal unitPrice = priceResolver.calculateUnitPrice(current, next, periods, crossPeriodMode);
             return new HomogeneousSegment(current, next, unitPrice, unitPrice,
                     false, null, null);
-        });
+        }, state);
 
         // 转换为 BillingUnit（compact 合并 + 累计金额 + 封顶处理）
         List<BillingUnit> billingUnits = ContinuousStrategy.applyCapAndAccumulate(segments, naturalTimeSemantics,
