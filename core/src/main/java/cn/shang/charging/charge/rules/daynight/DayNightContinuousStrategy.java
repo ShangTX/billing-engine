@@ -209,7 +209,7 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         // 1. 周期结束边界（24h 循环，maxChargeOneDay 封顶周期）：cycleOrigin + k*1440
         providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, MINUTES_PER_CYCLE));
         // 2. 日夜边界（待用户实现）
-        providers.add(createDayNightBoundaryProvider(context, config, freeTimeRanges));
+        providers.add(createDayNightBoundaryProvider(config));
         // 3. 免费时段起止边界：FREE_RANGE 免费段切断单元，免费段内单元免费（CONTINUOUS 优惠语义）
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         // 4. 计算窗口终点：确保最后一段在 calcEnd 切断
@@ -257,13 +257,10 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
      *   <li>splitDayNightBoundary=false：返回snap到单元边界的日夜边界时间点</li>
      * </ul>
      *
-     * @param context 计费上下文
      * @param config DayNight配置
-     * @param freeTimeRanges 免费时段列表
      * @return BoundaryProvider lambda，返回当前范围内的日夜边界列表
      */
-    private BoundaryProvider createDayNightBoundaryProvider(BillingContext context, DayNightConfig config,
-                                                             List<FreeTimeRange> freeTimeRanges) {
+    private BoundaryProvider createDayNightBoundaryProvider(DayNightConfig config) {
         return (current, end) -> {
             // TODO: 用户实现边界生成逻辑
             // 示例框架：
