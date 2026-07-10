@@ -33,6 +33,7 @@ public final class BoundaryDrivenLoop {
         List<HomogeneousSegment> segments = new ArrayList<>();
         LocalDateTime current = calcBegin;
         while (current.isBefore(calcEnd)) {
+            // TODO 优化1 不必每次都全部计算一遍，完全可以保留没被使用的边界下次再继续使用
             LocalDateTime next = BoundaryProviders.findNearest(current, calcEnd, providers);
             if (!next.isAfter(current)) {
                 // 防御：避免无限循环（所有边界都在 current 之前）

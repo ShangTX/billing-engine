@@ -267,11 +267,24 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         return (current, end) -> {
             // TODO: 用户实现边界生成逻辑
             // 示例框架：
-            List<LocalDateTime> boundaries = new ArrayList<>();
-            // 1. 根据splitDayNightBoundary配置决定是否需要snap
-            // 2. 找到current到end范围内的所有日夜边界
-            // 3. 对每个边界根据配置处理（直接返回或snap到单元边界）
-            // 4. 返回处理后的边界列表
+            List<LocalDateTime> boundaries = new ArrayList<>(1);
+            // 1.首先确认日夜边界位置，day-night 和 night-day
+
+            // 2.确认current相邻的最近的一个边界位置
+
+            // 3. 根据splitDayNightBoundary配置决定是否需要snap
+
+            // 3-1. 截断处理，直接以此日夜边界作为此次边界
+
+            // 3-2. 非截断处理snap
+
+            // 4.1 snap 计算从current开始需要多少个unit才能到达边界
+
+            // 4.2 snap 计算最后一个边界是否跨越，如果未跨越则可以直接结束处理，使用此边界作为结果
+
+            // 4.2 snap 处理跨越情况，判断此单元归属于前一个日夜分段还是后一个日夜分段
+
+            // 4.3 snap 如果属于前一个，则边界为此单元结束时间，如果属于后一个，边界为此单元开始时间
             return boundaries;
         };
     }
