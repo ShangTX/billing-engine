@@ -202,57 +202,21 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
             return new ArrayList<>();
         }
         LocalDateTime cycleOriginBegin = context.getBeginTime();
-        int dayBeginMin = config.getDayBeginMinute();
-        int dayEndMin = config.getDayEndMinute();
         int unitMinutes = config.getUnitMinutes();
-
-        // snapUsDayFlag：splitDayNightBoundary=false 时，snap 到 unitStart 的后段记录的归属（day?）。
-        // 跨越单元整体归占优侧同质段，snap==us 时后段起点(us)落在 b 前非占优侧，
-        // 此时段归属由 snap 决定（而非段起点时间点），避免再次计算跨段价格。
-        Map<LocalDateTime, Boolean> snapUsDayFlag = new HashMap<>();
 
         // 边界来源（BoundaryDrivenLoop 取所有 provider 返回边界的并集，按时间排序切断时间轴）：
         List<BoundaryProvider> providers = new ArrayList<>();
         // 1. 周期结束边界（24h 循环，maxChargeOneDay 封顶周期）：cycleOrigin + k*1440
         providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, MINUTES_PER_CYCLE));
-        // 2. 日夜边界：
-        //    splitDayNightBoundary=true（默认）：在精确 dayBegin/dayEnd 处切断，段纯 day/night。
-        //    splitDayNightBoundary=false：日夜边界 snap 到 unit edge，跨越单元整体归 blockWeight 占优侧
-        //      同质段，段内统一单价（占优侧），定价用时间点（snap 归属或段起点 isInDay），不用窗口。
-        providers.add((current, e) -> {
-            List<LocalDateTime> result = new ArrayList<>();
-            LocalDateTime day = current.toLocalDate().atStartOfDay();
-            for (int offset = 0; offset <= 1; offset++) {
-                LocalDateTime dayStart = day.plusDays(offset);
-                LocalDateTime dayBegin = dayStart.plusMinutes(dayBeginMin);
-                LocalDateTime dayEnd = dayBeginMin < dayEndMin
-                        ? dayStart.plusMinutes(dayEndMin)
-                        : dayStart.plusDays(1).plusMinutes(dayEndMin);
-                for (LocalDateTime exactBoundary : List.of(dayBegin, dayEnd)) {
-                    if (!exactBoundary.isAfter(current) || exactBoundary.isAfter(e)) {
-                        continue;
-                    }
-                    if (Boolean.FALSE.equals(config.getSplitDayNightBoundary())) {
-                        boolean isDayBegin = exactBoundary.equals(dayBegin);
-                        LocalDateTime snapped = snapDayNightBoundary(cycleOriginBegin, exactBoundary,
-                                unitMinutes, dayBeginMin, dayEndMin, config.getBlockWeight(), snapUsDayFlag, isDayBegin);
-                        if (snapped != null && snapped.isAfter(current) && !snapped.isAfter(e)) {
-                            result.add(snapped);
-                        }
-                    } else {
-                        result.add(exactBoundary);
-                    }
-                }
-            }
-            return result;
-        });
+        // 2. 日夜边界（待用户实现）
+        providers.add(createDayNightBoundaryProvider(context, config, freeTimeRanges));
         // 3. 免费时段起止边界：FREE_RANGE 免费段切断单元，免费段内单元免费（CONTINUOUS 优惠语义）
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         // 4. 计算窗口终点：确保最后一段在 calcEnd 切断
         providers.add(BoundaryProviders.calcEnd(end));
 
         List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(begin, end, providers,
-                (current, next) -> buildSegmentForDayNight(current, next, config, freeTimeRanges, snapUsDayFlag));
+                (current, next) -> buildSegmentForDayNight(current, next, config, freeTimeRanges));
 
         return ContinuousStrategy.applyCapAndAccumulate(segments, dayNightSemantics, context, config,
                 cycleOriginBegin, begin, null);
@@ -284,85 +248,49 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         }
     }
 
+    /**
+     * 创建日夜边界提供器。
+     * <p>
+     * TODO: 用户需要实现该方法，根据 splitDayNightBoundary 配置返回合适的边界列表：
+     * <ul>
+     *   <li>splitDayNightBoundary=true（默认）：返回精确的日夜边界时间点</li>
+     *   <li>splitDayNightBoundary=false：返回snap到单元边界的日夜边界时间点</li>
+     * </ul>
+     *
+     * @param context 计费上下文
+     * @param config DayNight配置
+     * @param freeTimeRanges 免费时段列表
+     * @return BoundaryProvider lambda，返回当前范围内的日夜边界列表
+     */
+    private BoundaryProvider createDayNightBoundaryProvider(BillingContext context, DayNightConfig config,
+                                                             List<FreeTimeRange> freeTimeRanges) {
+        return (current, end) -> {
+            // TODO: 用户实现边界生成逻辑
+            // 示例框架：
+            List<LocalDateTime> boundaries = new ArrayList<>();
+            // 1. 根据splitDayNightBoundary配置决定是否需要snap
+            // 2. 找到current到end范围内的所有日夜边界
+            // 3. 对每个边界根据配置处理（直接返回或snap到单元边界）
+            // 4. 返回处理后的边界列表
+            return boundaries;
+        };
+    }
+
     private HomogeneousSegment buildSegmentForDayNight(LocalDateTime current,
                                                        LocalDateTime next,
                                                        DayNightConfig config,
-                                                       List<FreeTimeRange> freeTimeRanges,
-                                                       Map<LocalDateTime, Boolean> snapUsDayFlag) {
+                                                       List<FreeTimeRange> freeTimeRanges) {
         for (FreeTimeRange range : freeTimeRanges) {
             if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
                 return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
                         true, range.getId(), null);
             }
         }
-        // 时间点定价（不用窗口算 dayMinutes）：
-        //   snap us 后段（snapUsDayFlag 命中）：用 snap 时记录的占优侧归属（段起点落在 b 前非占优侧时，
-        //     段起点时间点会给错单价，故用 snap 归属）。
-        //   其余段（纯段 / snap ue 前段）：用段起点时间点 isInDay（起点必在占优侧）。
-        boolean day = snapUsDayFlag.getOrDefault(current,
-                isInDay(current, config.getDayBeginMinute(), config.getDayEndMinute()));
+        // TODO: 用户需要实现日夜定价逻辑
+        boolean day = isInDay(current, config.getDayBeginMinute(), config.getDayEndMinute());
         BigDecimal unitPrice = day ? config.getDayUnitPrice() : config.getNightUnitPrice();
         return new HomogeneousSegment(current, next, unitPrice, unitPrice,
                 false, null, null);
-    }
-
-    /**
-     * splitDayNightBoundary=false 时，将日夜边界 {@code exactBoundary} snap 到 unit edge：
-     * 跨越单元 [unitStart, unitEnd] 整体归入 blockWeight 占优侧同质段。
-     * <ul>
-     *   <li>{@code exactBoundary} 恰好落在 unit edge（非跨越单元）：直接返回该边界。</li>
-     *   <li>{@code exactBoundary} 在 unit 内部：snap 到占优侧 unit edge。
-     *     <ul>
-     *       <li>day 占优：snap unitEnd（跨越单元归前段 day）或 unitStart（归后段 day）</li>
-     *       <li>night 占优：跨越单元整体归入更大时段（避免切断）
-     *         <ul>
-     *           <li>dayBegin（night→day）：snap unitStart，跨越单元归入后段 day</li>
-     *           <li>dayEnd（day→night）：snap unitEnd，跨越单元归入前段 day</li>
-     *         </ul>
-     *       </li>
-     *     </ul>
-     *     snap==unitStart 时，后段起点落在 b 前非占优侧，需在 {@code snapUsDayFlag} 记录归属供段构造定价。</li>
-     * </ul>
-     *
-     * @param isDayBegin true=dayBegin边界（night→day），false=dayEnd边界（day→night）
-     * @return snap 后的边界；若 unit 无效返回 null
-     */
-    private static LocalDateTime snapDayNightBoundary(LocalDateTime cycleOrigin, LocalDateTime exactBoundary,
-                                                     int unitMinutes, int dayBeginMin, int dayEndMin,
-                                                     BigDecimal blockWeight, Map<LocalDateTime, Boolean> snapUsDayFlag,
-                                                     boolean isDayBegin) {
-        long minutesFromOrigin = Duration.between(cycleOrigin, exactBoundary).toMinutes();
-        long unitIndex = Math.floorDiv(minutesFromOrigin, unitMinutes);
-        LocalDateTime unitStart = cycleOrigin.plusMinutes(unitIndex * unitMinutes);
-        LocalDateTime unitEnd = unitStart.plusMinutes(unitMinutes);
-        // 边界恰好落在 unit edge：非跨越单元，直接用原边界
-        if (exactBoundary.equals(unitStart) || exactBoundary.equals(unitEnd)) {
-            return exactBoundary;
-        }
-        // 跨越单元：按完整 unit 计算 day 占比，snap 到占优侧 unit edge
-        int dayMins = countDayMinutes(unitStart, unitEnd, dayBeginMin, dayEndMin);
-        boolean belongsToDay = BigDecimal.valueOf(dayMins)
-                .compareTo(blockWeight.multiply(BigDecimal.valueOf(unitMinutes))) >= 0;
-        boolean usInDay = isInDay(unitStart, dayBeginMin, dayEndMin);
-        LocalDateTime snapped;
-        if (belongsToDay) {
-            // day 占优：dayEnd(day 在 b 前)->unitEnd；dayBegin(day 在 b 后)->unitStart
-            snapped = usInDay ? unitEnd : unitStart;
-        } else {
-            // night 占优：跨越单元整体归入更大时段（避免切断）
-            if (isDayBegin) {
-                // dayBegin（night→day）：snap unitStart，跨越单元归入后段 day
-                snapped = unitStart;
-            } else {
-                // dayEnd（day→night）：snap unitEnd，跨越单元归入前段 day
-                snapped = unitEnd;
-            }
-        }
-        // snap==unitStart 时后段从 us 开始（us 在 b 前非占优侧），记录归属供段构造定价
-        if (snapped.equals(unitStart)) {
-            snapUsDayFlag.put(unitStart, belongsToDay);
-        }
-        return snapped;
     }
 
     /** {@code time} 是否在白天时段（按 dayBeginMinute/dayEndMinute 配置）。 */
@@ -372,18 +300,5 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
             return minute >= dayBeginMin && minute < dayEndMin;
         }
         return minute >= dayBeginMin || minute < dayEndMin;
-    }
-
-    /** [begin, end) 区间内落在白天时段的分钟数。 */
-    private static int countDayMinutes(LocalDateTime begin, LocalDateTime end, int dayBeginMin, int dayEndMin) {
-        int dayMins = 0;
-        LocalDateTime current = begin;
-        while (current.isBefore(end)) {
-            if (isInDay(current, dayBeginMin, dayEndMin)) {
-                dayMins++;
-            }
-            current = current.plusMinutes(1);
-        }
-        return dayMins;
     }
 }
