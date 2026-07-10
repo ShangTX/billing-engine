@@ -69,7 +69,7 @@ class PricingState {
 **行为**：日夜边界 snap 到单元边界，跨时段单元整体归属到占优侧
 
 **参数说明**：
-- `segmentStart`：当前段的起点时间（动态，来自 BoundaryDrivenLoop 的 current 参数）
+- `current`：当前段的起点时间（动态，来自 BoundaryDrivenLoop 循环中的 current 参数，即 HomogeneousSegment 的起点）
 - `exactBoundary`：精确的日夜边界时间（08:00 或 20:00）
 - `unitMinutes`：单元时长（分钟）
 - `dayBeginMin`：白天开始分钟数（从 00:00 起，如 480 表示 08:00）
@@ -79,9 +79,9 @@ class PricingState {
 **Snap 算法**：
 
 1. 计算单元边界对齐：
-   - `minutesFromStart = Duration(segmentStart, exactBoundary)`
-   - `unitIndex = floor(minutesFromStart / unitMinutes)`
-   - `unitStart = segmentStart + unitIndex * unitMinutes`
+   - `minutesFromCurrent = Duration(current, exactBoundary)`
+   - `unitIndex = floor(minutesFromCurrent / unitMinutes)`
+   - `unitStart = current + unitIndex * unitMinutes`
    - `unitEnd = unitStart + unitMinutes`
 
 2. 判断边界是否恰好落在单元边界：
@@ -107,17 +107,26 @@ class PricingState {
 
 **期望流程**：
 1. 05:13-05:43：免费时段
-2. 05:43：免费结束后，单元边界重新对齐到 05:43
+2. 05:43：免费结束后，BoundaryDrivenLoop 循环中 current=05:43（新起点）
 3. 05:43-06:43：第一单元（night 时段）
 4. 06:43-07:43：第二单元（night 时段）
-5. 07:43-08:43：跨日夜单元（包含 dayBegin=08:00）
-   - `exactBoundary = 08:00`（dayBegin）
-   - `segmentStart = 07:43`
-   - `unitStart = 07:43, unitEnd = 08:43`
-   - `dayMinutes = countDayMinutes(07:43, 08:43) = 60分钟（08:00-08:43）`
-   - `belongsToDay = (60/60) >= 0.5 = true`
-   - snap 结果：`unitEnd = 08:43`
-   - 该单元归属 day，价格=dayUnitPrice
+5. 07:43 循环时遇到 dayBegin=08:00：
+   - 当前循环：current=07:43
+   - Provider被调用：getBoundaries(07:43, calcEnd)
+   - 找到08:00（dayBegin）在范围内
+   - 从current=07:43开始对齐单元边界：
+     - minutesFromCurrent = Duration(07:43, 08:00) = 17分钟
+     - unitIndex = floor(17/60) = 0
+     - unitStart = 07:43 + 0*60 = 07:43
+     - unitEnd = 07:43 + 60 = 08:43
+   - exactBoundary=08:00 落在 (07:43, 08:43) 内（非边界）
+   - dayMinutes = countDayMinutes(07:43, 08:43) = 43分钟（08:00-08:43）
+   - belongsToDay = (43/60) >= 0.5 = true
+   - isInDay(07:43) = false，所以 snap 到 unitEnd = 08:43
+6. 07:43-08:43：snap结果，该单元归属 day，价格=dayUnitPrice
+7. 后续单元：08:43-09:43, 09:43-10:43（都是day时段）
+
+**结果**：05:43-07:43 compact×2（night）+ 07:43-10:43 compact×3（day）
 
 ## 需要修改的文件
 
@@ -152,9 +161,9 @@ class PricingState {
 
 ## 注意事项
 
-1. **单元边界对齐关键**：使用 `segmentStart`（动态）而非 `cycleOriginBegin`（固定）
-2. **状态初始化**：边界循环开始前，需要根据段起点时间判断初始价格
-3. **边界顺序**：确保日夜边界在正确的时机修改状态
+1. **单元边界对齐关键**：使用 `current`（循环中的动态参数）作为锚点对齐单元边界，而非 `cycleOriginBegin`（固定）
+2. **current参数语义**：current 是 HomogeneousSegment 的起点，每次循环动态变化（上一段的终点）
+3. **snap时机**：Provider 在每次循环中被调用，current 参数就是当前段的起点，用于单元对齐
 4. **免费时段处理**：免费标记在段构建时处理，不修改价格状态
 
 ## 后续优化

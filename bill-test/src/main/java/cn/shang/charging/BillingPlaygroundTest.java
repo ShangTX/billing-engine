@@ -65,7 +65,17 @@ public class BillingPlaygroundTest {
 //        run(scenario4_schemeSwitch());              // 方案切换（多段计费）
 //        run(scenario5_withEquivalentAmount());      // 等效金额计算
 //        run(scenario6_startFree());                   // 前N分钟免费（START_FREE）
-        run(scenario_cust());
+//        run(scenario_cust());                         // 常规金额计算
+
+        // Snap测试场景
+        System.out.println("\n" + "=".repeat(72));
+        System.out.println("  Snap算法测试场景");
+        System.out.println("=".repeat(72));
+        run(scenario_snap1_exactBoundary());         // Snap测试1：边界恰好落在单元边界
+        run(scenario_snap2_dayBegin_belongToDay());  // Snap测试2：dayBegin跨单元归属day
+//        run(scenario_snap3_dayBegin_belongToNight()); // Snap测试3：dayBegin跨单元归属night
+//        run(scenario_snap4_dayEnd_belongToDay());    // Snap测试4：dayEnd跨单元归属day
+//        run(scenario_snap5_dayEnd_belongToNight());  // Snap测试5：dayEnd跨单元归属night
         // ▲▲▲ 在这里选择/修改要运行的场景 ▲▲▲
     }
 
@@ -309,7 +319,202 @@ public class BillingPlaygroundTest {
                                 .minutes(30)
                                 .priority(1)
                                 .build()))
-                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())  // null = 不限，全部参与
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
+                .build();
+    }
+
+    /**
+     * Snap测试1：dayBegin边界恰好落在单元边界 + 多种优惠混合。
+     * 计费：06:47-11:23，包含免费时段和前N分钟免费。
+     * dayBegin=08:00从06:47对齐：下一个单元边界是07:47, 08:47, 09:47...
+     * 但08:00不在单元边界上（06:47+120=08:47），所以会snap。
+     * 简化：06:00-11:23，从06:00对齐，08:00恰好落在单元边界（06:00+120=08:00）。
+     */
+    static Scenario scenario_snap1_exactBoundary() {
+        return Scenario.builder()
+                .name("Snap测试1：边界恰好落在单元边界 + 优惠混合")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 6, 0))
+                .endTime(LocalDateTime.of(2026, 7, 7, 11, 23))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-snap1")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .externalPromotions(List.of(
+                        PromotionGrant.builder()
+                                .id("morning-free")
+                                .type(BConstants.PromotionType.FREE_RANGE)
+                                .source(BConstants.PromotionSource.COUPON)
+                                .priority(2)
+                                .beginTime(LocalDateTime.of(2026, 7, 7, 9, 17))
+                                .endTime(LocalDateTime.of(2026, 7, 7, 10, 0))
+                                .build()))
+                .promotionRuleConfigs(List.of(
+                        StartFreePromotionConfig.builder()
+                                .id("start-free-25")
+                                .minutes(25)
+                                .priority(1)
+                                .build()))
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
+                .build();
+    }
+
+    /**
+     * Snap测试2：dayBegin跨单元归属day + 免费时段和START_FREE混合。
+     * 计费：06:23-12:37，从06:23对齐单元。
+     * 单元：07:23-08:23包含dayBegin，day=23分钟不够。
+     * 改用：05:47-12:19，从05:47对齐。
+     * 单元：05:47-06:47, 06:47-07:47, 07:47-08:47（包含dayBegin=08:00）。
+     * day时段：08:00-08:47=47分钟>=30，归属day，snap到08:47。
+     */
+    static Scenario scenario_snap2_dayBegin_belongToDay() {
+        return Scenario.builder()
+                .name("Snap测试2：dayBegin跨单元归属day + 优惠混合")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 5, 47))
+                .endTime(LocalDateTime.of(2026, 7, 7, 12, 19))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-snap2")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .externalPromotions(List.of(
+                        PromotionGrant.builder()
+                                .id("mid-free")
+                                .type(BConstants.PromotionType.FREE_RANGE)
+                                .source(BConstants.PromotionSource.COUPON)
+                                .priority(2)
+                                .beginTime(LocalDateTime.of(2026, 7, 7, 10, 13))
+                                .endTime(LocalDateTime.of(2026, 7, 7, 11, 7))
+                                .build()))
+                .promotionRuleConfigs(List.of(
+                        StartFreePromotionConfig.builder()
+                                .id("start-free-33")
+                                .minutes(33)
+                                .priority(1)
+                                .build()))
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
+                .build();
+    }
+
+    /**
+     * Snap测试3：dayBegin跨单元归属night + 多种优惠。
+     * 计费：04:51-13:28，从04:51对齐单元。
+     * 单元：07:51-08:51包含dayBegin=08:00，day=09:00-08:51=9分钟不够...
+     * 简化：04:32-13:14，从04:32对齐。
+     * 单元：04:32-05:32, ..., 07:32-08:32（包含dayBegin）。
+     * day时段：08:00-08:32=28分钟<30，归属night，snap到07:32。
+     */
+    static Scenario scenario_snap3_dayBegin_belongToNight() {
+        return Scenario.builder()
+                .name("Snap测试3：dayBegin跨单元归属night + 优惠混合")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 4, 32))
+                .endTime(LocalDateTime.of(2026, 7, 7, 13, 14))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-snap3")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .externalPromotions(List.of(
+                        PromotionGrant.builder()
+                                .id("noon-free")
+                                .type(BConstants.PromotionType.FREE_RANGE)
+                                .source(BConstants.PromotionSource.COUPON)
+                                .priority(2)
+                                .beginTime(LocalDateTime.of(2026, 7, 7, 11, 23))
+                                .endTime(LocalDateTime.of(2026, 7, 7, 12, 17))
+                                .build()))
+                .promotionRuleConfigs(List.of(
+                        StartFreePromotionConfig.builder()
+                                .id("start-free-28")
+                                .minutes(28)
+                                .priority(1)
+                                .build()))
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
+                .build();
+    }
+
+    /**
+     * Snap测试4：dayEnd跨单元归属day + 复杂优惠组合。
+     * 计费：17:19-23:42，从17:19对齐单元。
+     * 单元：19:19-20:19包含dayEnd=20:00，day=19:19-20:00=41分钟>=30。
+     * 归属day，snap到20:19。
+     */
+    static Scenario scenario_snap4_dayEnd_belongToDay() {
+        return Scenario.builder()
+                .name("Snap测试4：dayEnd跨单元归属day + 优惠混合")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 17, 19))
+                .endTime(LocalDateTime.of(2026, 7, 7, 23, 42))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-snap4")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .externalPromotions(List.of(
+                        PromotionGrant.builder()
+                                .id("evening-free")
+                                .type(BConstants.PromotionType.FREE_RANGE)
+                                .source(BConstants.PromotionSource.COUPON)
+                                .priority(2)
+                                .beginTime(LocalDateTime.of(2026, 7, 7, 18, 37))
+                                .endTime(LocalDateTime.of(2026, 7, 7, 19, 25))
+                                .build()))
+                .promotionRuleConfigs(List.of(
+                        StartFreePromotionConfig.builder()
+                                .id("start-free-22")
+                                .minutes(22)
+                                .priority(1)
+                                .build()))
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
+                .build();
+    }
+
+    /**
+     * Snap测试5：dayEnd跨单元归属night + 实际场景混合优惠。
+     * 计费：18:41-22:57，从18:41对齐单元。
+     * 单元：19:41-20:41包含dayEnd=20:00，day=18:41-20:00=19分钟<30。
+     * 归属night，snap到19:41。
+     */
+    static Scenario scenario_snap5_dayEnd_belongToNight() {
+        return Scenario.builder()
+                .name("Snap测试5：dayEnd跨单元归属night + 优惠混合")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 18, 41))
+                .endTime(LocalDateTime.of(2026, 7, 7, 22, 57))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-snap5")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .externalPromotions(List.of(
+                        PromotionGrant.builder()
+                                .id("late-free")
+                                .type(BConstants.PromotionType.FREE_RANGE)
+                                .source(BConstants.PromotionSource.COUPON)
+                                .priority(2)
+                                .beginTime(LocalDateTime.of(2026, 7, 7, 19, 53))
+                                .endTime(LocalDateTime.of(2026, 7, 7, 20, 31))
+                                .build()))
+                .promotionRuleConfigs(List.of(
+                        StartFreePromotionConfig.builder()
+                                .id("start-free-19")
+                                .minutes(19)
+                                .priority(1)
+                                .build()))
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
                 .build();
     }
     // ==================== 引擎执行与结果打印 ====================
