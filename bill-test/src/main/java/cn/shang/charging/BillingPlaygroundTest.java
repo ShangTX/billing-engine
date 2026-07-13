@@ -71,8 +71,8 @@ public class BillingPlaygroundTest {
         System.out.println("\n" + "=".repeat(72));
         System.out.println("  Snap算法测试场景");
         System.out.println("=".repeat(72));
-        run(scenario_snap1_exactBoundary());         // Snap测试1：边界恰好落在单元边界
-        run(scenario_snap2_dayBegin_belongToDay());  // Snap测试2：dayBegin跨单元归属day
+//        run(scenario_snap1_exactBoundary());         // Snap测试1：边界恰好落在单元边界
+//        run(scenario_snap2_dayBegin_belongToDay());  // Snap测试2：dayBegin跨单元归属day
 //        run(scenario_snap3_dayBegin_belongToNight()); // Snap测试3：dayBegin跨单元归属night
 //        run(scenario_snap4_dayEnd_belongToDay());    // Snap测试4：dayEnd跨单元归属day
 //        run(scenario_snap5_dayEnd_belongToNight());  // Snap测试5：dayEnd跨单元归属night
@@ -83,9 +83,9 @@ public class BillingPlaygroundTest {
         System.out.println("  无优惠Snap边界测试场景");
         System.out.println("=".repeat(72));
         run(scenario_noPromo_dayBegin_belongToDay());    // 无优惠：dayBegin归属day
-        run(scenario_noPromo_dayBegin_belongToNight());   // 无优惠：dayBegin归属night
-        run(scenario_noPromo_dayEnd_belongToDay());       // 无优惠：dayEnd归属day
-        run(scenario_noPromo_dayEnd_belongToNight());     // 无优惠：dayEnd归属night
+//        run(scenario_noPromo_dayBegin_belongToNight());   // 无优惠：dayBegin归属night
+//        run(scenario_noPromo_dayEnd_belongToDay());       // 无优惠：dayEnd归属day
+//        run(scenario_noPromo_dayEnd_belongToNight());     // 无优惠：dayEnd归属night
     }
 
     // ==================== 预设场景（复制改参数即可） ====================

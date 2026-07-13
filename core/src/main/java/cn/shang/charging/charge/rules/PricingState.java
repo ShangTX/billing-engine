@@ -77,6 +77,22 @@ public class PricingState {
         return this;
     }
 
+    /**
+     * 创建当前状态的副本（浅拷贝）。
+     * <p>
+     * 用于边界循环中保存状态快照，供段构建器使用。
+     * 注意：ruleSpecificState 是浅拷贝，不可变对象可直接使用，
+     * 可变对象需要规则自行处理深拷贝。
+     */
+    public PricingState copy() {
+        PricingState snapshot = new PricingState();
+        snapshot.currentUnitPrice = this.currentUnitPrice;
+        snapshot.unitMinutes = this.unitMinutes;
+        snapshot.cycleOrigin = this.cycleOrigin;
+        snapshot.ruleSpecificState = this.ruleSpecificState;
+        return snapshot;
+    }
+
     // ==================== Builder ====================
 
     public static Builder builder() {
