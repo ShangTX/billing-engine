@@ -218,7 +218,7 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         List<BoundaryProvider> providers = new ArrayList<>();
         // 1. 周期结束边界（24h 循环，maxChargeOneDay 封顶周期）：cycleOrigin + k*1440
         providers.add(BoundaryProviders.cycleEnd(cycleOriginBegin, MINUTES_PER_CYCLE));
-        // 2. 日夜边界（待用户实现）
+        // 2. 日夜边界
         providers.add(createDayNightBoundaryProvider(config));
         // 3. 免费时段起止边界：FREE_RANGE 免费段切断单元，免费段内单元免费（CONTINUOUS 优惠语义）
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
@@ -329,14 +329,19 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                     if (belongsToDay) {
                         // day占优：dayBegin snap到unitEnd（入day），dayEnd snap到unitStart（留day）
                         snapped = isDayBeginBoundaryFromUnit ? unitEnd : unitStart;
-                        // snap 到 unitEnd 后切到 day，snap 到 unitStart 后仍保持 day（因为单元归属 day）
+                        // snap到边界后，价格切换到snap后一时段
+                        // dayBegin：snap到unitEnd，之后进入day时段
+                        // dayEnd：snap到unitStart，之后仍在day时段（单元归属day）
+                        // 注意：snap的单元本身用snap前的价格（由段构建器从上一个边界状态读取）
                         BigDecimal newPrice = config.getDayUnitPrice();
                         state.setCurrentUnitPrice(newPrice);
                     } else {
                         // night占优：dayBegin snap到unitEnd（整个单元留night），dayEnd snap到unitEnd（入night）
                         snapped = isDayBeginBoundaryFromUnit ? unitEnd : unitEnd;
-                        // snap 到 unitEnd 后切到 night（无论哪种情况）
-                        BigDecimal newPrice = config.getNightUnitPrice();
+                        // snap到边界后，价格切换到snap后一时段
+                        // dayBegin：snap到unitEnd，之后进入day时段（跨过08:00后）
+                        // dayEnd：snap到unitEnd，之后进入night时段
+                        BigDecimal newPrice = isDayBeginBoundaryFromUnit ? config.getDayUnitPrice() : config.getNightUnitPrice();
                         state.setCurrentUnitPrice(newPrice);
                     }
 

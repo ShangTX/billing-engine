@@ -77,6 +77,15 @@ public class BillingPlaygroundTest {
 //        run(scenario_snap4_dayEnd_belongToDay());    // Snap测试4：dayEnd跨单元归属day
 //        run(scenario_snap5_dayEnd_belongToNight());  // Snap测试5：dayEnd跨单元归属night
         // ▲▲▲ 在这里选择/修改要运行的场景 ▲▲▲
+
+        // 无优惠snap边界测试场景
+        System.out.println("\n" + "=".repeat(72));
+        System.out.println("  无优惠Snap边界测试场景");
+        System.out.println("=".repeat(72));
+        run(scenario_noPromo_dayBegin_belongToDay());    // 无优惠：dayBegin归属day
+        run(scenario_noPromo_dayBegin_belongToNight());   // 无优惠：dayBegin归属night
+        run(scenario_noPromo_dayEnd_belongToDay());       // 无优惠：dayEnd归属day
+        run(scenario_noPromo_dayEnd_belongToNight());     // 无优惠：dayEnd归属night
     }
 
     // ==================== 预设场景（复制改参数即可） ====================
@@ -517,6 +526,101 @@ public class BillingPlaygroundTest {
                 .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
                 .build();
     }
+
+    // ==================== 无优惠snap边界测试 ====================
+
+    /**
+     * 无优惠测试1：dayBegin边界，归属day。
+     * 计费：07:30-10:00，从07:30对齐单元。
+     * 单元：07:30-08:30包含dayBegin=08:00，day=08:00-08:30=30分钟>=30，归属day。
+     * Snap到08:30，整个单元用day价格。
+     * 预期：07:30-08:30(day价) + 08:30-09:30(day) + 09:30-10:00(day截断)
+     */
+    static Scenario scenario_noPromo_dayBegin_belongToDay() {
+        return Scenario.builder()
+                .name("无优惠：dayBegin跨单元归属day")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 7, 30))
+                .endTime(LocalDateTime.of(2026, 7, 7, 10, 0))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-nopromo1")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .build();
+    }
+
+    /**
+     * 无优惠测试2：dayBegin边界，归属night。
+     * 计费：07:20-10:00，从07:20对齐单元。
+     * 单元：07:20-08:20包含dayBegin=08:00，day=08:00-08:20=20分钟<30，归属night。
+     * Snap到08:20，整个单元用night价格。
+     * 预期：07:20-08:20(night价) + 08:20-09:20(day) + 09:20-10:00(day截断)
+     */
+    static Scenario scenario_noPromo_dayBegin_belongToNight() {
+        return Scenario.builder()
+                .name("无优惠：dayBegin跨单元归属night")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 7, 20))
+                .endTime(LocalDateTime.of(2026, 7, 7, 10, 0))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-nopromo2")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .build();
+    }
+
+    /**
+     * 无优惠测试3：dayEnd边界，归属day。
+     * 计费：19:30-22:00，从19:30对齐单元。
+     * 单元：19:30-20:30包含dayEnd=20:00，day=19:30-20:00=30分钟>=30，归属day。
+     * Snap到19:30，整个单元用day价格。
+     * 预期：19:30-20:30(day价) + 20:30-21:30(night) + 21:30-22:00(night截断)
+     */
+    static Scenario scenario_noPromo_dayEnd_belongToDay() {
+        return Scenario.builder()
+                .name("无优惠：dayEnd跨单元归属day")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 19, 30))
+                .endTime(LocalDateTime.of(2026, 7, 7, 22, 0))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-nopromo3")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .build();
+    }
+
+    /**
+     * 无优惠测试4：dayEnd边界，归属night。
+     * 计费：19:40-22:00，从19:40对齐单元。
+     * 单元：19:40-20:40包含dayEnd=20:00，day=19:40-20:00=20分钟<30，归属night。
+     * Snap到20:40，整个单元用night价格。
+     * 预期：19:40-20:40(night价) + 20:40-21:40(night) + 21:40-22:00(night截断)
+     */
+    static Scenario scenario_noPromo_dayEnd_belongToNight() {
+        return Scenario.builder()
+                .name("无优惠：dayEnd跨单元归属night")
+                .beginTime(LocalDateTime.of(2026, 7, 7, 19, 40))
+                .endTime(LocalDateTime.of(2026, 7, 7, 22, 0))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-nopromo4")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false))
+                .build();
+    }
+
     // ==================== 引擎执行与结果打印 ====================
 
     /**
