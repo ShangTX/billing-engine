@@ -7,6 +7,7 @@ import cn.shang.charging.billing.SegmentBuilder;
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
+import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
@@ -44,6 +45,28 @@ class DayNightContinuousCrossPeriodTest {
     void crossDayNight_false_assignsByBlockWeight() {
         BillingResult result = calculate(false);
         assertEquals(0, new BigDecimal("9.40").compareTo(result.getFinalAmount()));
+    }
+
+    /** splitDayNightBoundary=false：首个单元跨 dayBegin 且归属后段 DAY，不能按起点 NIGHT 定价。 */
+    @Test
+    void crossDayNight_false_firstUnitBelongsToNextDayPeriod() {
+        DayNightConfig config = config(false);
+        BillingRequest request = new BillingRequest();
+        request.setBeginTime(LocalDateTime.of(2026, 1, 1, 7, 43));
+        request.setEndTime(LocalDateTime.of(2026, 1, 1, 8, 43));
+        request.setSchemeId("scheme-1");
+        request.setSchemeChanges(List.of());
+        request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SINGLE);
+        request.setExternalPromotions(List.of());
+
+        BillingResult result = createService(config).calculate(request);
+
+        assertEquals(0, new BigDecimal("9.40").compareTo(result.getFinalAmount()));
+        assertEquals(1, result.getUnits().size());
+        BillingUnit unit = result.getUnits().get(0);
+        assertEquals(LocalDateTime.of(2026, 1, 1, 7, 43), unit.getBeginTime());
+        assertEquals(LocalDateTime.of(2026, 1, 1, 8, 43), unit.getEndTime());
+        assertEquals(0, new BigDecimal("9.40").compareTo(unit.getUnitPrice()));
     }
 
     /** splitDayNightBoundary=true（默认）：日夜边界切断，DAY 9.40 + NIGHT 1.50 = 10.90。 */

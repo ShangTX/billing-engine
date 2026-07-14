@@ -5,7 +5,7 @@
 - **ID**: TODO-20260710-001
 - **类型**: refactor
 - **优先级**: P1
-- **状态**: pending
+- **状态**: in_progress
 - **创建时间**: 2026-07-10
 - **创建提交**: af29fb4
 - **相关测试**:
@@ -22,36 +22,28 @@ DayNight CONTINUOUS 模式 `splitDayNightBoundary=false` 需要重新设计边�
 2. **价格重复判断**：在段构建时重复计算 `isInDay()`，效率低
 3. **架构不够通用**：难以支持其他规则（如 RelativeTime）
 
-## 架构设计方案
+## 当前决策
 
-### 核心思路：外部状态管理
+### 核心思路：公共循环纯调度，规则内定价
 
-引入 `PricingState` 对象管理定价状态，在边界循环外维护：
+已放弃外部 `PricingState` / `ThreadLocal` 方案。原因是
+`splitDayNightBoundary=false` 下，一个跨日夜单元的价格由完整单元
+`[unitStart, unitEnd)` 的 day/night 占比决定，不一定等于段起点所在时段。
+首个计费单元跨 `dayBegin` 且按 `blockWeight` 归属后一个日夜分段时，外部初始状态会天然失真。
 
-```java
-class PricingState {
-    BigDecimal currentUnitPrice;  // 当前单价（随边界切换而变化）
-    int unitMinutes;              // 单位时间
-    LocalDateTime cycleOrigin;    // 周期起点（用于单元对齐）
-    // 规则特定的状态...
-}
-```
+当前方案：
 
-### 边界循环流程
-
-1. **初始化状态**：根据规则配置设置初始价格
-2. **遍历边界**：
-   - 周期循环边界（cycleEnd）→ 不修改状态，仅标记封顶周期
-   - 免费时段边界（freeRangeEdges）→ 不修改价格状态，免费标记在段构建时处理
-   - 日夜边界（dayNightBoundary）→ 修改 `currentUnitPrice`（day→night 或 night→day）
-   - RelativeTime 边界 → 修改 `currentUnitPrice`（不同阶段价格）
-3. **段构建**：直接从 `PricingState` 读取 `currentUnitPrice`
+1. `BoundaryDrivenLoop` 只负责调度：从所有 `BoundaryProvider` 找最近边界并产出同质段。
+2. `BoundaryProvider` 只负责提供边界，不修改计费状态。
+3. 每个规则族在自己的 segment builder / semantics 中计算该段价格。
+4. DayNight 的 snap 归属逻辑保留在 `DayNightContinuousStrategy` 内，不扩散到其他规则。
 
 ### 优点
 
-- **避免重复判断**：边界提供器已经处理了价格切换
-- **通用性强**：不同规则可以用不同的状态修改逻辑
-- **职责清晰**：边界提供器负责状态转换，段构建器负责段生成
+- **语义清晰**：边界是调度结果，价格是规则私有语义。
+- **DayNight 特例隔离**：只有 DayNight 需要 snap 归属，其他规则仍直接截断边界。
+- **避免副作用**：移除 `ThreadLocal` 和 provider 修改状态，`findNearest` 可安全查询多个 provider。
+- **可推广**：其他规则沿用“provider 给边界、segment builder 定价”的模式。
 
 ## 实现细节
 
@@ -61,8 +53,8 @@ class PricingState {
 
 **实现要点**：
 - 直接返回精确的日夜边界时间点（如 08:00、20:00）
-- 边界到达时修改状态：`currentUnitPrice = dayUnitPrice 或 nightUnitPrice`
-- 段构建器直接使用状态中的价格
+- 段构建器按 `[current, next)` 计算价格
+- 边界造成的不足单元由 `IncompleteUnitChargeMode` 处理
 
 ### 2. splitDayNightBoundary=false（跨时段归属模式）
 
@@ -128,25 +120,25 @@ class PricingState {
 
 **结果**：05:43-07:43 compact×2（night）+ 07:43-10:43 compact×3（day）
 
-## 需要修改的文件
+## 修改范围
 
 ### 1. BoundaryDrivenLoop.java
-- 修改 `run` 方法签名：接受 `PricingState` 参数
-- 在循环过程中将 `PricingState` 传递给边界提供器和段构建器
+- `run` 入口保留纯调度参数：`calcBegin/calcEnd/providers/segmentBuilder`
+- `SegmentBuilder` 只接收 `[begin, end)`，不再接收外部状态
 
-### 2. BoundaryProvider.java
-- 修改接口签名：`List<LocalDateTime> apply(LocalDateTime current, LocalDateTime end, PricingState state)`
-- 边界提供器可以访问和修改状态
+### 2. BoundaryProvider.java / BoundaryProviders.java
+- `BoundaryProvider#getBoundaries(current, calcEnd)` 不再接收定价状态
+- `BoundaryProviders.findNearest` 不再传递外部状态
 
 ### 3. DayNightContinuousStrategy.java
-- 实现 `createDayNightBoundaryProvider` 方法（当前为空框架）
-- 实现 `snapToUnitBoundary` 方法
-- 实现 `countDayMinutes` 方法（已删除，需重新添加）
-- 修改段构建器：从 `PricingState` 读取价格
+- `createDayNightBoundaryProvider` 只返回精确边界或 snap 后边界
+- `buildSegmentForDayNight` 使用 `DayNightPriceResolver.determineUnitPriceForContinuous(current, next, config)` 定价
+- `dayEndMinute=1440` 使用 `date.atStartOfDay().plusMinutes(...)` 语义处理，避免 `withHour(24)` 异常
+- CONTINUOUS 简化先做一个无优惠完整周期明细对账；完整周期未达到 `maxChargeOneDay` 时不启用 cap 乘周期数的简化
 
 ### 4. 其他规则文件
-- `ContinuousStrategy.java`：需要适配新的 `PricingState` 架构
-- `BoundaryProviders.java`：cycleEnd、freeRangeEdges 等边界提供器需要适配新接口
+- RelativeTime / NaturalTime / CompositeTime / DurationPeriod / DurationGlobal 均移除空状态初始化
+- 各规则继续在自己的 segment builder 或 `RuleSemantics#priceAt` 中计算价格
 
 ## 测试验证
 
@@ -159,6 +151,13 @@ class PricingState {
 - 跨日夜单元归属（07:43-08:43 归属 day）
 - Compact 单元生成（多个同价单元合并）
 
+### 当前验证命令
+
+- `./mvnw.cmd -q -DskipTests compile`
+- `./mvnw.cmd -q -pl bill-test -am '-Dtest=DayNightContinuousCrossPeriodTest,ContinuousSimplificationTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
+- `./mvnw.cmd -q -pl bill-test -am '-Dtest=DayNightParkingParityTest,DurationBillingModeTest,SmartFreeMinutesTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
+- `./mvnw.cmd -q test`
+
 ## 注意事项
 
 1. **单元边界对齐关键**：使用 `current`（循环中的动态参数）作为锚点对齐单元边界，而非 `cycleOriginBegin`（固定）
@@ -168,9 +167,8 @@ class PricingState {
 
 ## 后续优化
 
-- 提取 `PricingState` 为独立类，支持不同规则扩展
-- 统一各规则（DayNight、RelativeTime）的定价架构
 - 性能优化：减少边界计算次数
+- 将 `BillingPlaygroundTest` 的 DayNight 场景整理成更清晰的手工验算入口
 
 ## 参考资料
 

@@ -11,7 +11,6 @@ import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
-import cn.shang.charging.charge.rules.PricingState;
 import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
@@ -89,20 +88,10 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
-        // 初始化 PricingState：根据calcBegin所在period设置初始单价和单位分钟数
-        long minutesFromOrigin = Duration.between(cycleOriginBegin, calcBegin).toMinutes();
-        int positionInCycle = (int) (((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE);
-        RelativeTimePeriod initialPeriod = periodResolver.findPeriodForMinute(positionInCycle, periods);
-        PricingState state = PricingState.builder()
-                .currentUnitPrice(initialPeriod.getUnitPrice())
-                .unitMinutes(initialPeriod.getUnitMinutes())
-                .cycleOrigin(cycleOriginBegin)
-                .build();
-
         // 边界驱动循环
         List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers,
-                (current, next, s) ->
-                        buildSegmentForRelativeTime(current, next, s, freeTimeRanges), state);
+                (current, next) ->
+                        buildSegmentForRelativeTime(current, next, cycleOriginBegin, periods, freeTimeRanges));
 
         // 应用封顶 + 累计 + 截断标记（自然日 24h 周期内统计）
         List<BillingUnit> allUnits = ContinuousStrategy.applyCapAndAccumulate(segments, relativeTimeSemantics,
@@ -227,7 +216,7 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
      * @return BoundaryProvider lambda，返回当前范围内的period边界列表
      */
     private BoundaryProvider createPeriodBoundaryProvider(List<RelativeTimePeriod> periods, LocalDateTime cycleOriginBegin) {
-        return (current, end, state) -> {
+        return (current, end) -> {
             List<LocalDateTime> result = new ArrayList<>();
             long minutesFromOrigin = Duration.between(cycleOriginBegin, current).toMinutes();
             long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
@@ -251,17 +240,17 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
     /**
      * 构建RelativeTime同质段。
      * <p>
-     * 检查免费时段覆盖，若非免费则从State中获取单价和单位分钟数。
+     * 检查免费时段覆盖，若非免费则按段起点解析当前相对时段价格。
      *
      * @param current        段起点
      * @param next           段终点
-     * @param state          定价状态
      * @param freeTimeRanges 免费时段列表
      * @return 同质段
      */
     private HomogeneousSegment buildSegmentForRelativeTime(LocalDateTime current,
                                                            LocalDateTime next,
-                                                           PricingState state,
+                                                           LocalDateTime cycleOriginBegin,
+                                                           List<RelativeTimePeriod> periods,
                                                            List<FreeTimeRange> freeTimeRanges) {
         // 检查是否被免费时段完全覆盖
         for (FreeTimeRange range : freeTimeRanges) {
@@ -270,8 +259,10 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
                         true, range.getId(), null);
             }
         }
-        // 计费段：从State中获取单价和单位分钟数
-        BigDecimal unitPrice = state.getCurrentUnitPrice();
+        long minutesFromOrigin = Duration.between(cycleOriginBegin, current).toMinutes();
+        int positionInCycle = (int) (((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE);
+        RelativeTimePeriod period = periodResolver.findPeriodForMinute(positionInCycle, periods);
+        BigDecimal unitPrice = period.getUnitPrice();
         // 不足单元也收全额：segment 时长 = next - current（由 boundary-driven 已对齐到 unit grid 或 boundary）
         return new HomogeneousSegment(current, next, unitPrice, unitPrice,
                 false, null, null);

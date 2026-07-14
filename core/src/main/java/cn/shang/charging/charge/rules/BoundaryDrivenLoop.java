@@ -24,24 +24,16 @@ public final class BoundaryDrivenLoop {
      * @param calcEnd         计算窗口终点（含上界）
      * @param providers       边界来源列表
      * @param segmentBuilder  段构造回调：给定一个同质区间 [current, next)，返回对应的 HomogeneousSegment
-     * @param state           定价状态（在循环过程中传递给边界提供器和段构建器）
      * @return 按时间顺序排列的同质段列表
      */
     public static List<HomogeneousSegment> run(LocalDateTime calcBegin,
                                                LocalDateTime calcEnd,
                                                List<BoundaryProvider> providers,
-                                               SegmentBuilder segmentBuilder,
-                                               PricingState state) {
+                                               SegmentBuilder segmentBuilder) {
         List<HomogeneousSegment> segments = new ArrayList<>();
         LocalDateTime current = calcBegin;
         while (current.isBefore(calcEnd)) {
-            // 保存当前状态快照（边界提供器可能修改state）
-            PricingState stateSnapshot = state != null ? state.copy() : null;
-
-            // 通过ThreadLocal传递快照，允许Provider修改（如DayNight snap场景）
-            PricingStateThreadLocal.set(stateSnapshot);
-            LocalDateTime next = BoundaryProviders.findNearest(current, calcEnd, providers, state);
-            PricingStateThreadLocal.remove(); // 及时清理
+            LocalDateTime next = BoundaryProviders.findNearest(current, calcEnd, providers);
 
             // TODO 优化1 不必每次都全部计算一遍，完全可以保留没被使用的边界下次再继续使用
             if (!next.isAfter(current)) {
@@ -49,8 +41,7 @@ public final class BoundaryDrivenLoop {
                 break;
             }
 
-            // 段构建器使用状态快照（边界前的状态）
-            HomogeneousSegment segment = segmentBuilder.build(current, next, stateSnapshot);
+            HomogeneousSegment segment = segmentBuilder.build(current, next);
             if (segment != null) {
                 segments.add(segment);
             }
@@ -65,6 +56,6 @@ public final class BoundaryDrivenLoop {
      */
     @FunctionalInterface
     public interface SegmentBuilder {
-        HomogeneousSegment build(LocalDateTime begin, LocalDateTime end, PricingState state);
+        HomogeneousSegment build(LocalDateTime begin, LocalDateTime end);
     }
 }

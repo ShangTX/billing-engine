@@ -252,7 +252,9 @@ BillingRequest
 
 ## 10. 简化计算
 
-`ContinuousStrategy`（层 2 通用骨架）支持长周期简化计算，采用"全局空隙"实现：从 `freeTimeRanges` 直接算无优惠空隙（优惠时段之间的间隙 + 头尾），每个 gap 对齐周期边界算覆盖周期数；gap 周期数 > 阈值则产出简化单元（`min(总应收, cycleCap × 周期数)`），否则正常生成明细。旧切段模型（`splitTimeAxis`/`TimeFragment`/`organizeByCycle`/`CycleFragments`）已删除。
+`ContinuousStrategy`（层 2 通用骨架）支持长周期简化计算，采用"全局空隙"实现：从 `freeTimeRanges` 直接算无优惠空隙（优惠时段之间的间隙 + 头尾），每个 gap 对齐周期边界算覆盖周期数；gap 周期数 > 阈值，且规则族能确认完整周期明细会触发周期封顶时，才产出简化单元（`cycleCap × 周期数`），否则正常生成明细。旧切段模型（`splitTimeAxis`/`TimeFragment`/`organizeByCycle`/`CycleFragments`）已删除。
+
+对 `dayNight` 而言，CONTINUOUS 简化会先执行一个无优惠完整周期的明细对账；如果该周期原本达不到 `maxChargeOneDay`，则不启用 cap 乘周期数的简化，避免低价 24 小时周期被多收。
 
 简化单元会在 `ruleData` 中记录类似结构：
 

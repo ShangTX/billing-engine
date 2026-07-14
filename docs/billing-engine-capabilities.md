@@ -251,7 +251,9 @@ Current aggregation stages:
 
 ## 10. Simplified Calculation
 
-`ContinuousStrategy` (the Layer 2 shared skeleton) supports long-span simplified calculation using a "global-gap" implementation: it derives promotion-free gaps directly from `freeTimeRanges` (gaps between free ranges plus head/tail), aligns each gap to cycle boundaries, and counts covered cycles. If a gap covers more cycles than the threshold, a simplified unit is produced (`min(total chargeable, cycleCap × cycle count)`); otherwise normal detail is generated. The legacy splitting model (`splitTimeAxis`/`TimeFragment`/`organizeByCycle`/`CycleFragments`) has been removed.
+`ContinuousStrategy` (the Layer 2 shared skeleton) supports long-span simplified calculation using a "global-gap" implementation: it derives promotion-free gaps directly from `freeTimeRanges` (gaps between free ranges plus head/tail), aligns each gap to cycle boundaries, and counts covered cycles. If a gap covers more cycles than the threshold, a simplified unit is produced (`cycleCap × cycle count`) when the rule-specific full-cycle detail calculation is known to reach the cycle cap; otherwise normal detail is generated. The legacy splitting model (`splitTimeAxis`/`TimeFragment`/`organizeByCycle`/`CycleFragments`) has been removed.
+
+For `dayNight`, simplified CONTINUOUS calculation is guarded by a one-cycle detailed check without promotions. This prevents overcharging low-price 24-hour cycles whose detailed amount is below `maxChargeOneDay`.
 
 Simplified units use `ruleData` similar to:
 

@@ -71,7 +71,7 @@ final class DayNightSemantics implements RuleSemantics<DayNightConfig> {
      */
     @Override
     public BoundaryProvider periodBoundaryProvider(DayNightConfig config, LocalDateTime cycleOrigin) {
-        return (current, end, state) -> {
+        return (current, end) -> {
             List<LocalDateTime> result = new ArrayList<>();
             LocalDateTime day = current.toLocalDate().atStartOfDay();
             // 检查今天和明天两天的 dayBegin/dayEnd，覆盖 current 到 end 的范围

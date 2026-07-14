@@ -13,7 +13,6 @@ import cn.shang.charging.promotion.pojo.FreeMinutes;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
-import cn.shang.charging.charge.rules.PricingState;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -81,14 +80,8 @@ public final class DurationGlobalStrategy {
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
-        // 初始化 PricingState
-        PricingState state = PricingState.builder()
-                .unitMinutes(semantics.unitMinutes(calcBegin, config, cycleOrigin))
-                .cycleOrigin(cycleOrigin)
-                .build();
-
         // 边界驱动循环
-        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next, s) -> {
+        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next) -> {
             // 检查免费时段
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
@@ -99,7 +92,7 @@ public final class DurationGlobalStrategy {
             // 计算单元单价
             BigDecimal unitPrice = semantics.priceAt(current, next, config, cycleOrigin);
             return new HomogeneousSegment(current, next, unitPrice, unitPrice, false, null, null);
-        }, state);
+        });
 
         // 转换为 DurationSegment（时段封顶 × 周期数 + 周期封顶 × 周期数）
         long totalMinutes = Duration.between(calcBegin, calcEnd).toMinutes();
@@ -293,13 +286,8 @@ public final class DurationGlobalStrategy {
         providers.add(semantics.periodBoundaryProvider(config, cycleOrigin));
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
-        // 初始化 PricingState
-        PricingState state = PricingState.builder()
-                .cycleOrigin(cycleOrigin)
-                .build();
-
         List<HomogeneousSegment> segs = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers,
-                (current, next, s) -> new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO, false, null, null), state);
+                (current, next) -> new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO, false, null, null));
         List<PriceSubWindow> subWindows = new ArrayList<>();
         for (HomogeneousSegment seg : segs) {
             BigDecimal price = semantics.priceAt(seg.getBeginTime(), seg.getEndTime(), config, cycleOrigin);

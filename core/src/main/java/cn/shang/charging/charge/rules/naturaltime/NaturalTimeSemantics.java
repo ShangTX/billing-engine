@@ -70,7 +70,7 @@ final class NaturalTimeSemantics implements RuleSemantics<NaturalTimeConfig> {
     @Override
     public BoundaryProvider periodBoundaryProvider(NaturalTimeConfig config, LocalDateTime cycleOrigin) {
         List<NaturalPeriod> periods = config.getPeriods();
-        return (current, end, state) -> {
+        return (current, end) -> {
             int currentMinute = current.getHour() * 60 + current.getMinute();
             int periodEnd = periodResolver.findNextPeriodBoundary(currentMinute, periods);
             LocalDateTime periodBoundary = current.plusMinutes(periodEnd - currentMinute);

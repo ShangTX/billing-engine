@@ -19,10 +19,9 @@ public final class BoundaryProviders {
      * 周期结束边界（从周期起点按 cycleMinutes 步进）。
      * 返回 current 之后、calcEnd 之前的第一个周期结束点。
      * <p>
-     * 周期边界不修改定价状态。
      */
     public static BoundaryProvider cycleEnd(LocalDateTime cycleOriginBegin, int cycleMinutes) {
-        return (current, calcEnd, state) -> {
+        return (current, calcEnd) -> {
             List<LocalDateTime> result = new ArrayList<>();
             // 找到第一个 > current 的周期结束点
             long offsetMinutes = Duration.between(cycleOriginBegin, current).toMinutes();
@@ -42,10 +41,9 @@ public final class BoundaryProviders {
     /**
      * 免费时段起止边界。返回落在 (current, calcEnd] 内的所有免费时段起点和终点。
      * <p>
-     * 免费时段边界不修改定价状态（免费标记在段构建时处理）。
      */
     public static BoundaryProvider freeRangeEdges(List<FreeTimeRange> freeTimeRanges) {
-        return (current, calcEnd, state) -> {
+        return (current, calcEnd) -> {
             List<LocalDateTime> result = new ArrayList<>();
             if (freeTimeRanges == null) {
                 return result;
@@ -66,7 +64,7 @@ public final class BoundaryProviders {
      * calcEnd 作为边界（始终包含）。
      */
     public static BoundaryProvider calcEnd(LocalDateTime calcEnd) {
-        return (current, end, state) -> List.of(calcEnd);
+        return (current, end) -> List.of(calcEnd);
     }
 
     /**
@@ -75,11 +73,10 @@ public final class BoundaryProviders {
      */
     public static LocalDateTime findNearest(LocalDateTime current,
                                             LocalDateTime calcEnd,
-                                            List<BoundaryProvider> providers,
-                                            PricingState state) {
+                                            List<BoundaryProvider> providers) {
         LocalDateTime nearest = calcEnd;
         for (BoundaryProvider provider : providers) {
-            for (LocalDateTime boundary : provider.getBoundaries(current, calcEnd, state)) {
+            for (LocalDateTime boundary : provider.getBoundaries(current, calcEnd)) {
                 if (boundary.isAfter(current) && !boundary.isAfter(nearest)) {
                     nearest = boundary;
                 }

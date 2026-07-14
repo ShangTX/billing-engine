@@ -11,7 +11,6 @@ import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
-import cn.shang.charging.charge.rules.PricingState;
 import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.charge.rules.SimplificationSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
@@ -240,7 +239,7 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
         // 边界来源：period 边界 + cycle 边界 + 免费时段起止 + 单元对齐 + calcEnd
         List<BoundaryProvider> providers = new ArrayList<>();
         // period 边界（相对位置）
-        providers.add((current, e, state) -> {
+        providers.add((current, e) -> {
             long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
             long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
             long cycleCount = minutesFromOrigin / MINUTES_PER_CYCLE;
@@ -262,13 +261,8 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         providers.add(BoundaryProviders.calcEnd(end));
 
-        // 初始化 PricingState（unitMinutes动态从period获取，此处不设置）
-        PricingState state = PricingState.builder()
-                .cycleOrigin(billingOrigin)
-                .build();
-
         // 边界驱动循环
-        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(begin, end, providers, (current, next, s) -> {
+        List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(begin, end, providers, (current, next) -> {
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {
                     return new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO,
@@ -281,7 +275,7 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
             BigDecimal unitPrice = crossPeriodPriceResolver.calculateUnitPrice(current, next, period);
             return new HomogeneousSegment(current, next, unitPrice, unitPrice,
                     false, null, null);
-        }, state);
+        });
 
         // 转换为 BillingUnit（封顶 + 累计 + periodCap + compact + 截断）
         // cycleOrigin=billingOrigin，calcBegin=子区间起点；periodCap 由通用方法经 CompositeTimeSemantics 自动处理

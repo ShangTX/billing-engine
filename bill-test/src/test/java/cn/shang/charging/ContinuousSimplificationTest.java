@@ -78,6 +78,22 @@ class ContinuousSimplificationTest {
         assertEquals(1, simplifiedUnitCount(result));
     }
 
+    /** 完整周期原价未达到日封顶时，不能用 maxChargeOneDay × cycleCount 简化。 */
+    @Test
+    void continuousMode_simplification_disabledWhenFullCycleDoesNotReachCap() {
+        BillingService service = createService(2, nonCappingConfig());
+
+        BillingRequest req = request(
+                LocalDateTime.of(2026, 1, 1, 0, 0),
+                LocalDateTime.of(2026, 1, 5, 0, 0));
+
+        BillingResult result = service.calculate(req);
+
+        // 4 天 × 24h × 1 元/h = 96，低于每日封顶 50×4，不能简化成 200。
+        assertEquals(0, new BigDecimal("96.00").compareTo(result.getFinalAmount()));
+        assertEquals(0, simplifiedUnitCount(result));
+    }
+
     // ==================== 辅助方法 ====================
 
     private long simplifiedUnitCount(BillingResult result) {
@@ -101,6 +117,18 @@ class ContinuousSimplificationTest {
                 .setBlockWeight(new BigDecimal("0.5"));
     }
 
+    private DayNightConfig nonCappingConfig() {
+        return new DayNightConfig()
+                .setId("dn-continuous-no-cap-simpl")
+                .setDayBeginMinute(0)
+                .setDayEndMinute(1440)
+                .setDayUnitPrice(new BigDecimal("1"))
+                .setNightUnitPrice(new BigDecimal("1"))
+                .setUnitMinutes(60)
+                .setMaxChargeOneDay(new BigDecimal("50"))
+                .setBlockWeight(new BigDecimal("0.5"));
+    }
+
     private BillingRequest request(LocalDateTime begin, LocalDateTime end) {
         BillingRequest r = new BillingRequest();
         r.setBeginTime(begin);
@@ -113,6 +141,10 @@ class ContinuousSimplificationTest {
     }
 
     private BillingService createService(int threshold) {
+        return createService(threshold, config());
+    }
+
+    private BillingService createService(int threshold, DayNightConfig config) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
             public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
@@ -121,7 +153,7 @@ class ContinuousSimplificationTest {
 
             @Override
             public RuleConfig resolveChargingRule(String schemeId, LocalDateTime s, LocalDateTime e, Map<String, Object> context) {
-                return config();
+                return config;
             }
 
             @Override
