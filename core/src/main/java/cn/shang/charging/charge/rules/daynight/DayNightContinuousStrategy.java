@@ -11,6 +11,7 @@ import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.PricingState;
+import cn.shang.charging.charge.rules.PricingStateThreadLocal;
 import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.charge.rules.SimplificationSupport;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
@@ -300,6 +301,12 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                 // dayBegin 边界：从 night 切到 day；dayEnd 边界：从 day 切到 night
                 BigDecimal newPrice = isDayBeginBoundary ? config.getDayUnitPrice() : config.getNightUnitPrice();
                 state.setCurrentUnitPrice(newPrice);
+
+                // 通过ThreadLocal修改stateSnapshot，让段构建器使用切换后的价格
+                PricingState snapshot = PricingStateThreadLocal.get();
+                if (snapshot != null) {
+                    snapshot.setCurrentUnitPrice(newPrice);
+                }
             } else {
                 // 3-2. 非截断处理snap
                 // 4.1 snap 计算从current开始对齐单元边界，找到包含nearestBoundary的单元
@@ -318,6 +325,12 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                     BigDecimal newPrice = isDayBeginBoundary ? config.getNightUnitPrice() : config.getDayUnitPrice();
                     // snap 模式：snap 到边界后也要切换价格
                     state.setCurrentUnitPrice(newPrice);
+
+                    // 通过ThreadLocal修改stateSnapshot
+                    PricingState snapshot = PricingStateThreadLocal.get();
+                    if (snapshot != null) {
+                        snapshot.setCurrentUnitPrice(newPrice);
+                    }
                 } else {
                     // 4.2 snap 处理跨越情况，判断此单元归属于前一个日夜分段还是后一个日夜分段
                     int dayMinutes = countDayMinutes(unitStart, unitEnd, dayBeginMin, dayEndMin);
@@ -341,7 +354,14 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
 
                     boundaries.add(snapped);
                     // snap到边界后，价格切换到snap后一时段
-                    state.setCurrentUnitPrice(isDayBeginBoundaryFromUnit ? config.getNightUnitPrice() : config.getDayUnitPrice());
+                    BigDecimal newPrice = isDayBeginBoundaryFromUnit ? config.getNightUnitPrice() : config.getDayUnitPrice();
+                    state.setCurrentUnitPrice(newPrice);
+
+                    // 通过ThreadLocal修改stateSnapshot，让段构建器使用snap后的价格
+                    PricingState snapshot = PricingStateThreadLocal.get();
+                    if (snapshot != null) {
+                        snapshot.setCurrentUnitPrice(newPrice);
+                    }
                 }
             }
 

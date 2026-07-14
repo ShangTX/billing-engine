@@ -262,8 +262,12 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         providers.add(BoundaryProviders.calcEnd(end));
 
+        // 初始化 PricingState（unitMinutes动态从period获取，此处不设置）
+        PricingState state = PricingState.builder()
+                .cycleOrigin(billingOrigin)
+                .build();
+
         // 边界驱动循环
-        PricingState state = null; // 向后兼容：暂不需要状态管理
         List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(begin, end, providers, (current, next, s) -> {
             for (FreeTimeRange range : freeTimeRanges) {
                 if (!range.getBeginTime().isAfter(current) && !range.getEndTime().isBefore(next)) {

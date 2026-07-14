@@ -95,8 +95,13 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
+        // 初始化 PricingState
+        PricingState state = PricingState.builder()
+                .unitMinutes(config.getUnitMinutes())
+                .cycleOrigin(context.getBeginTime())
+                .build();
+
         // 边界驱动循环
-        PricingState state = null; // 向后兼容：暂不需要状态管理
         List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next, s) -> {
             // 检查是否在免费时段内
             FreeTimeRange covering = findCoveringRange(current, freeTimeRanges);

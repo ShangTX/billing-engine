@@ -38,8 +38,12 @@ public final class BoundaryDrivenLoop {
             // 保存当前状态快照（边界提供器可能修改state）
             PricingState stateSnapshot = state != null ? state.copy() : null;
 
-            // TODO 优化1 不必每次都全部计算一遍，完全可以保留没被使用的边界下次再继续使用
+            // 通过ThreadLocal传递快照，允许Provider修改（如DayNight snap场景）
+            PricingStateThreadLocal.set(stateSnapshot);
             LocalDateTime next = BoundaryProviders.findNearest(current, calcEnd, providers, state);
+            PricingStateThreadLocal.remove(); // 及时清理
+
+            // TODO 优化1 不必每次都全部计算一遍，完全可以保留没被使用的边界下次再继续使用
             if (!next.isAfter(current)) {
                 // 防御：避免无限循环（所有边界都在 current 之前）
                 break;

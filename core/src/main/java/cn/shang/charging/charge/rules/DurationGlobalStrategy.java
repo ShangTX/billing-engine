@@ -81,8 +81,13 @@ public final class DurationGlobalStrategy {
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         providers.add(BoundaryProviders.calcEnd(calcEnd));
 
+        // 初始化 PricingState
+        PricingState state = PricingState.builder()
+                .unitMinutes(semantics.unitMinutes(calcBegin, config, cycleOrigin))
+                .cycleOrigin(cycleOrigin)
+                .build();
+
         // 边界驱动循环
-        PricingState state = null; // 向后兼容：暂不需要状态管理
         List<HomogeneousSegment> segments = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers, (current, next, s) -> {
             // 检查免费时段
             for (FreeTimeRange range : freeTimeRanges) {
@@ -287,7 +292,12 @@ public final class DurationGlobalStrategy {
         List<BoundaryProvider> providers = new ArrayList<>();
         providers.add(semantics.periodBoundaryProvider(config, cycleOrigin));
         providers.add(BoundaryProviders.calcEnd(calcEnd));
-        PricingState state = null; // 向后兼容：暂不需要状态管理
+
+        // 初始化 PricingState
+        PricingState state = PricingState.builder()
+                .cycleOrigin(cycleOrigin)
+                .build();
+
         List<HomogeneousSegment> segs = BoundaryDrivenLoop.run(calcBegin, calcEnd, providers,
                 (current, next, s) -> new HomogeneousSegment(current, next, BigDecimal.ZERO, BigDecimal.ZERO, false, null, null), state);
         List<PriceSubWindow> subWindows = new ArrayList<>();
