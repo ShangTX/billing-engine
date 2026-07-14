@@ -528,6 +528,8 @@ BillingResult result = billingTemplate.calculate(request);
 | `freePromotionId` | `String` | 免费段对应的 FreeTimeRange.id（非免费段为 null） |
 | `originalAmount` | `BigDecimal` | 按规则原价（封顶前；免费段非 0，用于等效金额计算） |
 
+> `dayNight` 的 `DURATION_GLOBAL` 产出为全局收费汇总桶：同质收费分钟会聚合到一个 `DurationSegment`，`beginTime` / `endTime` 为 `null`，免费分钟和免费时段通过 `PromotionUsage` 跟踪，不再作为时间轴免费段落盘。
+
 ### 9.4 PromotionUsage
 
 | 字段 | 类型 | 说明 |
@@ -849,7 +851,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `CONTINUOUS` | 连续时间计费（边界驱动循环，段内直接产出 compact） | `BillingUnit`（含 compact） |
 | `UNIT_BASED` | 固定单元对齐计费 | `BillingUnit` |
 | `DURATION_PERIOD` | 周期内时长计费，周期封顶+时段封顶 | `DurationSegment` |
-| `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘 | `DurationSegment` |
+| `DURATION_GLOBAL` | 全局时长计费；`dayNight` 按同质收费桶汇总并使用尾周期封顶 | `DurationSegment` |
 
 ### 规则族支持矩阵
 
@@ -863,7 +865,7 @@ BillingResult result = billingTemplate.calculate(request);
 
 ### 不足单元 / 余数处理（IncompleteUnitChargeMode）
 
-当计费时间不是 `unitMinutes` 的整数倍时，不足一个 `unitMinutes` 的部分如何收费，由规则 Config 的 `incompleteUnitChargeMode` 配置（默认 `FULL_CHARGE`）：
+当计费时间不是 `unitMinutes` 的整数倍时，不足一个 `unitMinutes` 的部分如何收费，由 `RuleConfig` 公共默认方法描述（默认 `FULL_CHARGE`）；DayNight/RelativeTime/NaturalTime/CompositeTime 等具体规则 Config 可通过 `incompleteUnitChargeMode`、`thresholdMinutes`、`thresholdRatio` 字段覆盖默认值：
 
 | 模式 | CONTINUOUS / UNIT_BASED（截断单元） | DURATION_PERIOD / DURATION_GLOBAL（余数部分） |
 |------|-------------------------------------|----------------------------------------------|
@@ -874,7 +876,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `THRESHOLD_RATIO` | 不足单元超阈值比例收全额，否则按比例 | 余数超阈值比例收全额，否则按比例 |
 
 - **CONTINUOUS / UNIT_BASED**：作用于「截断单元」（`isTruncated=true` 的末段，`segMinutes < unitMinutes`）
-- **DURATION_PERIOD / DURATION_GLOBAL**：作用于每个同质段「不足 `unitMinutes` 的余数部分」。整除部分（`fullUnits × unitPrice`）始终照收，余数按上表模式处理。`PROPORTIONAL` 与原按比例行为一致；`FULL_CHARGE` 实现"不满一小时按一小时算"
+- **DURATION_PERIOD / DURATION_GLOBAL**：作用于时长计费中「不足 `unitMinutes` 的余数部分」。`DURATION_PERIOD` 按同质段计算；`dayNight` 的 `DURATION_GLOBAL` 先按同质收费桶汇总分钟，再对汇总桶计算余数。整除部分（`fullUnits × unitPrice`）始终照收，余数按上表模式处理。`PROPORTIONAL` 与原按比例行为一致；`FULL_CHARGE` 实现"不满一小时按一小时算"
 
 配置示例（时长模式按比例收费）：
 

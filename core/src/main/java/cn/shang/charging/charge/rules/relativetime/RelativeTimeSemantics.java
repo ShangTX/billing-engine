@@ -1,6 +1,5 @@
 package cn.shang.charging.charge.rules.relativetime;
 
-import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
@@ -9,7 +8,6 @@ import cn.shang.charging.charge.rules.RuleSemantics;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -77,7 +75,6 @@ final class RelativeTimeSemantics implements RuleSemantics<RelativeTimeConfig> {
     public BoundaryProvider periodBoundaryProvider(RelativeTimeConfig config, LocalDateTime cycleOrigin) {
         List<RelativeTimePeriod> periods = config.getPeriods();
         return (current, end) -> {
-            List<LocalDateTime> result = new ArrayList<>();
             long minutesFromOrigin = Duration.between(cycleOrigin, current).toMinutes();
             long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
             long cycleCount = minutesFromOrigin / MINUTES_PER_CYCLE;
@@ -88,32 +85,17 @@ final class RelativeTimeSemantics implements RuleSemantics<RelativeTimeConfig> {
                 if (periodEndMinute > positionInCycle) {
                     LocalDateTime boundary = cycleStart.plusMinutes(periodEndMinute);
                     if (boundary.isAfter(current) && !boundary.isAfter(end)) {
-                        result.add(boundary);
+                        return boundary;
                     }
                     break;
                 }
             }
-            return result;
+            return null;
         };
     }
 
     @Override
     public BigDecimal cycleCap(RelativeTimeConfig config) {
         return config.getMaxChargeOneCycle();
-    }
-
-    @Override
-    public BConstants.IncompleteUnitChargeMode incompleteMode(RelativeTimeConfig config) {
-        return config.getIncompleteUnitChargeMode();
-    }
-
-    @Override
-    public Integer thresholdMinutes(RelativeTimeConfig config) {
-        return config.getThresholdMinutes();
-    }
-
-    @Override
-    public BigDecimal thresholdRatio(RelativeTimeConfig config) {
-        return config.getThresholdRatio();
     }
 }

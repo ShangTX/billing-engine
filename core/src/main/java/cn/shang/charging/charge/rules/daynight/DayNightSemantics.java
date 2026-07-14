@@ -1,6 +1,5 @@
 package cn.shang.charging.charge.rules.daynight;
 
-import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
@@ -9,8 +8,6 @@ import cn.shang.charging.charge.rules.RuleSemantics;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * `dayNight` 规则族语义：24h 固定循环周期 + 全局单元 + 每周期封顶。
@@ -72,17 +69,23 @@ final class DayNightSemantics implements RuleSemantics<DayNightConfig> {
     @Override
     public BoundaryProvider periodBoundaryProvider(DayNightConfig config, LocalDateTime cycleOrigin) {
         return (current, end) -> {
-            List<LocalDateTime> result = new ArrayList<>();
+            LocalDateTime nearest = null;
             LocalDateTime day = current.toLocalDate().atStartOfDay();
             // 检查今天和明天两天的 dayBegin/dayEnd，覆盖 current 到 end 的范围
             for (int d = 0; d <= 1; d++) {
                 LocalDateTime dayBegin = day.plusMinutes(config.getDayBeginMinute());
                 LocalDateTime dayEnd = day.plusMinutes(config.getDayEndMinute());
-                if (dayBegin.isAfter(current) && !dayBegin.isAfter(end)) result.add(dayBegin);
-                if (dayEnd.isAfter(current) && !dayEnd.isAfter(end)) result.add(dayEnd);
+                if (dayBegin.isAfter(current) && !dayBegin.isAfter(end)
+                        && (nearest == null || dayBegin.isBefore(nearest))) {
+                    nearest = dayBegin;
+                }
+                if (dayEnd.isAfter(current) && !dayEnd.isAfter(end)
+                        && (nearest == null || dayEnd.isBefore(nearest))) {
+                    nearest = dayEnd;
+                }
                 day = day.plusDays(1);
             }
-            return result;
+            return nearest;
         };
     }
 
@@ -122,20 +125,5 @@ final class DayNightSemantics implements RuleSemantics<DayNightConfig> {
     @Override
     public String cycleCapLabel() {
         return "DAILY_CAP";
-    }
-
-    @Override
-    public BConstants.IncompleteUnitChargeMode incompleteMode(DayNightConfig config) {
-        return config.getIncompleteUnitChargeMode();
-    }
-
-    @Override
-    public Integer thresholdMinutes(DayNightConfig config) {
-        return config.getThresholdMinutes();
-    }
-
-    @Override
-    public BigDecimal thresholdRatio(DayNightConfig config) {
-        return config.getThresholdRatio();
     }
 }

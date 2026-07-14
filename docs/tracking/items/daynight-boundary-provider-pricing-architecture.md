@@ -104,7 +104,7 @@ DayNight CONTINUOUS 模式 `splitDayNightBoundary=false` 需要重新设计边�
 4. 06:43-07:43：第二单元（night 时段）
 5. 07:43 循环时遇到 dayBegin=08:00：
    - 当前循环：current=07:43
-   - Provider被调用：getBoundaries(07:43, calcEnd)
+   - Provider被调用：nextBoundary(07:43, calcEnd)
    - 找到08:00（dayBegin）在范围内
    - 从current=07:43开始对齐单元边界：
      - minutesFromCurrent = Duration(07:43, 08:00) = 17分钟
@@ -127,11 +127,11 @@ DayNight CONTINUOUS 模式 `splitDayNightBoundary=false` 需要重新设计边�
 - `SegmentBuilder` 只接收 `[begin, end)`，不再接收外部状态
 
 ### 2. BoundaryProvider.java / BoundaryProviders.java
-- `BoundaryProvider#getBoundaries(current, calcEnd)` 不再接收定价状态
-- `BoundaryProviders.findNearest` 不再传递外部状态
+- `BoundaryProvider#nextBoundary(current, calcEnd)` 不再接收定价状态，且每个 provider 只返回自身最近边界
+- `BoundaryProviders.findNearest` 不再传递外部状态，只在各 provider 的最近候选之间取最小值
 
 ### 3. DayNightContinuousStrategy.java
-- `createDayNightBoundaryProvider` 只返回精确边界或 snap 后边界
+- `createDayNightBoundaryProvider` 只返回最近的精确边界或 snap 后边界
 - `buildSegmentForDayNight` 使用 `DayNightPriceResolver.determineUnitPriceForContinuous(current, next, config)` 定价
 - `dayEndMinute=1440` 使用 `date.atStartOfDay().plusMinutes(...)` 语义处理，避免 `withHour(24)` 异常
 - CONTINUOUS 简化先做一个无优惠完整周期明细对账；完整周期未达到 `maxChargeOneDay` 时不启用 cap 乘周期数的简化

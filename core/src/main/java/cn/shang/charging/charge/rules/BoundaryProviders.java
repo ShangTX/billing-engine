@@ -4,7 +4,6 @@ import cn.shang.charging.promotion.pojo.FreeTimeRange;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -16,55 +15,54 @@ public final class BoundaryProviders {
     }
 
     /**
-     * 周期结束边界（从周期起点按 cycleMinutes 步进）。
-     * 返回 current 之后、calcEnd 之前的第一个周期结束点。
-     * <p>
+     * 周期结束边界：从周期起点按 cycleMinutes 步进，返回 current 之后、calcEnd 之前的第一个周期结束点。
      */
     public static BoundaryProvider cycleEnd(LocalDateTime cycleOriginBegin, int cycleMinutes) {
         return (current, calcEnd) -> {
-            List<LocalDateTime> result = new ArrayList<>();
-            // 找到第一个 > current 的周期结束点
             long offsetMinutes = Duration.between(cycleOriginBegin, current).toMinutes();
             long cycleIndex = offsetMinutes / cycleMinutes;
             LocalDateTime boundary = cycleOriginBegin.plusMinutes((cycleIndex + 1) * cycleMinutes);
-            // 向前推进直到 > current
             while (!boundary.isAfter(current)) {
                 boundary = boundary.plusMinutes(cycleMinutes);
             }
-            if (!boundary.isAfter(calcEnd)) {
-                result.add(boundary);
-            }
-            return result;
+            return boundary.isAfter(calcEnd) ? null : boundary;
         };
     }
 
     /**
-     * 免费时段起止边界。返回落在 (current, calcEnd] 内的所有免费时段起点和终点。
-     * <p>
+     * 免费时段起止边界。输入由优惠合并链路按 beginTime 排序并合并，返回 (current, calcEnd] 内最近的起点或终点。
      */
     public static BoundaryProvider freeRangeEdges(List<FreeTimeRange> freeTimeRanges) {
         return (current, calcEnd) -> {
-            List<LocalDateTime> result = new ArrayList<>();
             if (freeTimeRanges == null) {
-                return result;
+                return null;
             }
             for (FreeTimeRange range : freeTimeRanges) {
-                if (range.getBeginTime().isAfter(current) && !range.getBeginTime().isAfter(calcEnd)) {
-                    result.add(range.getBeginTime());
+                if (range == null || range.getBeginTime() == null || range.getEndTime() == null) {
+                    continue;
                 }
-                if (range.getEndTime().isAfter(current) && !range.getEndTime().isAfter(calcEnd)) {
-                    result.add(range.getEndTime());
+                if (!range.getEndTime().isAfter(current)) {
+                    continue;
+                }
+                if (range.getBeginTime().isAfter(calcEnd)) {
+                    return null;
+                }
+                if (range.getBeginTime().isAfter(current)) {
+                    return range.getBeginTime();
+                }
+                if (!range.getEndTime().isAfter(calcEnd)) {
+                    return range.getEndTime();
                 }
             }
-            return result;
+            return null;
         };
     }
 
     /**
-     * calcEnd 作为边界（始终包含）。
+     * calcEnd 作为兜底边界。
      */
     public static BoundaryProvider calcEnd(LocalDateTime calcEnd) {
-        return (current, end) -> List.of(calcEnd);
+        return (current, end) -> calcEnd;
     }
 
     /**
@@ -76,10 +74,9 @@ public final class BoundaryProviders {
                                             List<BoundaryProvider> providers) {
         LocalDateTime nearest = calcEnd;
         for (BoundaryProvider provider : providers) {
-            for (LocalDateTime boundary : provider.getBoundaries(current, calcEnd)) {
-                if (boundary.isAfter(current) && !boundary.isAfter(nearest)) {
-                    nearest = boundary;
-                }
+            LocalDateTime boundary = provider.nextBoundary(current, calcEnd);
+            if (boundary != null && boundary.isAfter(current) && !boundary.isAfter(nearest)) {
+                nearest = boundary;
             }
         }
         return nearest;

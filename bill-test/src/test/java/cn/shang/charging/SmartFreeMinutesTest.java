@@ -70,15 +70,11 @@ class SmartFreeMinutesTest {
         assertEquals(0, new BigDecimal("4.00").compareTo(result.getFinalAmount()),
                 "SMART_FREE_MINUTES 应优先消费高价日段");
 
-        // SMART 免费段落在日段 08:00-09:00
+        // GLOBAL 输出为收费汇总桶，免费区间由 PromotionUsage 表达
         List<DurationSegment> segs = result.getDurationSegments();
         assertNotNull(segs);
-        DurationSegment smartFree = segs.stream()
-                .filter(s -> s.chargedMinutes() == 0)
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("未找到免费段"));
-        assertEquals(LocalDateTime.of(2026, 1, 1, 8, 0), smartFree.beginTime());
-        assertEquals(LocalDateTime.of(2026, 1, 1, 9, 0), smartFree.endTime());
+        assertTrue(segs.stream().allMatch(s -> s.beginTime() == null && s.endTime() == null));
+        assertTrue(segs.stream().noneMatch(s -> s.chargedMinutes() == 0));
 
         // SMART_FREE_MINUTES usage 记录
         PromotionUsage smartUsage = result.getPromotionUsages().stream()
@@ -119,12 +115,12 @@ class SmartFreeMinutesTest {
         assertEquals(0, new BigDecimal("1.00").compareTo(result.getFinalAmount()),
                 "SMART 应先填满高价日段再溢出到夜段");
 
-        // 免费段总分钟 = 180
-        int freeMinutes = result.getDurationSegments().stream()
-                .filter(s -> s.chargedMinutes() == 0)
-                .mapToInt(s -> (int) java.time.Duration.between(s.beginTime(), s.endTime()).toMinutes())
-                .sum();
-        assertEquals(180, freeMinutes);
+        // 免费分钟由 SMART_FREE_MINUTES usage 跟踪
+        PromotionUsage smartUsage = result.getPromotionUsages().stream()
+                .filter(u -> u.getType() == BConstants.PromotionType.SMART_FREE_MINUTES)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("未找到 SMART_FREE_MINUTES usage"));
+        assertEquals(180, smartUsage.getUsedMinutes());
     }
 
     /** GLOBAL 全日段窗口：SMART 行为与 FREE_MINUTES 等价（同价无优先差异）。 */
@@ -151,12 +147,12 @@ class SmartFreeMinutesTest {
         // 4h - 1h 免费 = 3h × 2 = 6 元
         assertEquals(0, new BigDecimal("6.00").compareTo(result.getFinalAmount()));
 
-        // 免费段同质（chargedMinutes=0 或段时长）
-        for (DurationSegment seg : result.getDurationSegments()) {
-            int span = (int) java.time.Duration.between(seg.beginTime(), seg.endTime()).toMinutes();
-            assertTrue(seg.chargedMinutes() == 0 || seg.chargedMinutes() == span,
-                    "段非同质: " + seg.beginTime() + "-" + seg.endTime() + " charged=" + seg.chargedMinutes());
-        }
+        List<DurationSegment> segs = result.getDurationSegments();
+        assertEquals(1, segs.size());
+        assertNull(segs.get(0).beginTime());
+        assertNull(segs.get(0).endTime());
+        assertEquals("day", segs.get(0).periodLabel());
+        assertEquals(180, segs.get(0).chargedMinutes());
     }
 
     /** 非 GLOBAL 模式遇 SMART_FREE_MINUTES 报错：CONTINUOUS。 */
@@ -242,10 +238,11 @@ class SmartFreeMinutesTest {
         assertTrue(hasFreeMinutesUsage, "应有 FREE_MINUTES usage");
         assertTrue(hasSmartUsage, "应有 SMART_FREE_MINUTES usage");
 
-        // 免费段总分钟 = 120（60 + 60）
-        int totalFreeMinutes = result.getDurationSegments().stream()
-                .filter(s -> s.chargedMinutes() == 0)
-                .mapToInt(s -> (int) java.time.Duration.between(s.beginTime(), s.endTime()).toMinutes())
+        // 免费分钟由 FREE_MINUTES + SMART_FREE_MINUTES usage 跟踪
+        long totalFreeMinutes = result.getPromotionUsages().stream()
+                .filter(u -> u.getType() == BConstants.PromotionType.FREE_MINUTES
+                        || u.getType() == BConstants.PromotionType.SMART_FREE_MINUTES)
+                .mapToLong(PromotionUsage::getUsedMinutes)
                 .sum();
         assertEquals(120, totalFreeMinutes);
     }

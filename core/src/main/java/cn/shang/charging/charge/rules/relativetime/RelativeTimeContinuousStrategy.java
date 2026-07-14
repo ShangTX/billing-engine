@@ -217,7 +217,6 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
      */
     private BoundaryProvider createPeriodBoundaryProvider(List<RelativeTimePeriod> periods, LocalDateTime cycleOriginBegin) {
         return (current, end) -> {
-            List<LocalDateTime> result = new ArrayList<>();
             long minutesFromOrigin = Duration.between(cycleOriginBegin, current).toMinutes();
             long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
             long cycleCount = minutesFromOrigin / MINUTES_PER_CYCLE;
@@ -228,12 +227,12 @@ final class RelativeTimeContinuousStrategy implements BillingRule<RelativeTimeCo
                 if (periodEndMinute > positionInCycle) {
                     LocalDateTime boundary = cycleStart.plusMinutes(periodEndMinute);
                     if (boundary.isAfter(current) && !boundary.isAfter(end)) {
-                        result.add(boundary);
+                        return boundary;
                     }
                     break;
                 }
             }
-            return result;
+            return null;
         };
     }
 

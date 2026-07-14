@@ -1,5 +1,7 @@
 package cn.shang.charging.billing.pojo;
 
+import java.math.BigDecimal;
+
 /**
  * 计费规则配置接口。
  * <p>
@@ -19,6 +21,28 @@ public interface RuleConfig {
      * null 表示默认支持
      */
     default Boolean getSimplifiedSupported() {
+        return null;
+    }
+
+    /**
+     * 不完整计费单元收费模式。
+     * 默认完整收费，具体规则配置可按需覆盖为字段值。
+     */
+    default BConstants.IncompleteUnitChargeMode getIncompleteUnitChargeMode() {
+        return BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
+    }
+
+    /**
+     * THRESHOLD_MINUTES 模式阈值（分钟）。null 表示未配置。
+     */
+    default Integer getThresholdMinutes() {
+        return null;
+    }
+
+    /**
+     * THRESHOLD_RATIO 模式阈值比例。null 表示未配置。
+     */
+    default BigDecimal getThresholdRatio() {
         return null;
     }
 

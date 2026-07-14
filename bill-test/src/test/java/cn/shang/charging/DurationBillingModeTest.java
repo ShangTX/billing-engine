@@ -237,17 +237,10 @@ class DurationBillingModeTest {
         assertNotNull(segs);
         assertFalse(segs.isEmpty());
 
-        // 同质性：每段要么全免费（chargedMinutes=0），要么全收费（chargedMinutes=段时长）
-        // 改前 GLOBAL 不时段化，免费段"揉进"收费段，chargedMinutes 介于 0 和段时长之间
-        for (DurationSegment seg : segs) {
-            int spanMinutes = (int) Duration.between(seg.beginTime(), seg.endTime()).toMinutes();
-            assertTrue(seg.chargedMinutes() == 0 || seg.chargedMinutes() == spanMinutes,
-                    "段非同质: " + seg.beginTime() + "-" + seg.endTime()
-                            + " chargedMinutes=" + seg.chargedMinutes() + " span=" + spanMinutes);
-        }
-
-        // 免费段独立存在
-        assertTrue(segs.stream().anyMatch(s -> s.chargedMinutes() == 0));
+        assertEquals(1, segs.size());
+        assertNull(segs.get(0).beginTime());
+        assertNull(segs.get(0).endTime());
+        assertEquals("day", segs.get(0).periodLabel());
         // 收费段总分钟 = 180（240 - 60）
         int totalCharged = segs.stream()
                 .filter(s -> s.chargedMinutes() > 0)
@@ -307,6 +300,67 @@ class DurationBillingModeTest {
         // FULL_CHARGE：日段 120min 整除 → 2×2=4 元；夜段 90min=1整+30余 → 1×1+1=2 元。总 6 元
         // （对比 PROPORTIONAL：日段 4 + 夜段 1.5 = 5.5 元）
         assertEquals(0, new BigDecimal("6.00").compareTo(result.getFinalAmount()));
+    }
+
+    /** DayNight GLOBAL：相同价格的分散时长先全局汇总，再统一处理不足单元。 */
+    @Test
+    void globalMode_dayNightAggregatesSamePriceDurations() {
+        DayNightConfig config = dayNightConfig("global-aggregate", new BigDecimal("1000.00"));
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
+
+        // day 段被免费段切成两个 30min 收费片段。旧实现逐段 FULL_CHARGE 会收 2+2=4；
+        // GLOBAL 应汇总 day=60min 后只收 2。
+        BillingRequest req = request(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 9, 30));
+        req.setExternalPromotions(List.of(
+                PromotionGrant.builder()
+                        .id("middle-free")
+                        .type(BConstants.PromotionType.FREE_RANGE)
+                        .beginTime(LocalDateTime.of(2026, 1, 1, 8, 30))
+                        .endTime(LocalDateTime.of(2026, 1, 1, 9, 0))
+                        .priority(1)
+                        .build()
+        ));
+
+        BillingResult result = service.calculate(req);
+
+        assertEquals(0, new BigDecimal("2.00").compareTo(result.getFinalAmount()));
+        assertEquals(1, result.getDurationSegments().size());
+        DurationSegment day = result.getDurationSegments().get(0);
+        assertNull(day.beginTime());
+        assertNull(day.endTime());
+        assertEquals("day", day.periodLabel());
+        assertEquals(60, day.chargedMinutes());
+        assertEquals(0, new BigDecimal("2.00").compareTo(day.chargedAmount()));
+    }
+
+    /** DayNight GLOBAL：封顶使用完整周期 cap + 尾周期实际汇总费用，避免 25h 套用 48h 封顶。 */
+    @Test
+    void globalMode_dayNightTailCycleCapUsesTailCharge() {
+        DayNightConfig config = new DayNightConfig()
+                .setId("global-tail-cap")
+                .setDayBeginMinute(0)
+                .setDayEndMinute(1440)
+                .setDayUnitPrice(new BigDecimal("2.00"))
+                .setNightUnitPrice(new BigDecimal("2.00"))
+                .setUnitMinutes(60)
+                .setMaxChargeOneDay(new BigDecimal("20.00"))
+                .setBlockWeight(new BigDecimal("0.5"));
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_GLOBAL);
+
+        BillingResult result = service.calculate(request(
+                LocalDateTime.of(2026, 1, 1, 0, 0),
+                LocalDateTime.of(2026, 1, 2, 1, 0)));
+
+        assertEquals(0, new BigDecimal("22.00").compareTo(result.getFinalAmount()));
+        assertEquals(1, result.getDurationSegments().size());
+        DurationSegment day = result.getDurationSegments().get(0);
+        assertNull(day.beginTime());
+        assertNull(day.endTime());
+        assertEquals("day", day.periodLabel());
+        assertEquals(25 * 60, day.chargedMinutes());
+        assertEquals(0, new BigDecimal("50.00").compareTo(day.chargedAmount()));
     }
 
     /** 不支持时长模式的规则传 PERIOD 抛异常 */

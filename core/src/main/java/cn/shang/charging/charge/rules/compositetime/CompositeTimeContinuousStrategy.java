@@ -250,12 +250,12 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
                 if (periodEndMinute > positionInCycle) {
                     LocalDateTime boundary = cycleStart.plusMinutes(periodEndMinute);
                     if (boundary.isAfter(current) && !boundary.isAfter(e)) {
-                        return List.of(boundary);
+                        return boundary;
                     }
                     break;
                 }
             }
-            return List.of();
+            return null;
         });
         providers.add(BoundaryProviders.cycleEnd(billingOrigin, MINUTES_PER_CYCLE));
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));

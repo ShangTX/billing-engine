@@ -72,7 +72,7 @@ public class BillingPlaygroundTest {
         System.out.println("  Snap算法测试场景");
         System.out.println("=".repeat(72));
 //        run(scenario_snap1_exactBoundary());         // Snap测试1：边界恰好落在单元边界
-//        run(scenario_snap2_dayBegin_belongToDay());  // Snap测试2：dayBegin跨单元归属day
+        run(scenario_snap2_dayBegin_belongToDay());  // Snap测试2：dayBegin跨单元归属day
 //        run(scenario_snap3_dayBegin_belongToNight()); // Snap测试3：dayBegin跨单元归属night
 //        run(scenario_snap4_dayEnd_belongToDay());    // Snap测试4：dayEnd跨单元归属day
 //        run(scenario_snap5_dayEnd_belongToNight());  // Snap测试5：dayEnd跨单元归属night
@@ -82,10 +82,12 @@ public class BillingPlaygroundTest {
         System.out.println("\n" + "=".repeat(72));
         System.out.println("  无优惠Snap边界测试场景");
         System.out.println("=".repeat(72));
-        run(scenario_noPromo_dayBegin_belongToDay());    // 无优惠：dayBegin归属day
+//        run(scenario_noPromo_dayBegin_belongToDay());    // 无优惠：dayBegin归属day
 //        run(scenario_noPromo_dayBegin_belongToNight());   // 无优惠：dayBegin归属night
 //        run(scenario_noPromo_dayEnd_belongToDay());       // 无优惠：dayEnd归属day
 //        run(scenario_noPromo_dayEnd_belongToNight());     // 无优惠：dayEnd归属night
+
+//        run(scenario_simplify_dayNight());     // 长期计费简化
     }
 
     // ==================== 预设场景（复制改参数即可） ====================
@@ -109,7 +111,7 @@ public class BillingPlaygroundTest {
                         .setDayUnitPrice(new BigDecimal("2"))
                         .setNightUnitPrice(new BigDecimal("1"))
                         .setUnitMinutes(60)
-                        .setMaxChargeOneDay(new BigDecimal("50"))
+                        .setMaxChargeOneDay(new BigDecimal("15"))
                         .setBlockWeight(new BigDecimal("0.5")))
                 .externalPromotions(List.of(
                         PromotionGrant.builder()
@@ -384,14 +386,15 @@ public class BillingPlaygroundTest {
                 .name("Snap测试2：dayBegin跨单元归属day + 优惠混合")
                 .beginTime(LocalDateTime.of(2026, 7, 7, 5, 47))
                 .endTime(LocalDateTime.of(2026, 7, 7, 12, 19))
-                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .calculationMode(BConstants.CalculationMode.DURATION_GLOBAL)
                 .ruleConfig(new DayNightConfig()
-                        .setId("dn-snap2")
+                        .setId("dnx2")
                         .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
                         .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
-                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("15"))
                         .setBlockWeight(new BigDecimal("0.5"))
-                        .setSplitDayNightBoundary(false))
+                        .setSplitDayNightBoundary(true)
+                        .setIncompleteUnitChargeMode(BConstants.IncompleteUnitChargeMode.PROPORTIONAL))
                 .externalPromotions(List.of(
                         PromotionGrant.builder()
                                 .id("mid-free")
@@ -516,6 +519,42 @@ public class BillingPlaygroundTest {
                                 .priority(2)
                                 .beginTime(LocalDateTime.of(2026, 7, 7, 19, 53))
                                 .endTime(LocalDateTime.of(2026, 7, 7, 20, 31))
+                                .build()))
+                .promotionRuleConfigs(List.of(
+                        StartFreePromotionConfig.builder()
+                                .id("start-free-19")
+                                .minutes(19)
+                                .priority(1)
+                                .build()))
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
+                .build();
+    }
+
+    /**
+     * 计费简化测试
+     * 计费：1.1日-1.10日
+     */
+    static Scenario scenario_simplify_dayNight() {
+        return Scenario.builder()
+                .name("计费简化测试 + 优惠混合")
+                .beginTime(LocalDateTime.of(2026, 1, 1, 18, 41))
+                .endTime(LocalDateTime.of(2026, 1, 12, 22, 57))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("dn-x")
+                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
+                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("15"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSplitDayNightBoundary(false).setSimplifiedSupported(true))
+                .externalPromotions(List.of(
+                        PromotionGrant.builder()
+                                .id("late-free")
+                                .type(BConstants.PromotionType.FREE_RANGE)
+                                .source(BConstants.PromotionSource.COUPON)
+                                .priority(2)
+                                .beginTime(LocalDateTime.of(2026, 1, 7, 19, 53))
+                                .endTime(LocalDateTime.of(2026, 1, 7, 20, 31))
                                 .build()))
                 .promotionRuleConfigs(List.of(
                         StartFreePromotionConfig.builder()
@@ -710,6 +749,11 @@ public class BillingPlaygroundTest {
                                                                    Map<String, Object> context) {
                 return scenario.promotionRuleConfigs != null ? scenario.promotionRuleConfigs : List.of();
             }
+
+            @Override
+            public int getSimplifiedCycleThreshold() {
+                return 2;
+            }
         };
     }
 
@@ -759,7 +803,7 @@ public class BillingPlaygroundTest {
         // 计费单元明细（CONTINUOUS/UNIT_BASED）
         if (result.getUnits() != null && !result.getUnits().isEmpty()) {
             System.out.println("\n【计费单元明细】共 " + result.getUnits().size() + " 个");
-            System.out.printf("  %-3s %-16s %-16s %6s %8s %10s %10s %s%n",
+            System.out.printf("  %-3s %-16s %-11s %6s %8s %9s %7s %s%n",
                     "#", "开始", "结束", "分钟", "单价", "原始", "实收", "标记");
             for (int i = 0; i < result.getUnits().size(); i++) {
                 BillingUnit u = result.getUnits().get(i);
@@ -790,8 +834,8 @@ public class BillingPlaygroundTest {
                 String mark = d.freePromotionId() != null ? " [免费:" + d.freePromotionId() + "]" : "";
                 System.out.printf("  %-3d %-16s %-16s %-10s %6d %8s %10s %10s %s%n",
                         i + 1,
-                        d.beginTime().format(FMT),
-                        d.endTime().format(FMT),
+                        d.beginTime() == null ? "-" : d.beginTime().format(FMT),
+                        d.endTime() == null ? "-" : d.endTime().format(FMT),
                         d.periodLabel(),
                         d.chargedMinutes(),
                         d.unitPrice(),

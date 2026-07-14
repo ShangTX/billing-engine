@@ -178,19 +178,25 @@ public interface RuleSemantics<C extends RuleConfig> {
      *
      * @param config 规则配置
      */
-    BConstants.IncompleteUnitChargeMode incompleteMode(C config);
+    default BConstants.IncompleteUnitChargeMode incompleteMode(C config) {
+        return config.getIncompleteUnitChargeMode();
+    }
 
     /**
      * THRESHOLD_MINUTES 阈值（分钟）：余数达到此值收全额，否则免费。null 视为 0。
      *
      * @param config 规则配置
      */
-    Integer thresholdMinutes(C config);
+    default Integer thresholdMinutes(C config) {
+        return config.getThresholdMinutes();
+    }
 
     /**
      * THRESHOLD_RATIO 阈值（余数/单元时长 &ge; 此比例时按比例收费，否则免费）。null 视为 0。
      *
      * @param config 规则配置
      */
-    BigDecimal thresholdRatio(C config);
+    default BigDecimal thresholdRatio(C config) {
+        return config.getThresholdRatio();
+    }
 }

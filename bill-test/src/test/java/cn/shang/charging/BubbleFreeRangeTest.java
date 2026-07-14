@@ -56,7 +56,7 @@ class BubbleFreeRangeTest {
         assertEquals(0, new BigDecimal("100").compareTo(result.getFinalAmount()));
     }
 
-    /** GLOBAL + NORMAL（对比）：NORMAL 占用周期，cycleCount 不减（3），封顶 150，finalAmount 126。 */
+    /** GLOBAL + NORMAL（对比）：NORMAL 占用周期，尾周期只按尾部实际费用参与封顶。 */
     @Test
     void globalMode_normal_doesNotReduceCycleCount() {
         BillingService service = createService(config(new BigDecimal("50")), BConstants.CalculationMode.DURATION_GLOBAL);
@@ -71,9 +71,8 @@ class BubbleFreeRangeTest {
 
         BillingResult result = service.calculate(req);
 
-        // NORMAL 7h 占用周期：cycleCount = ceil(49/24) = 3，封顶 = 50×3 = 150
-        // totalAmount = 126 < 150 → finalAmount = 126
-        assertEquals(0, new BigDecimal("126").compareTo(result.getFinalAmount()));
+        // 49h = 2 个完整周期 + 1h 尾周期；前 2 周期封顶 100，尾周期实际 3 元
+        assertEquals(0, new BigDecimal("103").compareTo(result.getFinalAmount()));
     }
 
     /** PERIOD + bubble：bubble 不占用周期，周期按累计有效时长切，每周期独立封顶。 */

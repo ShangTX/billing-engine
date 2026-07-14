@@ -1,7 +1,6 @@
 package cn.shang.charging.charge.rules;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * 边界驱动循环的边界来源。
@@ -15,11 +14,11 @@ import java.util.List;
 public interface BoundaryProvider {
 
     /**
-     * 返回所有严格大于 {@code current}、不大于 {@code calcEnd} 的边界候选。
+     * 返回严格大于 {@code current}、不大于 {@code calcEnd} 的最近边界。
      * <p>
      * @param current 当前位置（排他下界）
      * @param calcEnd 计算窗口终点（含上界）
-     * @return 边界候选列表，可为空
+     * @return 最近边界；没有候选时返回 {@code null}
      */
-    List<LocalDateTime> getBoundaries(LocalDateTime current, LocalDateTime calcEnd);
+    LocalDateTime nextBoundary(LocalDateTime current, LocalDateTime calcEnd);
 }

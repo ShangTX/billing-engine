@@ -88,8 +88,7 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         List<BillingUnit> allUnits;
         if (simplificationEnabled && threshold > 0
                 && reachesCycleCapWithoutPromotions(calcBegin, context, config, cycleCapAmount)) {
-            allUnits = generateUnitsByGlobalGaps(calcBegin, calcEnd, context, config,
-                    freeTimeRanges, threshold);
+            allUnits = generateUnitsByGlobalGaps(calcBegin, calcEnd, context, config, freeTimeRanges, threshold);
         } else {
             allUnits = calculateBoundaryDriven(calcBegin, calcEnd, context, config, freeTimeRanges);
         }
@@ -276,17 +275,13 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
      */
     private BoundaryProvider createDayNightBoundaryProvider(DayNightConfig config) {
         return (current, end) -> {
-            List<LocalDateTime> boundaries = new ArrayList<>(1);
-
             // 1.首先确认日夜边界位置，day-night 和 night-day
             int dayBeginMin = config.getDayBeginMinute();
             int dayEndMin = config.getDayEndMinute();
-
-            // 2.确认current相邻的最近的一个边界位置
             LocalDateTime nearestBoundary = findNearestDayNightBoundary(current, end, dayBeginMin, dayEndMin);
 
             if (nearestBoundary == null || nearestBoundary.isAfter(end)) {
-                return boundaries; // 范围内无边界
+                return null; // 范围内无边界
             }
 
             // 判断边界类型：是 dayBegin 还是 dayEnd
@@ -295,7 +290,7 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
             // 3. 根据splitDayNightBoundary配置决定是否需要snap
             if (config.getSplitDayNightBoundary() == null || config.getSplitDayNightBoundary()) {
                 // 3-1. 截断处理，直接以此日夜边界作为此次边界
-                boundaries.add(nearestBoundary);
+                return nearestBoundary;
             } else {
                 // 3-2. 非截断处理snap
                 // 4.1 snap 计算从current开始对齐单元边界，找到包含nearestBoundary的单元
@@ -310,7 +305,7 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                 // 4.2 snap 计算最后一个边界是否跨越，如果未跨越则可以直接结束处理，使用此边界作为结果
                 if (nearestBoundary.equals(unitStart) || nearestBoundary.equals(unitEnd)) {
                     // 边界恰好落在单元边界上，未跨越
-                    boundaries.add(nearestBoundary);
+                    return nearestBoundary;
                 } else {
                     // 4.2 snap 处理跨越情况，判断此单元归属于前一个日夜分段还是后一个日夜分段
                     int dayMinutes = countDayMinutes(unitStart, unitEnd, dayBeginMin, dayEndMin);
@@ -321,17 +316,17 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                     LocalDateTime snapped = snapDayNightBoundary(
                             unitStart, unitEnd, isDayBeginBoundary, belongsToDay);
                     if (snapped.isAfter(current)) {
-                        boundaries.add(snapped);
+                        return snapped;
                     } else {
                         LocalDateTime nextBoundary = findNearestDayNightBoundary(nearestBoundary, end, dayBeginMin, dayEndMin);
                         if (nextBoundary != null && nextBoundary.isAfter(current) && !nextBoundary.isAfter(end)) {
-                            boundaries.add(nextBoundary);
+                            return nextBoundary;
                         }
                     }
                 }
             }
 
-            return boundaries;
+            return null;
         };
     }
 

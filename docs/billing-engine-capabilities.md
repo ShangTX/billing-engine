@@ -72,7 +72,7 @@ Segment calculation modes:
 | `CONTINUOUS` | The boundary-driven loop is the only calculation path: find the nearest boundary (free-range start/end, period end, cycle end, calcEnd) and jump to it, producing one homogeneous segment per iteration; within a segment splits into compact (full units) + truncated (remainder) by subCount + remainder. |
 | `UNIT_BASED` | Fixed unit alignment + full-coverage-free; does not use the boundary-driven loop. Currently carried only by `DayNightUnitBasedStrategy` under the `dayNight` facade. |
 | `DURATION_PERIOD` | Duration billing within a cycle, with cycle cap and period cap. Emits `DurationSegment`. |
-| `DURATION_GLOBAL` | Global duration billing, caps multiplied by cycle count. Emits `DurationSegment`. The only mode that consumes `SMART_FREE_MINUTES`. |
+| `DURATION_GLOBAL` | Global duration billing. Shared rule families use global cap × cycle count; `dayNight` uses aggregate charged buckets and a tail-aware cycle cap. Emits `DurationSegment`. The only mode that consumes `SMART_FREE_MINUTES`. |
 
 ### Mode feature matrix
 
@@ -85,7 +85,7 @@ Segment calculation modes:
 | SMART_FREE_MINUTES | Error | Error | Error | Rule-side highest-price-first allocation |
 | compact merge | Produced in-segment | No | No | No |
 | Simplified calculation | Global-gap | None | None | None |
-| Cap basis | Per-cycle cap | Daily cap | In-cycle cap | Global cap × cycle count |
+| Cap basis | Per-cycle cap | Daily cap | In-cycle cap | Global cap × cycle count; `dayNight` caps full cycles plus the tail cycle's actual charge |
 
 ### Four-layer architecture
 
@@ -108,7 +108,7 @@ Orthogonal benefit: adding a rule family → implement `RuleSemantics` + a facad
 
 Rules declare supported modes via `BillingRule.supportedCalculationModes()`; the facade dispatches by the requested mode:
 
-- `dayNight` declares all 4 modes, dispatching to `DayNightContinuousStrategy` (CONTINUOUS) / `DayNightUnitBasedStrategy` (UNIT_BASED) / `DurationPeriodStrategy` / `DurationGlobalStrategy` (receiving `DayNightSemantics`).
+- `dayNight` declares all 4 modes, dispatching to `DayNightContinuousStrategy` (CONTINUOUS) / `DayNightUnitBasedStrategy` (UNIT_BASED) / `DurationPeriodStrategy` / `DayNightDurationGlobalStrategy`.
 - `relativeTime` / `naturalTime` / `compositeTime` declare `CONTINUOUS` / `DURATION_PERIOD` / `DURATION_GLOBAL` (no `UNIT_BASED`); each is carried by its `*ContinuousStrategy` + the shared duration strategies.
 - `flatFree` declares `CONTINUOUS` / `UNIT_BASED`.
 
@@ -116,8 +116,8 @@ Boundary-driven framework abstractions:
 
 | Abstraction | Responsibility |
 |-------------|----------------|
-| `BoundaryProvider` | Boundary source interface; rules register their own boundaries (free ranges, period ends, cycle ends, etc.; CONTINUOUS no longer includes unit alignment) |
-| `BoundaryProviders` | Boundary source factory + `findNearest` |
+| `BoundaryProvider` | Boundary source interface; each source returns only its nearest boundary after `current` (free range edge, period end, cycle end, etc.; CONTINUOUS no longer includes unit alignment) |
+| `BoundaryProviders` | Boundary source factory + `findNearest`; compares the nearest candidate from each provider |
 | `HomogeneousSegment` | Homogeneous segment, the minimal product of the boundary-driven loop |
 | `HomogeneousSegmentCalculator` | Homogeneous segment → BillingUnit (with compact merge) |
 | `BoundaryDrivenLoop` | Public loop entry (`run`), pure scheduling; shared by CONTINUOUS and duration strategies; UNIT_BASED does not use it |
@@ -130,7 +130,7 @@ Boundary-driven framework abstractions:
 
 ### `dayNight`
 
-Implemented by the `DayNightRule` facade, dispatching by `CalculationMode` to `DayNightContinuousStrategy` (CONTINUOUS) / `DayNightUnitBasedStrategy` (UNIT_BASED) / `DurationPeriodStrategy` / `DurationGlobalStrategy` (PERIOD/GLOBAL, receiving `DayNightSemantics`).
+Implemented by the `DayNightRule` facade, dispatching by `CalculationMode` to `DayNightContinuousStrategy` (CONTINUOUS) / `DayNightUnitBasedStrategy` (UNIT_BASED) / `DurationPeriodStrategy` (PERIOD, receiving `DayNightSemantics`) / `DayNightDurationGlobalStrategy` (GLOBAL).
 
 Capabilities:
 
@@ -141,8 +141,8 @@ Capabilities:
 - `splitDayNightBoundary` (default `true`) controls whether CONTINUOUS splits units at the day/night boundary: when `false`, a unit spanning the boundary is priced by `crossPeriodMode` (default `BLOCK_WEIGHT`) + `blockWeight` (legacy semantics).
 - `maxChargeOneDay` applies a daily cap.
 - UNIT_BASED semantics are carried by `DayNightUnitBasedStrategy` (a strategy under the facade: fixed unit alignment + full-coverage-free).
-- `DURATION_PERIOD` / `DURATION_GLOBAL` are carried by the shared `DurationPeriodStrategy` / `DurationGlobalStrategy` (declared-on support, no rule-family-private implementation needed).
-- Incomplete-unit charge mode (`IncompleteUnitChargeMode`: FULL_CHARGE/PROPORTIONAL/FREE/THRESHOLD_MINUTES/THRESHOLD_RATIO) is wired into all calculation modes: CONTINUOUS/UNIT_BASED handle the truncated unit (`isTruncated` last segment), DURATION_PERIOD/DURATION_GLOBAL handle the remainder of a homogeneous segment that is short of `unitMinutes` (the integral part is always charged; only the remainder follows the mode). Default `FULL_CHARGE` ("round up to a full unit"), `PROPORTIONAL` charges proportionally.
+- `DURATION_PERIOD` is carried by the shared `DurationPeriodStrategy`; `DURATION_GLOBAL` is specialized by `DayNightDurationGlobalStrategy`, which aggregates same day/night price buckets, leaves bucket begin/end empty, tracks free usage through `PromotionUsage`, and caps full cycles plus the tail cycle's actual charge.
+- Incomplete-unit charge mode (`IncompleteUnitChargeMode`: FULL_CHARGE/PROPORTIONAL/FREE/THRESHOLD_MINUTES/THRESHOLD_RATIO) is wired into all calculation modes through `RuleConfig` default getters: CONTINUOUS/UNIT_BASED handle the truncated unit (`isTruncated` last segment), DURATION_PERIOD/DURATION_GLOBAL handle the remainder of a homogeneous segment that is short of `unitMinutes` (the integral part is always charged; only the remainder follows the mode). Default `FULL_CHARGE` ("round up to a full unit"), `PROPORTIONAL` charges proportionally.
 
 Important query behavior:
 

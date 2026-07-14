@@ -1,6 +1,5 @@
 package cn.shang.charging.charge.rules.compositetime;
 
-import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
@@ -9,7 +8,6 @@ import cn.shang.charging.charge.rules.RuleSemantics;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -96,7 +94,6 @@ final class CompositeTimeSemantics implements RuleSemantics<CompositeTimeConfig>
     public BoundaryProvider periodBoundaryProvider(CompositeTimeConfig config, LocalDateTime cycleOrigin) {
         List<CompositePeriod> periods = config.getPeriods();
         return (current, end) -> {
-            List<LocalDateTime> result = new ArrayList<>();
             long minutesFromOrigin = Duration.between(cycleOrigin, current).toMinutes();
             long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
             long cycleCount = minutesFromOrigin / MINUTES_PER_CYCLE;
@@ -107,12 +104,12 @@ final class CompositeTimeSemantics implements RuleSemantics<CompositeTimeConfig>
                 if (periodEndMinute > positionInCycle) {
                     LocalDateTime boundary = cycleStart.plusMinutes(periodEndMinute);
                     if (boundary.isAfter(current) && !boundary.isAfter(end)) {
-                        result.add(boundary);
+                        return boundary;
                     }
                     break;
                 }
             }
-            return result;
+            return null;
         };
     }
 
@@ -126,20 +123,5 @@ final class CompositeTimeSemantics implements RuleSemantics<CompositeTimeConfig>
     @Override
     public BigDecimal cycleCap(CompositeTimeConfig config) {
         return config.getMaxChargeOneCycle();
-    }
-
-    @Override
-    public BConstants.IncompleteUnitChargeMode incompleteMode(CompositeTimeConfig config) {
-        return config.getIncompleteUnitChargeMode();
-    }
-
-    @Override
-    public Integer thresholdMinutes(CompositeTimeConfig config) {
-        return config.getThresholdMinutes();
-    }
-
-    @Override
-    public BigDecimal thresholdRatio(CompositeTimeConfig config) {
-        return config.getThresholdRatio();
     }
 }

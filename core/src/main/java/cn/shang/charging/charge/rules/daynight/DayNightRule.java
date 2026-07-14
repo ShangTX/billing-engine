@@ -4,7 +4,6 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.charge.rules.BillingRule;
-import cn.shang.charging.charge.rules.DurationGlobalStrategy;
 import cn.shang.charging.charge.rules.DurationPeriodStrategy;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 
@@ -56,7 +55,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             }
             case DURATION_GLOBAL -> {
                 validateConfig(config);
-                yield DurationGlobalStrategy.calculate(dayNightSemantics, context, config, promotionAggregate);
+                yield DayNightDurationGlobalStrategy.calculate(context, config, promotionAggregate);
             }
             case UNIT_BASED -> unitBasedStrategy.calculate(context, config, promotionAggregate);
             case CONTINUOUS -> continuousStrategy.calculate(context, config, promotionAggregate);

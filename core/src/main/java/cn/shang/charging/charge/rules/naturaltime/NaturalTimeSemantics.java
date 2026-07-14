@@ -1,6 +1,5 @@
 package cn.shang.charging.charge.rules.naturaltime;
 
-import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
@@ -75,29 +74,14 @@ final class NaturalTimeSemantics implements RuleSemantics<NaturalTimeConfig> {
             int periodEnd = periodResolver.findNextPeriodBoundary(currentMinute, periods);
             LocalDateTime periodBoundary = current.plusMinutes(periodEnd - currentMinute);
             if (periodBoundary.isAfter(current) && !periodBoundary.isAfter(end)) {
-                return List.of(periodBoundary);
+                return periodBoundary;
             }
-            return List.of();
+            return null;
         };
     }
 
     @Override
     public BigDecimal cycleCap(NaturalTimeConfig config) {
         return config.getMaxChargeOneDay();
-    }
-
-    @Override
-    public BConstants.IncompleteUnitChargeMode incompleteMode(NaturalTimeConfig config) {
-        return config.getIncompleteUnitChargeMode();
-    }
-
-    @Override
-    public Integer thresholdMinutes(NaturalTimeConfig config) {
-        return config.getThresholdMinutes();
-    }
-
-    @Override
-    public BigDecimal thresholdRatio(NaturalTimeConfig config) {
-        return config.getThresholdRatio();
     }
 }

@@ -91,12 +91,15 @@ class FreeMinutesMaterializationTest {
         BillingResult result = service.calculate(req);
         // 150 分钟：120 日段(4 元)全免 + 30 夜段(0.5 元)免。6-4.5=1.5 元
         assertEquals(0, new BigDecimal("1.50").compareTo(result.getFinalAmount()));
-        // 验证 DurationSegment：第一段 chargedMinutes=0，第二段 chargedMinutes=90
+        // GLOBAL 输出为同质收费桶，免费分钟通过 PromotionUsage 跟踪
         List<DurationSegment> segs = result.getDurationSegments();
         assertNotNull(segs);
-        assertTrue(segs.size() >= 2);
-        DurationSegment first = segs.get(0);
-        assertEquals(0, first.chargedMinutes()); // 日段全免
+        assertEquals(1, segs.size());
+        assertEquals("night", segs.get(0).periodLabel());
+        assertEquals(90, segs.get(0).chargedMinutes());
+        assertTrue(result.getPromotionUsages().stream()
+                .anyMatch(u -> u.getType() == BConstants.PromotionType.FREE_MINUTES
+                        && u.getUsedMinutes() == 150));
     }
 
     /** PERIOD：FREE_MINUTES 时段化，行为与现状一致。 8:00-12:00，60 分钟免费 → 6 元。 */

@@ -1,5 +1,6 @@
 package cn.shang.charging.billing;
 
+import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.RuleConfig;
@@ -42,7 +43,7 @@ public class BillingCalculator {
         }
 
         // 校验计算模式支持
-        cn.shang.charging.billing.pojo.BConstants.CalculationMode calculationMode = context.getCalculationMode();
+        BConstants.CalculationMode calculationMode = context.getCalculationMode();
         if (calculationMode != null && !billingRule.supportedCalculationModes().contains(calculationMode)) {
             throw new IllegalStateException(
                     "Rule " + billingRule.getClass().getSimpleName() +
@@ -54,7 +55,7 @@ public class BillingCalculator {
         // SMART_FREE_MINUTES 仅 DURATION_GLOBAL 消费（TODO-20260706-002 阶段5）：
         // 优先高价分配依赖 RuleSemantics.priceAt，复杂度锁定在 GLOBAL 模式内，其余模式报错。
         if (promotionAggregate != null
-                && calculationMode != cn.shang.charging.billing.pojo.BConstants.CalculationMode.DURATION_GLOBAL
+                && calculationMode != BConstants.CalculationMode.DURATION_GLOBAL
                 && promotionAggregate.getSmartFreeMinutesList() != null
                 && !promotionAggregate.getSmartFreeMinutesList().isEmpty()) {
             throw new IllegalStateException(

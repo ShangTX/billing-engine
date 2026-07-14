@@ -72,7 +72,7 @@ BillingRequest
 | `CONTINUOUS` | 边界驱动循环为唯一计算路径：找到最近边界（免费时段起止、时段结束、周期结束、calcEnd）跳过去，一次迭代产出一个同质段；段内按 subCount+remainder 拆为 compact（整单元）+ truncated（余数），compact 为段内直接产物 |
 | `UNIT_BASED` | 固定单元对齐 + 完整覆盖才免费，不走边界驱动公共循环；当前仅 `dayNight` 门面下 `DayNightUnitBasedStrategy` 承载 |
 | `DURATION_PERIOD` | 周期内时长计费，周期封顶 + 时段封顶，产出 `DurationSegment` |
-| `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘，产出 `DurationSegment`；唯一消费 `SMART_FREE_MINUTES` 的模式 |
+| `DURATION_GLOBAL` | 全局时长计费；通用规则族按全局封顶 × 周期数，`dayNight` 按收费汇总桶 + 尾周期封顶，产出 `DurationSegment`；唯一消费 `SMART_FREE_MINUTES` 的模式 |
 
 ### 模式特性矩阵
 
@@ -85,7 +85,7 @@ BillingRequest
 | SMART_FREE_MINUTES | 报错 | 报错 | 报错 | 规则侧优先高价分配 |
 | compact 合并 | 段内直接产出 | 无 | 无 | 无 |
 | 简化计算 | 全局空隙 | 无 | 无 | 无 |
-| 封顶基准 | 逐周期封顶 | 每日封顶 | 周期内封顶 | 全局封顶 × 周期数 |
+| 封顶基准 | 逐周期封顶 | 每日封顶 | 周期内封顶 | 全局封顶 × 周期数；`dayNight` 为完整周期封顶 + 尾周期实际费用封顶 |
 
 ### 四层架构
 
@@ -108,7 +108,7 @@ BillingRequest
 
 计费规则通过 `BillingRule.supportedCalculationModes()` 声明支持的模式，门面按请求模式分派：
 
-- `dayNight` 门面声明 4 种模式全支持，分派到 `DayNightContinuousStrategy`（CONTINUOUS）/`DayNightUnitBasedStrategy`（UNIT_BASED）/`DurationPeriodStrategy`/`DurationGlobalStrategy`（接收 `DayNightSemantics`）
+- `dayNight` 门面声明 4 种模式全支持，分派到 `DayNightContinuousStrategy`（CONTINUOUS）/`DayNightUnitBasedStrategy`（UNIT_BASED）/`DurationPeriodStrategy`/`DayNightDurationGlobalStrategy`
 - `relativeTime` / `naturalTime` / `compositeTime` 声明 `CONTINUOUS` / `DURATION_PERIOD` / `DURATION_GLOBAL`（不含 `UNIT_BASED`），各自由 `*ContinuousStrategy` + 通用时长策略承载
 - `flatFree` 声明 `CONTINUOUS` / `UNIT_BASED`
 
@@ -116,8 +116,8 @@ BillingRequest
 
 | 抽象 | 职责 |
 |------|------|
-| `BoundaryProvider` | 边界来源接口，规则注册自己的边界（免费时段、时段结束、周期结束等；CONTINUOUS 不再含单元对齐） |
-| `BoundaryProviders` | 边界来源工厂 + `findNearest` 最近边界查找 |
+| `BoundaryProvider` | 边界来源接口，每个来源只返回 `current` 之后最近的一个边界（免费时段起止、时段结束、周期结束等；CONTINUOUS 不再含单元对齐） |
+| `BoundaryProviders` | 边界来源工厂 + `findNearest` 最近边界查找；在各 provider 的最近候选之间取最小值 |
 | `HomogeneousSegment` | 同质段，边界驱动循环的最小产出 |
 | `HomogeneousSegmentCalculator` | 同质段 → BillingUnit（含 compact 合并） |
 | `BoundaryDrivenLoop` | 公共循环入口（`run`），纯调度，CONTINUOUS 与时长策略共享；UNIT_BASED 不走该层 |
@@ -130,7 +130,7 @@ BillingRequest
 
 ### `dayNight`
 
-由 `DayNightRule` 门面实现，按 `CalculationMode` 分派到 `DayNightContinuousStrategy`（CONTINUOUS）/`DayNightUnitBasedStrategy`（UNIT_BASED）/`DurationPeriodStrategy`/`DurationGlobalStrategy`（PERIOD/GLOBAL，接收 `DayNightSemantics`）。
+由 `DayNightRule` 门面实现，按 `CalculationMode` 分派到 `DayNightContinuousStrategy`（CONTINUOUS）/`DayNightUnitBasedStrategy`（UNIT_BASED）/`DurationPeriodStrategy`（PERIOD，接收 `DayNightSemantics`）/`DayNightDurationGlobalStrategy`（GLOBAL）。
 
 能力：
 
@@ -142,8 +142,8 @@ BillingRequest
 - `maxChargeOneDay` 支持每日封顶。
 - `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
 - UNIT_BASED 语义由 `DayNightUnitBasedStrategy` 承载（门面下策略，固定单元对齐 + 完整覆盖才免费）。
-- `DURATION_PERIOD` / `DURATION_GLOBAL` 时长模式由通用 `DurationPeriodStrategy` / `DurationGlobalStrategy` 承载（声明即支持，无需规则族私有实现）。
-- 不足单元计费（`IncompleteUnitChargeMode`：FULL_CHARGE/PROPORTIONAL/FREE/THRESHOLD_MINUTES/THRESHOLD_RATIO）已接入全部计算模式：CONTINUOUS/UNIT_BASED 处理截断单元（`isTruncated` 末段），DURATION_PERIOD/DURATION_GLOBAL 处理同质段不足 `unitMinutes` 的余数部分（整除部分始终照收，余数按模式处理）。默认 `FULL_CHARGE`（"不满一小时按一小时算"），`PROPORTIONAL` 按比例。
+- `DURATION_PERIOD` 由通用 `DurationPeriodStrategy` 承载；`DURATION_GLOBAL` 由 `DayNightDurationGlobalStrategy` 专门承载，按日夜同质价格桶汇总收费分钟，桶的 begin/end 为空，免费信息通过 `PromotionUsage` 跟踪，封顶按完整周期封顶 + 尾周期实际费用封顶。
+- 不足单元计费（`IncompleteUnitChargeMode`：FULL_CHARGE/PROPORTIONAL/FREE/THRESHOLD_MINUTES/THRESHOLD_RATIO）通过 `RuleConfig` 默认 getter 接入全部计算模式：CONTINUOUS/UNIT_BASED 处理截断单元（`isTruncated` 末段），DURATION_PERIOD/DURATION_GLOBAL 处理同质段不足 `unitMinutes` 的余数部分（整除部分始终照收，余数按模式处理）。默认 `FULL_CHARGE`（"不满一小时按一小时算"），`PROPORTIONAL` 按比例。
 
 查询行为：
 

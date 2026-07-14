@@ -87,9 +87,9 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
             int periodEnd = periodResolver.findNextPeriodBoundary(currentMinute, periods);
             LocalDateTime periodBoundary = current.plusMinutes(periodEnd - currentMinute);
             if (periodBoundary.isAfter(current) && !periodBoundary.isAfter(end)) {
-                return List.of(periodBoundary);
+                return periodBoundary;
             }
-            return List.of();
+            return null;
         });
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));
         providers.add(BoundaryProviders.calcEnd(calcEnd));
