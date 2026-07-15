@@ -139,6 +139,7 @@ public class FreeMinuteAllocator {
                                 .setId(currentFreeMinutes.getId())
                                 .setPriority(currentFreeMinutes.getPriority())
                                 .setSource(currentFreeMinutes.getSource())
+                                .setActivationMode(currentFreeMinutes.getActivationMode())
                                 .setPromotionType(BConstants.PromotionType.FREE_MINUTES));
                         // 更新已使用分钟数
                         currentPromotionUsage.setUsedMinutes(currentPromotionUsage.getUsedMinutes() + gapMinutes);
@@ -159,6 +160,7 @@ public class FreeMinuteAllocator {
                                 .setId(currentFreeMinutes.getId())
                                 .setPriority(currentFreeMinutes.getPriority())
                                 .setSource(currentFreeMinutes.getSource())
+                                .setActivationMode(currentFreeMinutes.getActivationMode())
                                 .setPromotionType(BConstants.PromotionType.FREE_MINUTES));
 
                         // 更新已使用分钟数

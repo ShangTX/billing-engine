@@ -101,6 +101,7 @@ public final class ExternalPromotionPool {
                     .source(orig.getSource())
                     .freeMinutes((int) Math.min(mins, Integer.MAX_VALUE))
                     .priority(orig.getPriority())
+                    .activationMode(orig.getActivationMode())
                     .build());
         }
         // FREE_RANGE 剩余时段
@@ -163,6 +164,7 @@ public final class ExternalPromotionPool {
                         .promotionType(r.getPromotionType())
                         .rangeType(r.getRangeType())
                         .source(r.getSource())
+                        .activationMode(r.getActivationMode())
                         .build());
             }
             if (r.getEndTime().isAfter(usedTo)) {
@@ -174,6 +176,7 @@ public final class ExternalPromotionPool {
                         .promotionType(r.getPromotionType())
                         .rangeType(r.getRangeType())
                         .source(r.getSource())
+                        .activationMode(r.getActivationMode())
                         .build());
             }
         }
@@ -189,6 +192,7 @@ public final class ExternalPromotionPool {
                 .promotionType(grant.getType())
                 .rangeType(grant.getRangeType())
                 .source(grant.getSource())
+                .activationMode(grant.getActivationMode())
                 .build();
     }
 
@@ -201,6 +205,7 @@ public final class ExternalPromotionPool {
                 .endTime(range.getEndTime())
                 .priority(orig.getPriority())
                 .rangeType(orig.getRangeType())
+                .activationMode(orig.getActivationMode())
                 .build();
     }
 }

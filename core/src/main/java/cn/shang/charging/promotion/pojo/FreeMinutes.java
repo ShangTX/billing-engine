@@ -32,4 +32,8 @@ public class FreeMinutes {
     /** 优惠来源：RULE（方案内规则）/ COUPON（外部优惠券，从 PromotionGrant 透传） */
     private BConstants.PromotionSource source;
 
+    /** 生效模式，默认总是生效。 */
+    @Builder.Default
+    private PromotionActivationMode activationMode = PromotionActivationMode.ALWAYS;
+
 }

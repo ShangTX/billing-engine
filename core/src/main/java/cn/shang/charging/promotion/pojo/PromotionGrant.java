@@ -50,4 +50,8 @@ public class PromotionGrant {
      */
     FreeTimeRangeType rangeType;
 
+    /** Activation condition for this free promotion. */
+    @Builder.Default
+    PromotionActivationMode activationMode = PromotionActivationMode.ALWAYS;
+
 }

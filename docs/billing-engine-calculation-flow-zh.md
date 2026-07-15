@@ -182,7 +182,7 @@ schemeChanges -> multiple BillingSegment
 
 产出规范中间形式：`freeTimeRanges`（仅 FREE_RANGE，已合并）、`freeMinutesList`（未时段化 FREE_MINUTES）、`smartFreeMinutesList`（SMART_FREE_MINUTES 标量透传，不时段化、不计入简化判定）、`freeMinutes`（标量，简化判定用，不含 SMART）。
 
-时段化是策略侧职责：CONTINUOUS/UNIT_BASED/DURATION_PERIOD 策略经 `RuleSupport.materializeFreeMinutes` 时段化 FREE_MINUTES；DURATION_GLOBAL 同样时段化 FREE_MINUTES，并额外消费 `SMART_FREE_MINUTES`（按 `RuleSemantics.priceAt` 切同价时段，按单价降序优先高价分配）。非 GLOBAL 模式遇 `SMART_FREE_MINUTES` 由 `BillingCalculator` 抛异常。
+时段化是策略侧职责：CONTINUOUS/UNIT_BASED/DURATION_PERIOD 策略经 `RuleSupport.materializeFreeMinutes` 时段化 FREE_MINUTES；DURATION_GLOBAL 同样时段化 FREE_MINUTES，并额外消费 `SMART_FREE_MINUTES`（按 `RuleSemantics.priceAt` 切同价时段，按单价降序优先高价分配）。`activationMode=END_WITHIN_RANGE` 的条件优惠只在 DURATION_PERIOD/DURATION_GLOBAL 中支持，时长策略在合并/分配后按整笔计费结束时间过滤最终免费段和 `PromotionUsage`，不重排其他优惠。非 GLOBAL 模式遇 `SMART_FREE_MINUTES` 由 `BillingCalculator` 抛异常；非时长模式遇条件生效优惠也由 `BillingCalculator` 抛异常。
 
 ---
 
@@ -191,7 +191,7 @@ schemeChanges -> multiple BillingSegment
 `BillingCalculator.calculate(context, promotionAggregate)` 做三件事：
 
 1. 根据 `RuleConfig.type` 从 `BillingRuleRegistry` 获取门面规则实现。
-2. 校验规则是否支持当前 `CalculationMode`（`supportedCalculationModes()`）；非 `DURATION_GLOBAL` 模式遇 `SMART_FREE_MINUTES` 抛异常。
+2. 校验规则是否支持当前 `CalculationMode`（`supportedCalculationModes()`）；非 `DURATION_GLOBAL` 模式遇 `SMART_FREE_MINUTES` 抛异常；非时长模式遇 `activationMode=END_WITHIN_RANGE` 抛异常。
 3. 校验配置类型后调用 `BillingRule.calculate()`，门面按请求 `CalculationMode` 分派到 `ModeStrategy`。
 
 每个计费规则族一个 type、一个门面规则、一个共享 config。门面声明 `supportedCalculationModes()`（管 CONTINUOUS/UNIT_BASED/DURATION_PERIOD/DURATION_GLOBAL），按请求模式分派到独立策略实现。规则族包括 `dayNight`、`relativeTime`、`naturalTime`、`compositeTime` 和 `flatFree`，各规则族按需声明支持的模式。

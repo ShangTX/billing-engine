@@ -214,14 +214,16 @@ BillingRequest
 | `FREE_MINUTES` | 可分配到非免费空隙中的免费分钟数（窗口起点附近分配，前置时段化） |
 | `SMART_FREE_MINUTES` | 智能免费分钟数，仅 `DURATION_GLOBAL` 模式消费，规则侧按单价降序优先高价分配；非 GLOBAL 模式报错；与 `FREE_MINUTES` 共用 `freeMinutes` 字段，按 `priority` 排序各自分配 |
 
+免费 grant 还携带 `activationMode`：默认 `ALWAYS` 总是生效；`END_WITHIN_RANGE` 表示仅当整笔计费结束时间落在该优惠时间范围内时生效。条件生效仅支持 `DURATION_PERIOD` / `DURATION_GLOBAL`，其他模式遇到会抛异常。条件优惠会先参与合并/分配，再过滤失效的免费段和 `PromotionUsage`，因此不会因为失效而重排其他优惠。
+
 > 金额减免/折扣（AMOUNT/DISCOUNT）已移出引擎，由业务系统在最终金额上自行结算。
 
 已实现优惠规则：
 
 | 规则 | 能力 |
 |------|------|
-| `freeMinutes` | 授予免费分钟数，并在可用空隙中分配 |
-| `startFree` | 从分段开始授予起始免费时间段 |
+| `freeMinutes` | 授予免费分钟数，并在可用空隙中分配；支持 `activationMode` |
+| `startFree` | 从分段开始授予起始免费时间段；支持 `activationMode` |
 
 
 免费时段类型：
@@ -244,7 +246,7 @@ BillingRequest
 3. 通过 `FreeTimeRangeMerger` 合并显式 `FREE_RANGE`。
 4. 产出规范中间形式：合并后的 `FREE_RANGE` 时段 + 未时段化的 `FREE_MINUTES` 列表（`freeMinutesList`）+ `SMART_FREE_MINUTES` 标量透传。
 
-`FREE_MINUTES` 时段化下放到策略侧（TODO-20260702-004）：`PromotionEngine` 不再集中时段化，避免聚合层按"规则+模式"决定产出形式。CONTINUOUS/UNIT_BASED/DURATION_PERIOD 策略经 `RuleSupport.materializeFreeMinutes`（`FreeMinuteAllocator`）自行时段化（与 `FREE_RANGE` 合并）；DURATION_GLOBAL 策略同样时段化（FREE_MINUTES 在窗口起点附近分配），并额外消费 `SMART_FREE_MINUTES`（按单价降序优先高价分配，规则侧用 `RuleSemantics.priceAt` 切同价时段）。`SMART_FREE_MINUTES` 由聚合层标量透传（`smartFreeMinutesList`），不参与时段化，不计入简化计算的总免费分钟数判断。`PromotionUsage`（FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES）与 `PromotionCarryOver` 由策略侧产出，`PromotionCarryOver` 经 `PromotionAggregateUtil.buildCarryOver` 构建后写回 aggregate。非 GLOBAL 模式遇到 `SMART_FREE_MINUTES` 由 `BillingCalculator` 抛异常。
+`FREE_MINUTES` 时段化下放到策略侧（TODO-20260702-004）：`PromotionEngine` 不再集中时段化，避免聚合层按"规则+模式"决定产出形式。CONTINUOUS/UNIT_BASED/DURATION_PERIOD 策略经 `RuleSupport.materializeFreeMinutes`（`FreeMinuteAllocator`）自行时段化（与 `FREE_RANGE` 合并）；DURATION_GLOBAL 策略同样时段化（FREE_MINUTES 在窗口起点附近分配），并额外消费 `SMART_FREE_MINUTES`（按单价降序优先高价分配，规则侧用 `RuleSemantics.priceAt` 切同价时段）。时长策略在合并/分配之后应用 `END_WITHIN_RANGE` 条件过滤。`SMART_FREE_MINUTES` 由聚合层标量透传（`smartFreeMinutesList`），不参与时段化，不计入简化计算的总免费分钟数判断。`PromotionUsage`（FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES）与 `PromotionCarryOver` 由策略侧产出，`PromotionCarryOver` 经 `PromotionAggregateUtil.buildCarryOver` 构建后写回 aggregate。非 GLOBAL 模式遇到 `SMART_FREE_MINUTES` 由 `BillingCalculator` 抛异常；非时长模式遇到条件生效优惠也由 `BillingCalculator` 抛异常。
 
 `FreeTimeRangeMerger` 会保留优先级、来源、range type 等元数据。
 

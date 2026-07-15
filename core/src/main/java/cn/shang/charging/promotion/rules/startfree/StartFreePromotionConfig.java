@@ -2,6 +2,7 @@ package cn.shang.charging.promotion.rules.startfree;
 
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.PromotionRuleConfig;
+import cn.shang.charging.promotion.pojo.PromotionActivationMode;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -26,4 +27,7 @@ public class StartFreePromotionConfig implements PromotionRuleConfig {
     Integer priority;
 
     int minutes;
+
+    @Builder.Default
+    PromotionActivationMode activationMode = PromotionActivationMode.ALWAYS;
 }

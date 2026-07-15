@@ -72,7 +72,8 @@ public final class DurationGlobalStrategy {
                 semantics, config, cycleOrigin, promotionAggregate, calcBegin, calcEnd, regularFreeRanges);
 
         // 合并常规免费段 + SMART 免费段，统一参与边界驱动
-        List<FreeTimeRange> freeTimeRanges = smartAllocation.mergedFreeRanges;
+        List<FreeTimeRange> freeTimeRanges = RuleSupport.filterActiveFreeRanges(
+                smartAllocation.mergedFreeRanges, context.getEndTime());
 
         // 边界来源：时段边界 + 免费段起止 + calcEnd（无周期边界，segment 跨周期合并）
         List<BoundaryProvider> providers = new ArrayList<>();
@@ -100,15 +101,19 @@ public final class DurationGlobalStrategy {
                 DurationSupport.buildGlobalMode(segments, totalMinutes, cycleCap, semantics, config, cycleOrigin);
 
         // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 由 PromotionEquivalentCalculator 消去法按需回填）
+        List<FreeTimeRange> activeRegularFreeRanges = RuleSupport.filterActiveFreeRanges(
+                regularFreeRanges, context.getEndTime());
         List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
-                regularFreeRanges, calcBegin, calcEnd);
+                activeRegularFreeRanges, calcBegin, calcEnd);
         List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
         // FREE_MINUTES usage：PERIOD/GLOBAL 统一来自时段化
         List<PromotionUsage> freeMinutesUsages = materialized != null && materialized.getPromotionUsages() != null
                 ? materialized.getPromotionUsages() : List.of();
-        allUsages.addAll(freeMinutesUsages);
+        allUsages.addAll(RuleSupport.filterActivePromotionUsages(
+                freeMinutesUsages, regularFreeRanges, activeRegularFreeRanges));
         // SMART_FREE_MINUTES usage：来自优先高价分配
-        allUsages.addAll(smartAllocation.promotionUsages);
+        allUsages.addAll(RuleSupport.filterActivePromotionUsages(
+                smartAllocation.promotionUsages, smartAllocation.mergedFreeRanges, freeTimeRanges));
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
@@ -240,6 +245,7 @@ public final class DurationGlobalStrategy {
                             .setEndTime(segEnd)
                             .setPriority(smart.getPriority() != null ? smart.getPriority() : 0)
                             .setSource(smart.getSource())
+                            .setActivationMode(smart.getActivationMode())
                             .setPromotionType(BConstants.PromotionType.SMART_FREE_MINUTES);
                     smartRanges.add(smartRange);
                     occupied.add(smartRange);

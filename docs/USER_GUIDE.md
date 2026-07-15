@@ -658,6 +658,7 @@ FlatFreeConfig config = FlatFreeConfig.builder()
 ```java
 import cn.shang.charging.promotion.pojo.PromotionGrant;
 import cn.shang.charging.billing.pojo.BConstants;
+import cn.shang.charging.promotion.pojo.PromotionActivationMode;
 
 PromotionGrant freeMinutes = PromotionGrant.builder()
         .id("coupon-30min")
@@ -665,6 +666,7 @@ PromotionGrant freeMinutes = PromotionGrant.builder()
         .source(BConstants.PromotionSource.COUPON)
         .freeMinutes(30)
         .priority(1)
+        .activationMode(PromotionActivationMode.ALWAYS)
         .build();
 
 request.setExternalPromotions(List.of(freeMinutes));
@@ -683,7 +685,29 @@ PromotionGrant freeRange = PromotionGrant.builder()
         .build();
 ```
 
-### 11.4 气泡型免费时段
+### 11.4 条件生效优惠
+
+`FREE_RANGE`、`FREE_MINUTES`、`SMART_FREE_MINUTES` 以及方案内 `freeMinutes` / `startFree` 规则均支持 `activationMode`：
+
+| 值 | 说明 |
+|------|------|
+| `ALWAYS` | 默认值，优惠总是生效 |
+| `END_WITHIN_RANGE` | 仅当整笔计费结束时间落在该优惠时间范围内时生效 |
+
+`END_WITHIN_RANGE` 只支持 `DURATION_PERIOD` / `DURATION_GLOBAL` 时长计费模式；`CONTINUOUS` / `UNIT_BASED` 遇到该模式会抛出 `IllegalStateException`。条件优惠先参与免费段合并或免费分钟分配，再按结束时间过滤最终计费段和 `PromotionUsage`，因此失效优惠不会重新触发其他优惠重排。
+
+```java
+PromotionGrant conditionalRange = PromotionGrant.builder()
+        .id("conditional-night")
+        .type(BConstants.PromotionType.FREE_RANGE)
+        .beginTime(LocalDateTime.of(2026, 5, 8, 22, 0))
+        .endTime(LocalDateTime.of(2026, 5, 9, 1, 0))
+        .activationMode(PromotionActivationMode.END_WITHIN_RANGE)
+        .priority(1)
+        .build();
+```
+
+### 11.5 气泡型免费时段
 
 ```java
 import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
@@ -702,7 +726,7 @@ PromotionGrant bubbleRange = PromotionGrant.builder()
 - `NORMAL`：普通免费时段，不影响周期边界
 - `BUBBLE`：气泡型，延长周期边界，后续时间段边界整体后移
 
-### 11.5 智能免费分钟数
+### 11.6 智能免费分钟数
 
 ```java
 PromotionGrant smartFreeMinutes = PromotionGrant.builder()
@@ -716,10 +740,11 @@ PromotionGrant smartFreeMinutes = PromotionGrant.builder()
 
 **限制**：`SMART_FREE_MINUTES` 仅在 `DURATION_GLOBAL` 模式下消费。其他模式遇到此类型会抛出 `IllegalStateException`。
 
-### 11.6 优惠叠加规则
+### 11.7 优惠叠加规则
 
 - `FREE_RANGE` 和 `FREE_MINUTES` 可同时存在，由引擎合并处理
 - `FREE_MINUTES` 与 `SMART_FREE_MINUTES` 共用 `freeMinutes` 字段，按 `priority` 排序各自分配
+- 条件生效优惠失效时不会重新分配其他 `FREE_MINUTES` / `SMART_FREE_MINUTES` 的占用空间，调用方可通过 `priority` 控制优惠占用顺序
 
 ---
 
@@ -893,7 +918,14 @@ new DayNightConfig()
 
 ## 16. 自定义计费规则
 
-### 16.1 定义配置类
+自定义计费规则当前推荐先走**路径 A**：直接实现 `BillingRule`，按需复用轻量公共原语。
+完整示例见 [自定义计费规则开发指南](guides/custom-rule-guide.md)。
+
+路径 A 适合规则作者先把业务规则接入引擎，而不引入新的公共 API 或重型继承基类。
+如果规则后续需要完整支持 `DURATION_PERIOD` / `DURATION_GLOBAL`，再评估基于
+`RuleSemantics` 的语义驱动路径。
+
+### 16.1 最小结构
 
 ```java
 import cn.shang.charging.billing.pojo.RuleConfig;
@@ -912,7 +944,7 @@ public class MyRuleConfig implements RuleConfig {
 }
 ```
 
-### 16.2 实现规则
+### 16.2 直接实现 BillingRule
 
 ```java
 import cn.shang.charging.charge.rules.BillingRule;
@@ -942,13 +974,23 @@ public class MyBillingRule implements BillingRule<MyRuleConfig> {
 }
 ```
 
+规则内部可以复用 `BoundaryDrivenLoop`、`BoundaryProvider`、`BoundaryProviders` 和
+`HomogeneousSegment` 来切分时间轴。示例指南中的 `peakOffPeak` 规则展示了如何按费率边界、
+单元边界、免费段边界和 `calcEnd` 统一切分，再生成 `BillingUnit`。
+`progressiveDailyCap` 规则展示了另一类更高定制度的写法：不使用单元边界，只按自然日边界、
+免费段边界和 `calcEnd` 切分，并用增量封顶数组表达非线性累计总封顶，同时分别产出
+`CONTINUOUS`、`DURATION_PERIOD`、`DURATION_GLOBAL` 三种模式的结果结构。
+
 ### 16.3 注册规则
 
 ```java
 billingRuleRegistry.register("myRule", new MyBillingRule());
 ```
 
-### 规则开发原则
+Spring Boot starter 当前可通过自定义 `BillingRuleRegistry` bean 注册自定义规则。
+本阶段不新增 registry customizer 或自动扫描机制。
+
+### 16.4 规则开发原则
 
 1. **纯计算**：输入 → 输出，不访问数据库、不调用远程接口
 2. **无副作用**：不修改全局状态、不修改共享对象
@@ -983,6 +1025,13 @@ billingRuleRegistry.register("myRule", new MyBillingRule());
 |------|------|
 | `RULE` | 方案内规则产生的优惠 |
 | `COUPON` | 外部优惠券 |
+
+### PromotionActivationMode
+
+| 值 | 说明 |
+|------|------|
+| `ALWAYS` | 默认值，优惠总是生效 |
+| `END_WITHIN_RANGE` | 计费结束时间落在优惠时间范围内才生效，仅支持 `DURATION_PERIOD` / `DURATION_GLOBAL` |
 
 ### BConstants.ChargeRuleType
 

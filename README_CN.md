@@ -9,7 +9,7 @@
 - 可扩展计费规则，新增规则无需修改核心引擎
 - 5 种内置规则：`dayNight`、`relativeTime`、`naturalTime`、`compositeTime`、`flatFree`
 - 4 种计算模式：`CONTINUOUS`、`UNIT_BASED`、`DURATION_PERIOD`、`DURATION_GLOBAL`
-- 优惠系统：免费时段、免费分钟数、智能免费分钟、金额减免、折扣
+- 优惠系统：免费时段、免费分钟数、智能免费分钟，以及时长模式下的条件生效
 - 完整计费明细，支持审计和调试
 - 方案切换（多段计费）
 - 优惠等效金额计算（消去法）

@@ -6,6 +6,7 @@ import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
+import cn.shang.charging.charge.rules.RuleSupport;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import lombok.AllArgsConstructor;
 
@@ -51,6 +52,8 @@ public class BillingCalculator {
                     calculationMode
             );
         }
+
+        RuleSupport.assertConditionalActivationSupported(promotionAggregate, calculationMode);
 
         // SMART_FREE_MINUTES 仅 DURATION_GLOBAL 消费（TODO-20260706-002 阶段5）：
         // 优先高价分配依赖 RuleSemantics.priceAt，复杂度锁定在 GLOBAL 模式内，其余模式报错。

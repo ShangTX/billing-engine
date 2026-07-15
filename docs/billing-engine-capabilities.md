@@ -213,14 +213,16 @@ Implemented promotion grant types:
 | `FREE_MINUTES` | Free minutes allocated into non-free gaps (allocated near the window start, pre-materialized) |
 | `SMART_FREE_MINUTES` | Smart free minutes, consumed only in `DURATION_GLOBAL` mode; the rule side allocates them highest-price-first using `RuleSemantics.priceAt`. Non-GLOBAL modes throw. Shares the `freeMinutes` field with `FREE_MINUTES`; multiple grants allocate independently by `priority`. |
 
+Free grants also carry `activationMode`: `ALWAYS` by default, or `END_WITHIN_RANGE` to activate only when the overall billing end time falls inside the grant's time range. Conditional activation is supported only by `DURATION_PERIOD` and `DURATION_GLOBAL`; other modes throw. Conditional grants still participate in merge/allocation first, then inactive ranges/usages are filtered, so other promotions are not reallocated when a conditional grant becomes inactive.
+
 > Amount/discount (AMOUNT/DISCOUNT) has been removed from the engine; the business system settles them on the final amount.
 
 Implemented promotion rules:
 
 | Rule | Capability |
 |------|------------|
-| `freeMinutes` | Grants free minutes that are allocated across available gaps |
-| `startFree` | Grants an initial free range from segment start |
+| `freeMinutes` | Grants free minutes that are allocated across available gaps; supports `activationMode` |
+| `startFree` | Grants an initial free range from segment start; supports `activationMode` |
 
 
 Free range type:
@@ -243,7 +245,7 @@ Current aggregation stages:
 3. Merge explicit `FREE_RANGE` promotions through `FreeTimeRangeMerger`.
 4. Produce a canonical intermediate form: merged `FREE_RANGE` ranges + unmaterialized `FREE_MINUTES` list (`freeMinutesList`) + `SMART_FREE_MINUTES` scalar passthrough.
 
-`FREE_MINUTES` materialization is delegated to strategies (TODO-20260702-004): `PromotionEngine` no longer materializes centrally, avoiding the aggregation layer coupling to "rule + mode" to decide output form. CONTINUOUS/UNIT_BASED/DURATION_PERIOD strategies materialize via `RuleSupport.materializeFreeMinutes` (`FreeMinuteAllocator`), merged with `FREE_RANGE`; the DURATION_GLOBAL strategy also materializes FREE_MINUTES (allocated near the window start) and additionally consumes `SMART_FREE_MINUTES` (highest-price-first allocation using `RuleSemantics.priceAt` to split equal-price windows). `SMART_FREE_MINUTES` is passed through as a scalar (`smartFreeMinutesList`), is not materialized at the aggregate layer, and is not counted in the simplification total-free-minutes check. `PromotionUsage` (FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES) and `PromotionCarryOver` are produced strategy-side; `PromotionCarryOver` is built via `PromotionAggregateUtil.buildCarryOver` and written back to the aggregate. Non-GLOBAL modes throw on `SMART_FREE_MINUTES` (enforced by `BillingCalculator`).
+`FREE_MINUTES` materialization is delegated to strategies (TODO-20260702-004): `PromotionEngine` no longer materializes centrally, avoiding the aggregation layer coupling to "rule + mode" to decide output form. CONTINUOUS/UNIT_BASED/DURATION_PERIOD strategies materialize via `RuleSupport.materializeFreeMinutes` (`FreeMinuteAllocator`), merged with `FREE_RANGE`; the DURATION_GLOBAL strategy also materializes FREE_MINUTES (allocated near the window start) and additionally consumes `SMART_FREE_MINUTES` (highest-price-first allocation using `RuleSemantics.priceAt` to split equal-price windows). Duration strategies apply `END_WITHIN_RANGE` after merge/allocation. `SMART_FREE_MINUTES` is passed through as a scalar (`smartFreeMinutesList`), is not materialized at the aggregate layer, and is not counted in the simplification total-free-minutes check. `PromotionUsage` (FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES) and `PromotionCarryOver` are produced strategy-side; `PromotionCarryOver` is built via `PromotionAggregateUtil.buildCarryOver` and written back to the aggregate. Non-GLOBAL modes throw on `SMART_FREE_MINUTES`; non-duration modes also throw on conditional activation (enforced by `BillingCalculator`).
 
 `FreeTimeRangeMerger` preserves range metadata such as priority, source, and range type.
 

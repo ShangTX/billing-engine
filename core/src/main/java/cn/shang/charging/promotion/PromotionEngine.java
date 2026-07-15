@@ -130,6 +130,7 @@ public class PromotionEngine {
                 .priority(grant.getPriority())
                 .rangeType(grant.getRangeType())
                 .source(grant.getSource())
+                .activationMode(grant.getActivationMode())
                 .build();
     }
 
@@ -142,6 +143,7 @@ public class PromotionEngine {
                 .minutes(grant.getFreeMinutes())
                 .priority(grant.getPriority())
                 .source(grant.getSource())
+                .activationMode(grant.getActivationMode())
                 .build();
     }
 

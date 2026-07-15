@@ -39,7 +39,8 @@ public class StartFreePromotionRule implements PromotionRule<StartFreePromotionC
                 .setSource(BConstants.PromotionSource.RULE)
                 .setPriority(config.getPriority())
                 .setBeginTime(beginTime)
-                .setEndTime(endTime);
+                .setEndTime(endTime)
+                .setActivationMode(config.getActivationMode());
 
         return List.of(grant);
     }

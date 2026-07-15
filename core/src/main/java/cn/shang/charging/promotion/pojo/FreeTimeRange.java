@@ -47,6 +47,10 @@ public class FreeTimeRange {
      */
     private BConstants.PromotionSource source;
 
+    /** 生效模式，默认总是生效。 */
+    @Builder.Default
+    private PromotionActivationMode activationMode = PromotionActivationMode.ALWAYS;
+
     /** 扩展数据（业务侧自定义，不参与计费，仅透传） */
     private Object data;
 
@@ -80,7 +84,8 @@ public class FreeTimeRange {
                 .setPriority(priority)
                 .setPromotionType(promotionType)
                 .setRangeType(rangeType)
-                .setSource(source);
+                .setSource(source)
+                .setActivationMode(activationMode);
         copy.data = this.data;
         return copy;
     }
@@ -93,6 +98,7 @@ public class FreeTimeRange {
                 .setPriority(this.priority)
                 .setPromotionType(this.promotionType)
                 .setRangeType(this.rangeType)
-                .setSource(this.source);
+                .setSource(this.source)
+                .setActivationMode(this.activationMode);
     }
 }

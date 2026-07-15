@@ -58,18 +58,23 @@ final class DayNightDurationGlobalStrategy {
         SmartFreeMinutesAllocation smartAllocation = allocateSmartFreeMinutes(
                 config, cycleOrigin, promotionAggregate, calcBegin, calcEnd, regularFreeRanges);
 
-        List<FreeTimeRange> freeTimeRanges = smartAllocation.mergedFreeRanges;
+        List<FreeTimeRange> freeTimeRanges = RuleSupport.filterActiveFreeRanges(
+                smartAllocation.mergedFreeRanges, context.getEndTime());
         List<HomogeneousSegment> segments = buildSegments(config, cycleOrigin, calcBegin, calcEnd, freeTimeRanges);
 
         DurationSupport.DurationResult durationResult =
                 buildAggregatedGlobalResult(segments, config, cycleOrigin, calcBegin, calcEnd);
 
+        List<FreeTimeRange> activeRegularFreeRanges = RuleSupport.filterActiveFreeRanges(
+                regularFreeRanges, context.getEndTime());
         List<PromotionUsage> allUsages = new ArrayList<>(PromotionAggregateUtil.buildFreeRangeUsages(
-                regularFreeRanges, calcBegin, calcEnd));
+                activeRegularFreeRanges, calcBegin, calcEnd));
         List<PromotionUsage> freeMinutesUsages = materialized.getPromotionUsages() != null
                 ? materialized.getPromotionUsages() : List.of();
-        allUsages.addAll(freeMinutesUsages);
-        allUsages.addAll(smartAllocation.promotionUsages);
+        allUsages.addAll(RuleSupport.filterActivePromotionUsages(
+                freeMinutesUsages, regularFreeRanges, activeRegularFreeRanges));
+        allUsages.addAll(RuleSupport.filterActivePromotionUsages(
+                smartAllocation.promotionUsages, smartAllocation.mergedFreeRanges, freeTimeRanges));
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
@@ -339,6 +344,7 @@ final class DayNightDurationGlobalStrategy {
                             .setEndTime(segEnd)
                             .setPriority(smart.getPriority() != null ? smart.getPriority() : 0)
                             .setSource(smart.getSource())
+                            .setActivationMode(smart.getActivationMode())
                             .setPromotionType(BConstants.PromotionType.SMART_FREE_MINUTES);
                     smartRanges.add(smartRange);
                     occupied.add(smartRange);
