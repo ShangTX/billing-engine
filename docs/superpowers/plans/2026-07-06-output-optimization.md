@@ -56,7 +56,7 @@
 - [ ] `global-origin-half-finished.md` 备注标注废弃
 - [ ] `billing-engine-capabilities.md` / `-zh.md` 去 GLOBAL_ORIGIN 或标注废弃
 - [ ] `billing-engine-calculation-flow-zh.md` 去 GLOBAL_ORIGIN
-- [ ] `billing-engine-current-flow-zh.md` 去 GLOBAL_ORIGIN 守卫
+- [ ] `docs/superpowers/archive/billing-engine-current-flow-zh.md` 去 GLOBAL_ORIGIN 守卫
 - [ ] `USER_GUIDE.md` 去 GLOBAL_ORIGIN
 - [ ] `DONE.md` / `TODO.md` 迁移
 - [ ] 提交

@@ -280,7 +280,7 @@ schemeChanges -> multiple BillingSegment
 
 ## 12. 优惠等效金额
 
-优惠等效金额由 `billing-api` 中的 `PromotionEquivalentCalculator` 计算。
+优惠等效金额由 `core` 模块 `cn.shang.charging.billing.PromotionEquivalentCalculator` 计算，`billing-api` 的 `BillingTemplate` 只作为便捷入口调用该能力。
 
 它基于完整结算结果做对比分析：通过 `PromotionAggregateUtil.exclude` 过滤 `freeMinutesList`/`freeTimeRanges`，重算取差值。只要完整结果中的 `chargedAmount` 和 `promotionUsages` 一致，等效金额语义不变。
 
@@ -294,6 +294,5 @@ schemeChanges -> multiple BillingSegment
 | `docs/billing-engine-capabilities.md` | 当前能力英文说明 |
 | `docs/USER_GUIDE.md` | 调用方使用指南 |
 | `docs/designs/segment-promotion-consistency.md` | 分段与优惠一致性架构讨论 |
-| `docs/billing-engine-calculation-flow-zh-legacy.md` | 旧版计算流程（历史现状，已过时，仅供对照） |
 | `docs/TODO.md` | 待办和问题索引 |
 | `docs/DONE.md` | 已完成事项索引 |

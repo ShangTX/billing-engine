@@ -2,7 +2,7 @@
 
 **状态**: 设计中
 **日期**: 2026-07-03
-**关联**: TODO-20260703-001、`docs/billing-engine-calculation-flow-zh.md`、`docs/billing-engine-current-flow-zh.md`、TODO-20260702-004（PromotionCarryOver 迁移）、TODO-20260626-001（不足单元计费）、TODO-20260702-003（外部优惠池）
+**关联**: TODO-20260703-001、`docs/billing-engine-calculation-flow-zh.md`、`docs/superpowers/archive/billing-engine-current-flow-zh.md`、TODO-20260702-004（PromotionCarryOver 迁移）、TODO-20260626-001（不足单元计费）、TODO-20260702-003（外部优惠池）
 
 ---
 

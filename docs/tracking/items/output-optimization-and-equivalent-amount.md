@@ -86,7 +86,7 @@ completed_git: 87e5ef9
 - `docs/tracking/items/global-origin-half-finished.md`
 - `docs/billing-engine-capabilities.md` / `docs/billing-engine-capabilities-zh.md`
 - `docs/billing-engine-calculation-flow-zh.md`
-- `docs/billing-engine-current-flow-zh.md`
+- `docs/superpowers/archive/billing-engine-current-flow-zh.md`
 - `docs/USER_GUIDE.md`
 
 ## 备注

@@ -178,7 +178,7 @@ for seg:
 - `CompositeTimeSmokeTest`（unitBased compact）
 
 ### 文档
-- `billing-engine-current-flow-zh.md` / `calculation-flow-zh.md`（流程图移除 CompactMerger）
+- `docs/superpowers/archive/billing-engine-current-flow-zh.md` / `calculation-flow-zh.md`（流程图移除 CompactMerger）
 - `billing-engine-capabilities(-zh).md`（CompactMerger 能力移除）
 - `USER_GUIDE.md`（compact 说明）
 - `AGENTS.md`（关键类列表移除 CompactMerger）
