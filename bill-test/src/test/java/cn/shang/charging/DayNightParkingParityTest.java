@@ -16,7 +16,6 @@ import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
 import cn.shang.charging.settlement.ResultAssembler;
-import cn.shang.charging.util.JacksonUtils;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -47,13 +46,6 @@ class DayNightParkingParityTest {
 
         BillingResult result = createService(config).calculate(baseRequest(beginTime, endTime));
         BigDecimal expected = new BigDecimal("69.50");
-
-        System.out.println("=== BillingResult JSON ===");
-        System.out.println(JacksonUtils.toJsonString(result));
-        System.out.println("=== BillingUnit Wrappers JSON ===");
-        System.out.println(JacksonUtils.toJsonString(result.getUnits().stream()
-                .map(unit -> BillingUnitDebugView.from(unit))
-                .toList()));
 
         assertEquals(0, expected.compareTo(result.getFinalAmount()),
                 () -> "dayNight 停车差异样例金额不一致，expected=" + expected + ", actual=" + result.getFinalAmount());
@@ -108,33 +100,4 @@ class DayNightParkingParityTest {
         );
     }
 
-    private record BillingUnitDebugView(
-            LocalDateTime beginTime,
-            LocalDateTime endTime,
-            Integer durationMinutes,
-            BigDecimal unitPrice,
-            BigDecimal originalAmount,
-            BigDecimal chargedAmount,
-            BigDecimal accumulatedAmount,
-            Boolean free,
-            Boolean truncated,
-            String freePromotionId,
-            Object ruleData
-    ) {
-        private static BillingUnitDebugView from(cn.shang.charging.billing.pojo.BillingUnit unit) {
-            return new BillingUnitDebugView(
-                    unit.getBeginTime(),
-                    unit.getEndTime(),
-                    unit.getDurationMinutes(),
-                    unit.getUnitPrice(),
-                    unit.getOriginalAmount(),
-                    unit.getChargedAmount(),
-                    unit.getAccumulatedAmount(),
-                    unit.isFree(),
-                    unit.getIsTruncated(),
-                    unit.getFreePromotionId(),
-                    unit.getRuleData()
-            );
-        }
-    }
 }

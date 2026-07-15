@@ -98,7 +98,7 @@ class DurationModeThreeFamiliesTest {
                 ctx(begin, begin.plusHours(47), BConstants.CalculationMode.DURATION_GLOBAL),
                 config, PromotionAggregate.builder().build());
 
-        assertTrue(result.getChargedAmount().compareTo(new BigDecimal("10.00")) <= 0);
+        assertEquals(0, new BigDecimal("10.00").compareTo(result.getChargedAmount()));
         assertEquals(BConstants.CalculationMode.DURATION_GLOBAL, result.getCalculationMode());
     }
 

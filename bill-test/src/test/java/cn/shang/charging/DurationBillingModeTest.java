@@ -7,7 +7,6 @@ import cn.shang.charging.billing.SegmentBuilder;
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
-import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.DurationSegment;
 import cn.shang.charging.billing.pojo.IncompleteUnitChargeSpec;
 import cn.shang.charging.billing.pojo.PromotionRuleConfig;
@@ -100,8 +99,6 @@ class DurationBillingModeTest {
         assertEquals(0, new BigDecimal("16.00").compareTo(segSum));
 
         // cycleCapApplied 在分段结果上（单分段直接取）
-        BillingSegmentResult seg = result.getDurationSegments() != null
-                ? getLastSegment(result) : null;
         // BillingResult 没有 getSegments，通过 carryOver 间接不可得；这里验证 finalAmount 即可
     }
 
@@ -133,7 +130,7 @@ class DurationBillingModeTest {
 
         BillingResult result = service.calculate(request(begin, begin.plusHours(47)));
         // 封顶 2×100=200，实际金额应 ≤ 200
-        assertTrue(result.getFinalAmount().compareTo(new BigDecimal("200.00")) <= 0);
+        assertEquals(0, new BigDecimal("71.00").compareTo(result.getFinalAmount()));
     }
 
     /** GLOBAL 模式：周期封顶触发，实收 = min(cap×周期数, 总额) */
@@ -383,7 +380,7 @@ class DurationBillingModeTest {
 
     /** 不支持时长模式的规则传 PERIOD 抛异常 */
     @Test
-    void unsupportedDurationMode_throws() {
+    void dayNightRuleDeclaresDurationModes() {
         // 用一个不支持时长模式的规则（这里借 NaturalTime，但需要注册）
         // DayNightRule 支持 PERIOD/GLOBAL，要测不支持的场景，用一个 stub resolver 返回 PERIOD
         // 但规则不检查——实际由 BillingCalculator 校验 supportedCalculationModes
@@ -426,11 +423,7 @@ class DurationBillingModeTest {
         return r;
     }
 
-    private BillingSegmentResult getLastSegment(BillingResult result) {
         // BillingResult 不直接暴露分段，这里仅占位
-        return null;
-    }
-
     private BillingService createService(DayNightConfig config, BConstants.CalculationMode calculationMode) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
