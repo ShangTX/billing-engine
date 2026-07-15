@@ -11,7 +11,6 @@ import cn.shang.charging.charge.rules.BoundaryProviders;
 import cn.shang.charging.charge.rules.ContinuousStrategy;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.RuleSupport;
-import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
@@ -69,7 +68,6 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
         LocalDateTime calcEnd = context.getWindow().getCalculationEnd();
         int unitMinutes = config.getUnitMinutes();
         List<NaturalPeriod> periods = config.getPeriods();
-        CrossPeriodMode crossPeriodMode = config.getCrossPeriodMode();
 
         // 时段化 FREE_MINUTES（TODO-20260702-004：从 PromotionEngine 下放到策略侧）
         FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutes(promotionAggregate, context.getWindow());
@@ -83,9 +81,7 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
         // 周期对齐在跨周期封顶处由 cycleAccumulated 单独处理
         List<BoundaryProvider> providers = new ArrayList<>();
         providers.add((current, end) -> {
-            int currentMinute = current.getHour() * 60 + current.getMinute();
-            int periodEnd = periodResolver.findNextPeriodBoundary(currentMinute, periods);
-            LocalDateTime periodBoundary = current.plusMinutes(periodEnd - currentMinute);
+            LocalDateTime periodBoundary = periodResolver.findNextPeriodBoundary(current, periods);
             if (periodBoundary.isAfter(current) && !periodBoundary.isAfter(end)) {
                 return periodBoundary;
             }
@@ -103,7 +99,7 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
                         true, covering.getId(), null);
             }
             // 计费段
-            BigDecimal unitPrice = priceResolver.calculateUnitPrice(current, next, periods, crossPeriodMode);
+            BigDecimal unitPrice = priceResolver.calculateUnitPrice(current, next, periods);
             return new HomogeneousSegment(current, next, unitPrice, unitPrice,
                     false, null, null);
         });

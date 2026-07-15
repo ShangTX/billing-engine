@@ -80,20 +80,21 @@ final class CompositeTimeSemantics implements RuleSemantics<CompositeTimeConfig>
 
     @Override
     public BigDecimal priceAt(LocalDateTime begin, LocalDateTime end, CompositeTimeConfig config, LocalDateTime cycleOrigin) {
-        // 时长模式不按单元对齐切断，同质段由 periodBoundaryProvider 切断，priceAt 取段起点 period 的跨自然时段单价
-        // （与 CONTINUOUS 段构造 lambda 中 unitPrice = crossPeriodPriceResolver.calculateUnitPrice(current, next, period) 一致）
+        // periodBoundaryProvider 同时切相对时段边界与自然时段边界，priceAt 取段起点自然时段价格。
         CompositePeriod period = resolvePeriod(begin, config, cycleOrigin);
         return crossPeriodPriceResolver.calculateUnitPrice(begin, end, period);
     }
 
     /**
-     * period 边界 provider：从当前位置算到下一个 period.endMinute（基于 cycleOrigin 的周期内偏移）。
+     * period 边界 provider：返回下一个相对时段边界或自然时段边界中更近的一个。
      * 从原 CompositeTimeContinuousStrategy.calculateBoundaryDriven 的 period 边界 lambda 搬来。
      */
     @Override
     public BoundaryProvider periodBoundaryProvider(CompositeTimeConfig config, LocalDateTime cycleOrigin) {
         List<CompositePeriod> periods = config.getPeriods();
         return (current, end) -> {
+            CompositePeriod currentPeriod = resolvePeriod(current, config, cycleOrigin);
+            LocalDateTime relativeBoundary = null;
             long minutesFromOrigin = Duration.between(cycleOrigin, current).toMinutes();
             long positionInCycle = ((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE;
             long cycleCount = minutesFromOrigin / MINUTES_PER_CYCLE;
@@ -104,13 +105,24 @@ final class CompositeTimeSemantics implements RuleSemantics<CompositeTimeConfig>
                 if (periodEndMinute > positionInCycle) {
                     LocalDateTime boundary = cycleStart.plusMinutes(periodEndMinute);
                     if (boundary.isAfter(current) && !boundary.isAfter(end)) {
-                        return boundary;
+                        relativeBoundary = boundary;
                     }
                     break;
                 }
             }
-            return null;
+            LocalDateTime naturalBoundary = periodResolver.findNextNaturalPeriodBoundary(
+                    current, currentPeriod.getNaturalPeriods());
+            if (naturalBoundary != null && (!naturalBoundary.isAfter(current) || naturalBoundary.isAfter(end))) {
+                naturalBoundary = null;
+            }
+            return nearer(relativeBoundary, naturalBoundary);
         };
+    }
+
+    private LocalDateTime nearer(LocalDateTime first, LocalDateTime second) {
+        if (first == null) return second;
+        if (second == null) return first;
+        return first.isBefore(second) ? first : second;
     }
 
     private CompositePeriod resolvePeriod(LocalDateTime time, CompositeTimeConfig config, LocalDateTime cycleOrigin) {

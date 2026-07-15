@@ -9,7 +9,6 @@ import cn.shang.charging.billing.pojo.DurationSegment;
 import cn.shang.charging.charge.rules.compositetime.CompositePeriod;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeConfig;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeRule;
-import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.charge.rules.naturaltime.NaturalTimeConfig;
 import cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule;
@@ -208,7 +207,6 @@ class DurationModeThreeFamiliesTest {
                 .id("nat-duration")
                 .maxChargeOneDay(maxChargeOneDay)
                 .unitMinutes(60)
-                .crossPeriodMode(CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                 .periods(List.of(
                         NaturalPeriod.builder().beginMinute(8 * 60).endMinute(20 * 60)
                                 .unitPrice(new BigDecimal("2.00")).build(),
@@ -227,7 +225,6 @@ class DurationModeThreeFamiliesTest {
                         .endMinute(1440)
                         .unitMinutes(60)
                         .maxCharge(periodCap)
-                        .crossPeriodMode(CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                         .naturalPeriods(List.of(NaturalPeriod.builder()
                                 .beginMinute(0)
                                 .endMinute(1440)

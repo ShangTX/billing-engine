@@ -19,7 +19,7 @@ import java.util.Set;
  * 核心逻辑：
  * 1. 24 小时自然周期，按自然时段划分
  * 2. 每个时段有独立价格，统一单元时长
- * 3. 跨时段处理可配置（复用 CrossPeriodMode）
+ * 3. 自然时段边界统一切断
  * 4. 支持每日封顶
  * <p>
  * 按 {@link BConstants.CalculationMode} 分派到独立策略实现，自身只分派不扛计费逻辑：

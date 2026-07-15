@@ -171,7 +171,7 @@ Capabilities:
 
 - Composite periods combined with natural-time pricing.
 - Period-level and cycle-level behavior.
-- Cross-period handling through configured modes.
+- Natural-time boundaries are always split; cross-period pricing modes are not exposed.
 - Simplified calculation support.
 - CONTINUOUS mode is wired into the boundary-driven loop and produces compact units.
 
@@ -186,7 +186,7 @@ Capabilities:
 
 - 24-hour natural cycle, partitioned into natural periods.
 - Each period has its own price with a uniform unit length.
-- Configurable cross-period handling (reuses `CrossPeriodMode`).
+- Natural-period boundaries are always split; cross-period pricing modes are not exposed.
 - Daily cap through `maxChargeOneDay`.
 - CONTINUOUS mode is wired into the boundary-driven loop and produces compact units.
 

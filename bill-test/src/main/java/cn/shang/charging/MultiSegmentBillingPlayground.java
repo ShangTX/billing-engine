@@ -3,6 +3,15 @@ package cn.shang.charging;
 import cn.shang.charging.billing.*;
 import cn.shang.charging.billing.pojo.*;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
+import cn.shang.charging.charge.rules.compositetime.CompositePeriod;
+import cn.shang.charging.charge.rules.compositetime.CompositeTimeConfig;
+import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
+import cn.shang.charging.charge.rules.daynight.DayNightConfig;
+import cn.shang.charging.charge.rules.flatfree.FlatFreeConfig;
+import cn.shang.charging.charge.rules.flatfree.FlatFreeRule;
+import cn.shang.charging.charge.rules.naturaltime.NaturalTimeConfig;
+import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
+import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
@@ -72,13 +81,38 @@ public class MultiSegmentBillingPlayground {
         System.out.println("=".repeat(72));
 
         // ▼▼▼ 在这里选择/修改要运行的场景 ▼▼▼
+        // 命令行传入 all 时会运行所有预设场景，便于一次性扫多分段表现。
+        if (args.length > 0 && "all".equalsIgnoreCase(args[0])) {
+            for (MultiSegmentScenario scenario : presetScenarios()) {
+                run(scenario);
+            }
+            return;
+        }
+
         run(scenario1_twoSegments());
 //        run(scenario2_threeSegments());
 //        run(scenario3_withPromotions());
+//        run(scenario4_hospitalParkingCrossMidnight());
+//        run(scenario5_airportLongStaySeasonSwitch());
+//        run(scenario6_mallWeekdayWeekendNaturalTime());
+//        run(scenario7_resortCompositeTimeDurationPeriod());
+//        run(scenario8_eventVenueMixedRulesWithFlatFree());
         // ▲▲▲ 在这里选择/修改要运行的场景 ▲▲▲
     }
 
     // ==================== 预设场景 ====================
+
+    static List<MultiSegmentScenario> presetScenarios() {
+        return List.of(
+                scenario1_twoSegments(),
+                scenario2_threeSegments(),
+                scenario3_withPromotions(),
+                scenario4_hospitalParkingCrossMidnight(),
+                scenario5_airportLongStaySeasonSwitch(),
+                scenario6_mallWeekdayWeekendNaturalTime(),
+                scenario7_resortCompositeTimeDurationPeriod(),
+                scenario8_eventVenueMixedRulesWithFlatFree());
+    }
 
     /**
      * 场景1：两段计费 - 不同费率。
@@ -93,29 +127,13 @@ public class MultiSegmentBillingPlayground {
                         .schemeId("scheme-a")
                         .beginTime(LocalDateTime.of(2026, 7, 7, 8, 0))
                         .endTime(LocalDateTime.of(2026, 7, 7, 12, 0))
-                        .ruleConfig(new cn.shang.charging.charge.rules.daynight.DayNightConfig()
-                                .setId("dn-a")
-                                .setDayBeginMinute(8 * 60)
-                                .setDayEndMinute(20 * 60)
-                                .setDayUnitPrice(new BigDecimal("2"))
-                                .setNightUnitPrice(new BigDecimal("1"))
-                                .setUnitMinutes(60)
-                                .setMaxChargeOneDay(new BigDecimal("50"))
-                                .setBlockWeight(new BigDecimal("0.5")))
+                        .ruleConfig(dayNightConfig("dn-a", "2", "1", "50"))
                         .build())
                 .addSegment(SegmentConfig.builder()
                         .schemeId("scheme-b")
                         .beginTime(LocalDateTime.of(2026, 7, 7, 12, 0))
                         .endTime(LocalDateTime.of(2026, 7, 7, 18, 0))
-                        .ruleConfig(new cn.shang.charging.charge.rules.daynight.DayNightConfig()
-                                .setId("dn-b")
-                                .setDayBeginMinute(8 * 60)
-                                .setDayEndMinute(20 * 60)
-                                .setDayUnitPrice(new BigDecimal("3"))
-                                .setNightUnitPrice(new BigDecimal("1.5"))
-                                .setUnitMinutes(60)
-                                .setMaxChargeOneDay(new BigDecimal("60"))
-                                .setBlockWeight(new BigDecimal("0.5")))
+                        .ruleConfig(dayNightConfig("dn-b", "3", "1.5", "60"))
                         .build())
                 .build();
     }
@@ -131,49 +149,19 @@ public class MultiSegmentBillingPlayground {
                         .schemeId("peak-1")
                         .beginTime(LocalDateTime.of(2026, 9, 1, 8, 0))
                         .endTime(LocalDateTime.of(2026, 10, 11, 0, 0))
-                        .ruleConfig(cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig.builder()
-                                .id("peak-rule")
-                                .periods(List.of(
-                                        cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod.builder()
-                                                .beginMinute(0)
-                                                .endMinute(1440)
-                                                .unitMinutes(30)
-                                                .unitPrice(new BigDecimal("2"))
-                                                .build()))
-                                .maxChargeOneCycle(new BigDecimal("50"))
-                                .build())
+                        .ruleConfig(relativeTimeConfig("peak-rule", "2", "1.2", "50"))
                         .build())
                 .addSegment(SegmentConfig.builder()
                         .schemeId("off-peak")
                         .beginTime(LocalDateTime.of(2026, 10, 11, 0, 0))
                         .endTime(LocalDateTime.of(2027, 4, 20, 0, 0))
-                        .ruleConfig(cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig.builder()
-                                .id("off-peak-rule")
-                                .periods(List.of(
-                                        cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod.builder()
-                                                .beginMinute(0)
-                                                .endMinute(1440)
-                                                .unitMinutes(60)
-                                                .unitPrice(new BigDecimal("1"))
-                                                .build()))
-                                .maxChargeOneCycle(new BigDecimal("20"))
-                                .build())
+                        .ruleConfig(relativeTimeConfig("off-peak-rule", "1", "0.6", "20"))
                         .build())
                 .addSegment(SegmentConfig.builder()
                         .schemeId("peak-2")
                         .beginTime(LocalDateTime.of(2027, 4, 20, 0, 0))
                         .endTime(LocalDateTime.of(2027, 5, 1, 8, 0))
-                        .ruleConfig(cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig.builder()
-                                .id("peak-rule")
-                                .periods(List.of(
-                                        cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod.builder()
-                                                .beginMinute(0)
-                                                .endMinute(1440)
-                                                .unitMinutes(30)
-                                                .unitPrice(new BigDecimal("2"))
-                                                .build()))
-                                .maxChargeOneCycle(new BigDecimal("50"))
-                                .build())
+                        .ruleConfig(relativeTimeConfig("peak-rule", "2", "1.2", "50"))
                         .build())
                 .build();
     }
@@ -189,15 +177,7 @@ public class MultiSegmentBillingPlayground {
                         .schemeId("segment-1")
                         .beginTime(LocalDateTime.of(2026, 7, 7, 8, 0))
                         .endTime(LocalDateTime.of(2026, 7, 7, 12, 0))
-                        .ruleConfig(new cn.shang.charging.charge.rules.daynight.DayNightConfig()
-                                .setId("dn-1")
-                                .setDayBeginMinute(8 * 60)
-                                .setDayEndMinute(20 * 60)
-                                .setDayUnitPrice(new BigDecimal("2"))
-                                .setNightUnitPrice(new BigDecimal("1"))
-                                .setUnitMinutes(60)
-                                .setMaxChargeOneDay(new BigDecimal("50"))
-                                .setBlockWeight(new BigDecimal("0.5")))
+                        .ruleConfig(dayNightConfig("dn-1", "2", "1", "50"))
                         .externalPromotions(List.of(
                                 PromotionGrant.builder()
                                         .id("free-30min")
@@ -211,15 +191,7 @@ public class MultiSegmentBillingPlayground {
                         .schemeId("segment-2")
                         .beginTime(LocalDateTime.of(2026, 7, 7, 12, 0))
                         .endTime(LocalDateTime.of(2026, 7, 7, 18, 0))
-                        .ruleConfig(new cn.shang.charging.charge.rules.daynight.DayNightConfig()
-                                .setId("dn-2")
-                                .setDayBeginMinute(8 * 60)
-                                .setDayEndMinute(20 * 60)
-                                .setDayUnitPrice(new BigDecimal("3"))
-                                .setNightUnitPrice(new BigDecimal("1.5"))
-                                .setUnitMinutes(60)
-                                .setMaxChargeOneDay(new BigDecimal("60"))
-                                .setBlockWeight(new BigDecimal("0.5")))
+                        .ruleConfig(dayNightConfig("dn-2", "3", "1.5", "60"))
                         .externalPromotions(List.of(
                                 PromotionGrant.builder()
                                         .id("free-range-lunch")
@@ -230,6 +202,242 @@ public class MultiSegmentBillingPlayground {
                                         .endTime(LocalDateTime.of(2026, 7, 7, 13, 0))
                                         .build()))
                         .build())
+                .build();
+    }
+
+    /**
+     * 场景4：医院停车 - 白天门诊价、夜间陪护价，跨午夜并带夜间免费券。
+     */
+    static MultiSegmentScenario scenario4_hospitalParkingCrossMidnight() {
+        return MultiSegmentScenario.builder()
+                .name("医院停车 - 门诊/陪护跨午夜")
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("hospital-day")
+                        .beginTime(LocalDateTime.of(2026, 7, 13, 16, 20))
+                        .endTime(LocalDateTime.of(2026, 7, 13, 22, 0))
+                        .ruleConfig(dayNightConfig("hospital-day-rule", "4.00", "2.00", "35.00"))
+                        .build())
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("hospital-night")
+                        .beginTime(LocalDateTime.of(2026, 7, 13, 22, 0))
+                        .endTime(LocalDateTime.of(2026, 7, 14, 9, 10))
+                        .ruleConfig(dayNightConfig("hospital-night-rule", "3.00", "1.00", "24.00"))
+                        .externalPromotions(List.of(freeRange("night-visit-free",
+                                LocalDateTime.of(2026, 7, 13, 23, 30),
+                                LocalDateTime.of(2026, 7, 14, 1, 0))))
+                        .build())
+                .build();
+    }
+
+    /**
+     * 场景5：机场长停 - 临停转过夜，按相对时间段分别配置首小时和后续价格。
+     */
+    static MultiSegmentScenario scenario5_airportLongStaySeasonSwitch() {
+        return MultiSegmentScenario.builder()
+                .name("机场停车 - 临停/过夜多日")
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("airport-short")
+                        .beginTime(LocalDateTime.of(2026, 8, 21, 9, 35))
+                        .endTime(LocalDateTime.of(2026, 8, 21, 18, 0))
+                        .ruleConfig(relativeTimeConfig("airport-short-rule", "6.00", "4.00", "80.00"))
+                        .externalPromotions(List.of(freeMinutes("airport-member-60", 60)))
+                        .build())
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("airport-overnight")
+                        .beginTime(LocalDateTime.of(2026, 8, 21, 18, 0))
+                        .endTime(LocalDateTime.of(2026, 8, 23, 10, 25))
+                        .ruleConfig(relativeTimeConfig("airport-overnight-rule", "3.00", "1.50", "45.00"))
+                        .build())
+                .build();
+    }
+
+    /**
+     * 场景6：商场停车 - 工作日切到周末，自然时段价格不同。
+     */
+    static MultiSegmentScenario scenario6_mallWeekdayWeekendNaturalTime() {
+        return MultiSegmentScenario.builder()
+                .name("商场停车 - 工作日/周末自然时段")
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("mall-weekday")
+                        .beginTime(LocalDateTime.of(2026, 7, 17, 18, 40))
+                        .endTime(LocalDateTime.of(2026, 7, 18, 0, 0))
+                        .ruleConfig(naturalTimeConfig("mall-weekday-rule", "1.00", "3.00", "4.00", "1.00", "40.00"))
+                        .externalPromotions(List.of(freeRange("movie-ticket-free",
+                                LocalDateTime.of(2026, 7, 17, 20, 0),
+                                LocalDateTime.of(2026, 7, 17, 22, 0))))
+                        .build())
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("mall-weekend")
+                        .beginTime(LocalDateTime.of(2026, 7, 18, 0, 0))
+                        .endTime(LocalDateTime.of(2026, 7, 18, 14, 15))
+                        .ruleConfig(naturalTimeConfig("mall-weekend-rule", "1.50", "4.00", "5.00", "1.50", "60.00"))
+                        .build())
+                .build();
+    }
+
+    /**
+     * 场景7：度假区停车 - 平日切周末，使用 compositeTime 的时长周期模式观察 period/cycle cap。
+     */
+    static MultiSegmentScenario scenario7_resortCompositeTimeDurationPeriod() {
+        return MultiSegmentScenario.builder()
+                .name("度假区停车 - compositeTime 平日/周末时长模式")
+                .calculationMode(BConstants.CalculationMode.DURATION_PERIOD)
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("resort-weekday")
+                        .beginTime(LocalDateTime.of(2026, 7, 10, 17, 15))
+                        .endTime(LocalDateTime.of(2026, 7, 11, 0, 0))
+                        .ruleConfig(compositeTimeConfig("resort-weekday-rule", "80.00", "12.00", "4.00", "6.00"))
+                        .externalPromotions(List.of(freeMinutes("hotel-guest-90", 90)))
+                        .build())
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("resort-weekend")
+                        .beginTime(LocalDateTime.of(2026, 7, 11, 0, 0))
+                        .endTime(LocalDateTime.of(2026, 7, 12, 11, 45))
+                        .ruleConfig(compositeTimeConfig("resort-weekend-rule", "120.00", "18.00", "6.00", "9.00"))
+                        .build())
+                .build();
+    }
+
+    /**
+     * 场景8：活动场馆 - 入场前收费、活动期间统一免费、散场后恢复收费。
+     */
+    static MultiSegmentScenario scenario8_eventVenueMixedRulesWithFlatFree() {
+        return MultiSegmentScenario.builder()
+                .name("活动场馆 - 收费/活动免费/散场收费")
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("event-before")
+                        .beginTime(LocalDateTime.of(2026, 9, 5, 15, 30))
+                        .endTime(LocalDateTime.of(2026, 9, 5, 18, 0))
+                        .ruleConfig(dayNightConfig("event-before-rule", "5.00", "2.00", "50.00"))
+                        .build())
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("event-free")
+                        .beginTime(LocalDateTime.of(2026, 9, 5, 18, 0))
+                        .endTime(LocalDateTime.of(2026, 9, 5, 21, 30))
+                        .ruleConfig(FlatFreeConfig.builder().id("event-free-rule").build())
+                        .build())
+                .addSegment(SegmentConfig.builder()
+                        .schemeId("event-after")
+                        .beginTime(LocalDateTime.of(2026, 9, 5, 21, 30))
+                        .endTime(LocalDateTime.of(2026, 9, 5, 23, 20))
+                        .ruleConfig(dayNightConfig("event-after-rule", "4.00", "2.00", "30.00"))
+                        .build())
+                .build();
+    }
+
+    private static DayNightConfig dayNightConfig(String id, String dayPrice, String nightPrice, String cap) {
+        return new DayNightConfig()
+                .setId(id)
+                .setDayBeginMinute(8 * 60)
+                .setDayEndMinute(20 * 60)
+                .setDayUnitPrice(new BigDecimal(dayPrice))
+                .setNightUnitPrice(new BigDecimal(nightPrice))
+                .setUnitMinutes(60)
+                .setMaxChargeOneDay(new BigDecimal(cap))
+                .setBlockWeight(new BigDecimal("0.5"));
+    }
+
+    private static RelativeTimeConfig relativeTimeConfig(String id, String firstPeriodPrice, String laterPrice, String cap) {
+        return RelativeTimeConfig.builder()
+                .id(id)
+                .periods(List.of(
+                        RelativeTimePeriod.builder()
+                                .beginMinute(0)
+                                .endMinute(120)
+                                .unitMinutes(30)
+                                .unitPrice(new BigDecimal(firstPeriodPrice))
+                                .build(),
+                        RelativeTimePeriod.builder()
+                                .beginMinute(120)
+                                .endMinute(1440)
+                                .unitMinutes(60)
+                                .unitPrice(new BigDecimal(laterPrice))
+                                .build()))
+                .maxChargeOneCycle(new BigDecimal(cap))
+                .build();
+    }
+
+    private static NaturalTimeConfig naturalTimeConfig(String id,
+                                                       String nightPrice,
+                                                       String dayPrice,
+                                                       String eveningPrice,
+                                                       String lateNightPrice,
+                                                       String cap) {
+        return NaturalTimeConfig.builder()
+                .id(id)
+                .unitMinutes(60)
+                .periods(List.of(
+                        NaturalPeriod.builder().beginMinute(0).endMinute(8 * 60)
+                                .unitPrice(new BigDecimal(nightPrice)).build(),
+                        NaturalPeriod.builder().beginMinute(8 * 60).endMinute(18 * 60)
+                                .unitPrice(new BigDecimal(dayPrice)).build(),
+                        NaturalPeriod.builder().beginMinute(18 * 60).endMinute(22 * 60)
+                                .unitPrice(new BigDecimal(eveningPrice)).build(),
+                        NaturalPeriod.builder().beginMinute(22 * 60).endMinute(1440)
+                                .unitPrice(new BigDecimal(lateNightPrice)).build()))
+                .maxChargeOneDay(new BigDecimal(cap))
+                .build();
+    }
+
+    private static CompositeTimeConfig compositeTimeConfig(String id,
+                                                           String cycleCap,
+                                                           String firstPeriodCap,
+                                                           String normalPrice,
+                                                           String busyPrice) {
+        return CompositeTimeConfig.builder()
+                .id(id)
+                .maxChargeOneCycle(new BigDecimal(cycleCap))
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0)
+                                .endMinute(180)
+                                .unitMinutes(30)
+                                .maxCharge(new BigDecimal(firstPeriodCap))
+                                .naturalPeriods(resortNaturalPeriods(normalPrice, busyPrice))
+                                .build(),
+                        CompositePeriod.builder()
+                                .beginMinute(180)
+                                .endMinute(1440)
+                                .unitMinutes(60)
+                                .naturalPeriods(resortNaturalPeriods(normalPrice, busyPrice))
+                                .build()))
+                .build();
+    }
+
+    private static List<NaturalPeriod> resortNaturalPeriods(String normalPrice, String busyPrice) {
+        return List.of(
+                NaturalPeriod.builder().beginMinute(0).endMinute(8 * 60)
+                        .unitPrice(new BigDecimal(normalPrice)).build(),
+                NaturalPeriod.builder().beginMinute(8 * 60).endMinute(18 * 60)
+                        .unitPrice(new BigDecimal(busyPrice)).build(),
+                NaturalPeriod.builder().beginMinute(18 * 60).endMinute(22 * 60)
+                        .unitPrice(new BigDecimal(busyPrice).add(new BigDecimal("2.00"))).build(),
+                NaturalPeriod.builder().beginMinute(22 * 60).endMinute(1440)
+                        .unitPrice(new BigDecimal(normalPrice)).build());
+    }
+
+    private static PromotionGrant freeMinutes(String id, int minutes) {
+        return PromotionGrant.builder()
+                .id(id)
+                .type(BConstants.PromotionType.FREE_MINUTES)
+                .source(BConstants.PromotionSource.COUPON)
+                .freeMinutes(minutes)
+                .priority(1)
+                .build();
+    }
+
+    private static PromotionGrant freeRange(String id, LocalDateTime begin, LocalDateTime end) {
+        return PromotionGrant.builder()
+                .id(id)
+                .type(BConstants.PromotionType.FREE_RANGE)
+                .source(BConstants.PromotionSource.COUPON)
+                .priority(1)
+                .beginTime(begin)
+                .endTime(end)
                 .build();
     }
 
@@ -252,6 +460,7 @@ public class MultiSegmentBillingPlayground {
 
         // 3. 组装引擎
         BillingRuleRegistry ruleRegistry = new BillingRuleRegistry();
+        ruleRegistry.register(BConstants.ChargeRuleType.FLAT_FREE, new FlatFreeRule());
         PromotionRuleRegistry promotionRuleRegistry = new PromotionRuleRegistry();
         promotionRuleRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
         promotionRuleRegistry.register(BConstants.PromotionRuleType.START_FREE, new StartFreePromotionRule());
@@ -356,6 +565,11 @@ public class MultiSegmentBillingPlayground {
             public List<PromotionRuleConfig> resolvePromotionRules(String schemeId, LocalDateTime segmentStart, LocalDateTime segmentEnd, Map<String, Object> context) {
                 return promotionConfigMap.getOrDefault(schemeId, List.of());
             }
+
+            @Override
+            public int getSimplifiedCycleThreshold() {
+                return 2;
+            }
         };
     }
 
@@ -432,6 +646,27 @@ public class MultiSegmentBillingPlayground {
                 segAmount = segAmount.add(u.getChargedAmount());
             }
             System.out.printf("      分段小计: %.2f元%n", segAmount);
+        }
+
+        // 时长计费段明细
+        if (result.getDurationSegments() != null && !result.getDurationSegments().isEmpty()) {
+            System.out.println("\n【时长计费段明细】共 " + result.getDurationSegments().size() + " 段");
+            System.out.printf("  %-3s %-16s %-16s %-14s %6s %8s %10s %10s %s%n",
+                    "#", "开始", "结束", "时段", "分钟", "单价", "原价", "实收", "标记");
+            for (int i = 0; i < result.getDurationSegments().size(); i++) {
+                DurationSegment d = result.getDurationSegments().get(i);
+                String mark = d.freePromotionId() != null ? " [免费:" + d.freePromotionId() + "]" : "";
+                System.out.printf("  %-3d %-16s %-16s %-14s %6d %8s %10s %10s %s%n",
+                        i + 1,
+                        d.beginTime() != null ? d.beginTime().format(FMT) : "-",
+                        d.endTime() != null ? d.endTime().format(FMT) : "-",
+                        d.periodLabel(),
+                        d.chargedMinutes(),
+                        d.unitPrice(),
+                        d.originalAmount(),
+                        d.chargedAmount(),
+                        mark);
+            }
         }
 
         // 优惠使用情况

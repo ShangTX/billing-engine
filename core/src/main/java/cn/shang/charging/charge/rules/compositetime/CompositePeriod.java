@@ -40,11 +40,6 @@ public class CompositePeriod {
     private BigDecimal maxCharge;
 
     /**
-     * 跨自然时段处理模式
-     */
-    private CrossPeriodMode crossPeriodMode;
-
-    /**
      * 自然时段价格列表
      * 必须覆盖全天（0-1440分钟）
      */

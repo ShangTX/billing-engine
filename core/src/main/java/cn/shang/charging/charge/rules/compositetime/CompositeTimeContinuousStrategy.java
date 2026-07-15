@@ -71,7 +71,7 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
     /**
      * CONTINUOUS 模式计算。
      * <p>
-     * 非简化路径：边界驱动切断（period 边界 + cycleEnd + freeRangeEdges + 单元对齐 + calcEnd），
+     * 非简化路径：边界驱动切断（period 边界 + 自然时段边界 + cycleEnd + freeRangeEdges + calcEnd），
      * 封顶/累计/periodCap 由通用 {@link ContinuousStrategy#applyCapAndAccumulate} 处理。
      * 简化路径：{@link #generateUnitsByGlobalGaps}（决策 C，全局空隙实现）。
      */
@@ -236,7 +236,7 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
             return new ArrayList<>();
         }
 
-        // 边界来源：period 边界 + cycle 边界 + 免费时段起止 + 单元对齐 + calcEnd
+        // 边界来源：period 边界 + 自然时段边界 + cycle 边界 + 免费时段起止 + calcEnd
         List<BoundaryProvider> providers = new ArrayList<>();
         // period 边界（相对位置）
         providers.add((current, e) -> {
@@ -256,6 +256,14 @@ final class CompositeTimeContinuousStrategy implements BillingRule<CompositeTime
                 }
             }
             return null;
+        });
+        // 自然时段边界：compositeTime 不再配置 crossPeriodMode，跨自然价段一律切断。
+        providers.add((current, e) -> {
+            long minutesFromOrigin = Duration.between(billingOrigin, current).toMinutes();
+            int positionInCycle = (int) (((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE);
+            CompositePeriod period = periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
+            LocalDateTime boundary = periodResolver.findNextNaturalPeriodBoundary(current, period.getNaturalPeriods());
+            return boundary != null && boundary.isAfter(current) && !boundary.isAfter(e) ? boundary : null;
         });
         providers.add(BoundaryProviders.cycleEnd(billingOrigin, MINUTES_PER_CYCLE));
         providers.add(BoundaryProviders.freeRangeEdges(freeTimeRanges));

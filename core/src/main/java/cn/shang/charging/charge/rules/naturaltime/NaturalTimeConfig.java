@@ -2,7 +2,6 @@ package cn.shang.charging.charge.rules.naturaltime;
 
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.RuleConfig;
-import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -48,13 +47,6 @@ public class NaturalTimeConfig implements RuleConfig {
      * 计费单元长度（分钟），统一时长
      */
     private int unitMinutes;
-
-    /**
-     * 跨时段处理模式
-     * 默认 BEGIN_TIME_TRUNCATE（时段边界截断）
-     */
-    @Builder.Default
-    private CrossPeriodMode crossPeriodMode = CrossPeriodMode.BEGIN_TIME_TRUNCATE;
 
     /**
      * 每日封顶金额（可选）

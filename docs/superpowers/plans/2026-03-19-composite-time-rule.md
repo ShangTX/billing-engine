@@ -2,9 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 实现 CompositeTimeRule 混合计费规则，支持两层嵌套（相对时间段 + 自然时段价格）、双层封顶、多种跨时段处理模式、延伸逻辑、CONTINUOUS 模式。
+> 2026-07-15 修订：本计划保留早期实现过程记录；当前有效语义以代码、用户指南和能力文档为准。
+> `CompositeTimeRule` 不再支持 `crossPeriodMode`，自然时段边界统一切断；
+> 不足单元由 `CompositeTimeConfig.incompleteUnitChargeMode` 控制。
 
-**Architecture:** 创建新的规则包 `compositetime`，包含配置类、规则实现类。遵循现有规则模式（BillingRule 接口），支持 UNIT_BASED 和 CONTINUOUS 两种计费模式。
+**Goal:** 实现 CompositeTimeRule 混合计费规则，支持两层嵌套（相对时间段 + 自然时段价格）、双层封顶、自然时段边界切断、CONTINUOUS / DURATION_PERIOD / DURATION_GLOBAL 模式。
+
+**Architecture:** 创建新的规则包 `compositetime`，包含配置类、规则实现类。遵循现有规则模式（BillingRule 接口），CompositeTime 不支持 UNIT_BASED。
 
 **Tech Stack:** Java 17+, Lombok, BigDecimal
 
@@ -19,8 +23,8 @@ core/src/main/java/cn/shang/charging/
 │   ├── CompositeTimeConfig.java        # 配置类
 │   ├── CompositePeriod.java            # 相对时间段配置
 │   ├── NaturalPeriod.java              # 自然时段配置
-│   ├── CrossPeriodMode.java            # 跨时段处理模式枚举
-│   └── InsufficientUnitMode.java       # 不足单元计费模式枚举
+│   ├── CrossPeriodMode.java            # dayNight 复用的跨时段处理模式枚举；CompositeTime 不使用
+│   └── CompositeTimeConfig.java        # 通过 incompleteUnitChargeMode 配置不足单元
 └── billing/pojo/BConstants.java        # 新增规则类型常量
 
 bill-test/src/main/java/cn/shang/charging/
@@ -31,81 +35,43 @@ bill-test/src/main/java/cn/shang/charging/
 
 ## Phase 1: 数据结构定义
 
-### Task 1: 创建 InsufficientUnitMode 枚举
+### Task 1: 使用公共 IncompleteUnitChargeMode
 
 **Files:**
-- Create: `core/src/main/java/cn/shang/charging/charge/rules/compositetime/InsufficientUnitMode.java`
+- Modify: `core/src/main/java/cn/shang/charging/charge/rules/compositetime/CompositeTimeConfig.java`
 
-- [ ] **Step 1: 创建枚举类**
+- [ ] **Step 1: 使用公共枚举**
 
 ```java
-package cn.shang.charging.charge.rules.compositetime;
-
-/**
- * 不足单元计费模式
- */
-public enum InsufficientUnitMode {
-
-    /** 全额收费 */
-    FULL,
-
-    /** 按比例收费 */
-    PROPORTIONAL
-}
+private BConstants.IncompleteUnitChargeMode incompleteUnitChargeMode =
+        BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
 ```
 
 - [ ] **Step 2: 提交**
 
 ```bash
-git add core/src/main/java/cn/shang/charging/charge/rules/compositetime/InsufficientUnitMode.java
-git commit -m "[claude-code|glm-5|superpowers] feat: 新增 InsufficientUnitMode 枚举"
+git add core/src/main/java/cn/shang/charging/charge/rules/compositetime/CompositeTimeConfig.java
+git commit -m "[claude-code|glm-5|superpowers] feat: 配置 compositeTime 不足单元模式"
 ```
 
 ---
 
-### Task 2: 创建 CrossPeriodMode 枚举
+### Task 2: 不在 CompositeTime 中配置 CrossPeriodMode
 
 **Files:**
-- Create: `core/src/main/java/cn/shang/charging/charge/rules/compositetime/CrossPeriodMode.java`
+- Modify: `core/src/main/java/cn/shang/charging/charge/rules/compositetime/CompositeTimeContinuousStrategy.java`
 
-- [ ] **Step 1: 创建枚举类**
+- [ ] **Step 1: 把自然时段边界加入边界 Provider**
 
 ```java
-package cn.shang.charging.charge.rules.compositetime;
-
-/**
- * 跨自然时段处理模式
- */
-public enum CrossPeriodMode {
-
-    /** 按时间比例判断用哪个价格（类似 DayNightRule 的 blockWeight） */
-    BLOCK_WEIGHT,
-
-    /** 取较高价格 */
-    HIGHER_PRICE,
-
-    /** 取较低价格 */
-    LOWER_PRICE,
-
-    /** 按比例拆分计算 */
-    PROPORTIONAL,
-
-    /** 取开始时间所在时段的价格 */
-    BEGIN_TIME_PRICE,
-
-    /** 取结束时间所在时段的价格 */
-    END_TIME_PRICE,
-
-    /** 取开始时间价格，并用自然时段边界截断单元 */
-    BEGIN_TIME_TRUNCATE
-}
+providers.add(naturalPeriodBoundaryProvider);
 ```
 
 - [ ] **Step 2: 提交**
 
 ```bash
-git add core/src/main/java/cn/shang/charging/charge/rules/compositetime/CrossPeriodMode.java
-git commit -m "[claude-code|glm-5|superpowers] feat: 新增 CrossPeriodMode 枚举"
+git add core/src/main/java/cn/shang/charging/charge/rules/compositetime/CompositeTimeContinuousStrategy.java
+git commit -m "[claude-code|glm-5|superpowers] feat: compositeTime 按自然时段边界切断"
 ```
 
 ---
@@ -218,11 +184,6 @@ public class CompositePeriod {
     private BigDecimal maxCharge;
 
     /**
-     * 跨自然时段处理模式
-     */
-    private CrossPeriodMode crossPeriodMode;
-
-    /**
      * 自然时段价格列表
      * 必须覆盖全天（0-1440分钟）
      */
@@ -289,7 +250,8 @@ public class CompositeTimeConfig implements RuleConfig {
 
     /** 不足单元计费模式（默认全额） */
     @Builder.Default
-    private InsufficientUnitMode insufficientUnitMode = InsufficientUnitMode.FULL;
+    private BConstants.IncompleteUnitChargeMode incompleteUnitChargeMode =
+            BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
 
     /** 相对时间段列表 */
     private List<CompositePeriod> periods;
@@ -359,7 +321,6 @@ public class CompositeTimeTest {
                                 .beginMinute(0)
                                 .endMinute(60)
                                 .unitMinutes(60)
-                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                                 .naturalPeriods(createFullCoverageNaturalPeriods())
                                 .build()
                 ))
@@ -400,7 +361,6 @@ public class CompositeTimeTest {
                         .beginMinute(0)
                         .endMinute(1440)
                         .unitMinutes(60)
-                        .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                         .naturalPeriods(createFullCoverageNaturalPeriods())
                         .build()
         );
@@ -419,7 +379,7 @@ public class CompositeTimeTest {
         return BillingContext.builder()
                 .beginTime(LocalDateTime.of(2026, 1, 1, 8, 0))
                 .endTime(LocalDateTime.of(2026, 1, 1, 10, 0))
-                .billingMode(BConstants.BillingMode.UNIT_BASED)
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
                 .segment(segment)
                 .build();
     }
@@ -473,8 +433,10 @@ public class CompositeTimeRule implements BillingRule<CompositeTimeConfig> {
     }
 
     @Override
-    public Set<BConstants.BillingMode> supportedModes() {
-        return Set.of(BConstants.BillingMode.UNIT_BASED, BConstants.BillingMode.CONTINUOUS);
+    public Set<BConstants.CalculationMode> supportedCalculationModes() {
+        return Set.of(BConstants.CalculationMode.CONTINUOUS,
+                BConstants.CalculationMode.DURATION_PERIOD,
+                BConstants.CalculationMode.DURATION_GLOBAL);
     }
 
     private void validateConfig(CompositeTimeConfig config) {
@@ -541,9 +503,9 @@ git commit -m "[claude-code|glm-5|superpowers] feat: 实现 CompositeTimeRule �
 
 ---
 
-## Phase 3: UNIT_BASED 模式核心实现
+## Phase 3: CONTINUOUS 边界驱动实现
 
-### Task 8: 测试 - 基本计费场景
+### Task 8: 测试 - 基本计费与自然边界切断
 
 **Files:**
 - Modify: `bill-test/src/main/java/cn/shang/charging/CompositeTimeTest.java`
@@ -551,10 +513,10 @@ git commit -m "[claude-code|glm-5|superpowers] feat: 实现 CompositeTimeRule �
 - [ ] **Step 1: 添加基本计费测试**
 
 ```java
-// ========== UNIT_BASED 模式测试 ==========
+// ========== CONTINUOUS 模式测试 ==========
 
 @Test
-void testUnitBased_BasicCalculation() {
+void testContinuousBasicCalculation() {
     CompositeTimeConfig config = createBaseConfig();
 
     CompositeTimeRule rule = new CompositeTimeRule();
@@ -565,20 +527,18 @@ void testUnitBased_BasicCalculation() {
 }
 
 @Test
-void testUnitBased_TwoRelativePeriods() {
+void testContinuousTwoRelativePeriods() {
     CompositeTimeConfig config = CompositeTimeConfig.builder()
             .id("test")
             .maxChargeOneCycle(BigDecimal.valueOf(50))
             .periods(List.of(
                     CompositePeriod.builder()
                             .beginMinute(0).endMinute(120).unitMinutes(60)
-                            .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                             .naturalPeriods(List.of(NaturalPeriod.builder()
                                     .beginMinute(0).endMinute(1440).unitPrice(BigDecimal.ONE).build()))
                             .build(),
                     CompositePeriod.builder()
                             .beginMinute(120).endMinute(1440).unitMinutes(30)
-                            .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                             .naturalPeriods(List.of(NaturalPeriod.builder()
                                     .beginMinute(0).endMinute(1440).unitPrice(BigDecimal.valueOf(2)).build()))
                             .build()
@@ -603,7 +563,7 @@ private BillingContext createBaseContext(LocalDateTime begin, LocalDateTime end)
     return BillingContext.builder()
             .beginTime(begin)
             .endTime(end)
-            .billingMode(BConstants.BillingMode.UNIT_BASED)
+            .calculationMode(BConstants.CalculationMode.CONTINUOUS)
             .segment(segment)
             .build();
 }
@@ -611,7 +571,7 @@ private BillingContext createBaseContext(LocalDateTime begin, LocalDateTime end)
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `mvn test -pl bill-test -Dtest=CompositeTimeTest#testUnitBased_BasicCalculation -q`
+Run: `mvn test -pl bill-test -Dtest=CompositeTimeTest#testContinuousBasicCalculation -q`
 Expected: FAIL
 
 - [ ] **Step 3: 提交测试**
@@ -623,18 +583,18 @@ git commit -m "[claude-code|glm-5|superpowers] test: 新增基本计费测试"
 
 ---
 
-### Task 9: 实现 UNIT_BASED 基本计算
+### Task 9: 实现 CONTINUOUS 边界驱动计算
 
 **Files:**
 - Modify: `core/src/main/java/cn/shang/charging/charge/rules/compositetime/CompositeTimeRule.java`
 
 - [ ] **Step 1: 实现计算逻辑**
 
-参考 RelativeTimeRule 的实现模式，添加：
+参考当前边界驱动框架，添加：
 - `calculate()` 主方法
-- `calculateCycle()` 周期计算
-- `generateUnitsInPeriod()` 单元生成
-- `calculateUnitPrice()` 价格计算
+- 相对时间段边界 Provider
+- 自然时段边界 Provider
+- `calculateUnitPrice()` 同质段价格计算
 - `findNaturalPeriod()` 时段查找
 - 封顶逻辑
 
@@ -649,31 +609,30 @@ Expected: PASS
 
 ```bash
 git add core/src/main/java/cn/shang/charging/charge/rules/compositetime/CompositeTimeRule.java
-git commit -m "[claude-code|glm-5|superpowers] feat: 实现 UNIT_BASED 模式基础计算"
+git commit -m "[claude-code|glm-5|superpowers] feat: 实现 compositeTime 边界驱动计算"
 ```
 
 ---
 
-### Task 10: 测试与实现 - CrossPeriodMode 各模式
+### Task 10: 测试与实现 - 自然时段边界切断
 
 **Files:**
 - Modify: `bill-test/src/main/java/cn/shang/charging/CompositeTimeTest.java`
 - Modify: `core/src/main/java/cn/shang/charging/charge/rules/compositetime/CompositeTimeRule.java`
 
-- [ ] **Step 1: 添加跨时段模式测试**
+- [ ] **Step 1: 添加自然边界切断测试**
 
 ```java
 @Test
-void testCrossPeriodMode_HigherPrice() {
+void testCrossNaturalPeriodShouldSplitAtBoundary() {
     // 自然时段：08:00-20:00 单价2元，20:00-08:00 单价1元
-    // 计费单元跨越边界，取较高价格
+    // 计费单元跨越边界时先切断，再分别按不足单元模式收费
     CompositeTimeConfig config = CompositeTimeConfig.builder()
             .id("test")
             .maxChargeOneCycle(BigDecimal.valueOf(50))
             .periods(List.of(
                     CompositePeriod.builder()
                             .beginMinute(0).endMinute(1440).unitMinutes(60)
-                            .crossPeriodMode(CrossPeriodMode.HIGHER_PRICE)
                             .naturalPeriods(List.of(
                                     NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
                                     NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
@@ -690,23 +649,12 @@ void testCrossPeriodMode_HigherPrice() {
     CompositeTimeRule rule = new CompositeTimeRule();
     BillingSegmentResult result = rule.calculate(context, config, PromotionAggregate.empty());
 
-    // 应该取较高价格 2元
-    assertEquals(0, BigDecimal.valueOf(2).compareTo(result.getChargedAmount()));
-}
-
-@Test
-void testCrossPeriodMode_LowerPrice() {
-    // 类似上面，但取较低价格
-    // 测试代码类似，使用 CrossPeriodMode.LOWER_PRICE
-}
-
-@Test
-void testCrossPeriodMode_BeginTimePrice() {
-    // 取开始时间所在时段的价格
+    assertEquals(LocalDateTime.of(2026, 1, 1, 20, 0),
+            result.getBillingUnits().get(0).getEndTime());
 }
 ```
 
-- [ ] **Step 2: 确保所有模式实现完整**
+- [ ] **Step 2: 确保自然边界 Provider 生效**
 
 - [ ] **Step 3: 运行测试**
 
@@ -715,7 +663,7 @@ void testCrossPeriodMode_BeginTimePrice() {
 ```bash
 git add bill-test/src/main/java/cn/shang/charging/CompositeTimeTest.java
 git add core/src/main/java/cn/shang/charging/charge/rules/compositetime/CompositeTimeRule.java
-git commit -m "[claude-code|glm-5|superpowers] feat: 完善跨时段处理模式实现"
+git commit -m "[claude-code|glm-5|superpowers] feat: compositeTime 自然边界切断"
 ```
 
 ---

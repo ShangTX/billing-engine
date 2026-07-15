@@ -4,7 +4,6 @@ import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.charge.rules.BoundaryProvider;
 import cn.shang.charging.charge.rules.HomogeneousSegment;
 import cn.shang.charging.charge.rules.RuleSemantics;
-import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 
 import java.math.BigDecimal;
@@ -59,7 +58,7 @@ final class NaturalTimeSemantics implements RuleSemantics<NaturalTimeConfig> {
 
     @Override
     public BigDecimal priceAt(LocalDateTime begin, LocalDateTime end, NaturalTimeConfig config, LocalDateTime cycleOrigin) {
-        return priceResolver.calculateUnitPrice(begin, end, config.getPeriods(), config.getCrossPeriodMode());
+        return priceResolver.calculateUnitPrice(begin, end, config.getPeriods());
     }
 
     /**
@@ -70,9 +69,7 @@ final class NaturalTimeSemantics implements RuleSemantics<NaturalTimeConfig> {
     public BoundaryProvider periodBoundaryProvider(NaturalTimeConfig config, LocalDateTime cycleOrigin) {
         List<NaturalPeriod> periods = config.getPeriods();
         return (current, end) -> {
-            int currentMinute = current.getHour() * 60 + current.getMinute();
-            int periodEnd = periodResolver.findNextPeriodBoundary(currentMinute, periods);
-            LocalDateTime periodBoundary = current.plusMinutes(periodEnd - currentMinute);
+            LocalDateTime periodBoundary = periodResolver.findNextPeriodBoundary(current, periods);
             if (periodBoundary.isAfter(current) && !periodBoundary.isAfter(end)) {
                 return periodBoundary;
             }

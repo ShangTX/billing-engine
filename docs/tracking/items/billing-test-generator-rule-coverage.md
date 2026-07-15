@@ -37,7 +37,7 @@ completed_at: 2026-05-18
    - RELATIVE_MULTI_PERIOD - relativeTime 多时段
    - RELATIVE_CYCLE_CAP - relativeTime 周期封顶
    - COMPOSITE_NATURAL_PERIOD - compositeTime 自然时段
-   - COMPOSITE_CROSS_PERIOD_MODE - compositeTime 跨时段模式
+   - COMPOSITE_INSUFFICIENT_UNIT - compositeTime 不足单元收费模式
 
 ## 验收标准
 

@@ -604,7 +604,8 @@ RelativeTimeConfig config = new RelativeTimeConfig()
 
 ### 10.3 compositeTime（混合时间计费）
 
-最灵活的规则：支持自然时段、时段独立封顶、跨时段模式。
+最灵活的规则：组合相对时段和自然时段价格，支持时段独立封顶。自然时段边界统一切断，
+不再配置 `crossPeriodMode`；不足单元通过 `incompleteUnitChargeMode` 控制。
 
 ```java
 import cn.shang.charging.charge.rules.compositetime.*;
@@ -618,7 +619,6 @@ CompositeTimeConfig config = new CompositeTimeConfig()
                         .beginMinute(0)
                         .endMinute(1440)
                         .unitMinutes(60)
-                        .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                         .naturalPeriods(List.of(
                                 new NaturalPeriod(8 * 60, 20 * 60, new BigDecimal("2")),  // 白天
                                 new NaturalPeriod(20 * 60, 24 * 60, new BigDecimal("1"))  // 夜间

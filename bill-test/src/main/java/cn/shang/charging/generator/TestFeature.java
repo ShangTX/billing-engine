@@ -130,11 +130,6 @@ public enum TestFeature {
     COMPOSITE_NATURAL_PERIOD,
 
     /**
-     * 复合时间规则跨自然时段的处理模式。
-     */
-    COMPOSITE_CROSS_PERIOD_MODE,
-
-    /**
      * 复合时间规则不足单元的收费模式。
      */
     COMPOSITE_INSUFFICIENT_UNIT,

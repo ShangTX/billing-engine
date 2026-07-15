@@ -243,8 +243,6 @@ public class BillingTestCaseGenerator {
         return NaturalTimeConfig.builder()
                 .id("generated-natural-time-" + (index + 1))
                 .unitMinutes(60)
-                .crossPeriodMode(features.contains(TestFeature.COMPOSITE_CROSS_PERIOD_MODE)
-                        ? CrossPeriodMode.HIGHER_PRICE : CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                 .periods(List.of(
                         NaturalPeriod.builder().beginMinute(0).endMinute(360).unitPrice(new BigDecimal("1.00")).build(),
                         NaturalPeriod.builder().beginMinute(360).endMinute(720).unitPrice(new BigDecimal("2.00")).build(),
@@ -268,8 +266,6 @@ public class BillingTestCaseGenerator {
                                 .beginMinute(0)
                                 .endMinute(1440)
                                 .unitMinutes(60)
-                                .crossPeriodMode(features.contains(TestFeature.COMPOSITE_CROSS_PERIOD_MODE)
-                                        ? CrossPeriodMode.HIGHER_PRICE : CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                                 .naturalPeriods(List.of(
                                         NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(new BigDecimal("1.00")).build(),
                                         NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(new BigDecimal("2.00")).build(),

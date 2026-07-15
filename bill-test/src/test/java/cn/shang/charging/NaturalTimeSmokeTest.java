@@ -4,9 +4,7 @@ import cn.shang.charging.billing.BillingSegment;
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
-import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
-import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.charge.rules.naturaltime.NaturalTimeConfig;
 import cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule;
@@ -18,8 +16,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 class NaturalTimeSmokeTest {
 
     @Test
@@ -31,7 +27,7 @@ class NaturalTimeSmokeTest {
                         LocalDateTime.of(2026, 1, 1, 10, 0),
                         BConstants.CalculationMode.CONTINUOUS
                 ),
-                createSinglePeriodConfig(CrossPeriodMode.BEGIN_TIME_TRUNCATE, BigDecimal.ONE, null),
+                createSinglePeriodConfig(BigDecimal.ONE, null),
                 PromotionAggregate.builder().build()
         );
 
@@ -43,7 +39,6 @@ class NaturalTimeSmokeTest {
         NaturalTimeConfig config = NaturalTimeConfig.builder()
                 .id("test")
                 .unitMinutes(60)
-                .crossPeriodMode(CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                 .periods(List.of(
                         NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
                         NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
@@ -67,11 +62,10 @@ class NaturalTimeSmokeTest {
         assertEquals(0, BigDecimal.valueOf(6).compareTo(result.getChargedAmount()));
     }
 
-    private static NaturalTimeConfig createSinglePeriodConfig(CrossPeriodMode mode, BigDecimal unitPrice, BigDecimal maxChargeOneDay) {
+    private static NaturalTimeConfig createSinglePeriodConfig(BigDecimal unitPrice, BigDecimal maxChargeOneDay) {
         return NaturalTimeConfig.builder()
                 .id("test")
                 .unitMinutes(60)
-                .crossPeriodMode(mode)
                 .maxChargeOneDay(maxChargeOneDay)
                 .periods(List.of(
                         NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(unitPrice).build()

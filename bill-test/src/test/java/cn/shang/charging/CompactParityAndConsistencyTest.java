@@ -14,7 +14,6 @@ import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.compositetime.CompositePeriod;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeConfig;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeRule;
-import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
 import cn.shang.charging.charge.rules.daynight.DayNightRule;
@@ -96,7 +95,6 @@ class CompactParityAndConsistencyTest {
         NaturalTimeConfig config = NaturalTimeConfig.builder()
                 .id("nat-compact-parity")
                 .unitMinutes(60)
-                .crossPeriodMode(CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                 .periods(List.of(
                         NaturalPeriod.builder().beginMinute(0).endMinute(360).unitPrice(new BigDecimal("1.00")).build(),
                         NaturalPeriod.builder().beginMinute(360).endMinute(720).unitPrice(new BigDecimal("2.00")).build(),
@@ -125,7 +123,6 @@ class CompactParityAndConsistencyTest {
                 .maxChargeOneCycle(new BigDecimal("1000.00"))
                 .periods(List.of(CompositePeriod.builder()
                         .beginMinute(0).endMinute(1440).unitMinutes(60)
-                        .crossPeriodMode(CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                         .naturalPeriods(List.of(
                                 NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(new BigDecimal("1.00")).build(),
                                 NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(new BigDecimal("2.00")).build(),

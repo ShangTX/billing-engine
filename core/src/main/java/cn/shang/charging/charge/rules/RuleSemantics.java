@@ -133,8 +133,8 @@ public interface RuleSemantics<C extends RuleConfig> {
      * 时长模式下指定区间 [begin, end) 的单元单价。
      * <p>
      * 时长模式不按单元对齐切断（同质段由边界 provider 切断），故单价基于区间端点解析：
-     * 同价段直接返回该单价；跨价段按规则族 crossPeriodMode 解析（如 BEGIN_TIME_PRICE / PROPORTIONAL）。
-     * 由各规则族委托自家 priceResolver 实现。
+     * non-dayNight 时间规则族应在时段边界统一切断，同质段直接返回段起点所在时段单价；
+     * dayNight 可保留自己的跨日夜归属逻辑。
      *
      * @param begin       区间起点
      * @param end         区间终点

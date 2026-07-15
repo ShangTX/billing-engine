@@ -61,7 +61,10 @@ public class BillingPlaygroundTest {
         // ▼▼▼ 在这里选择/修改要运行的场景 ▼▼▼
 //        run(scenario1_dayNight_continuous());        // 日夜分时段 + 连续计费 + 免费时段
 //        run(scenario2_dayNight_durationGlobal());   // 日夜 + 全局时长计费 + 智能免费分钟
-//        run(scenario3_compositeTime_period());      // 混合时段 + 周期时长计费 + 免费分钟
+        run(scenario3_compositeTime_period());      // 混合时段 + 周期时长计费 + 免费分钟
+        run(scenario_composite_continuous_crossNaturalPeriods()); // CompositeTime：跨自然时段边界截断
+        run(scenario_composite_continuous_periodAndCycleCap());   // CompositeTime：相对时段封顶 + 周期封顶
+        run(scenario_composite_durationGlobal_smartFreeMinutes()); // CompositeTime：GLOBAL + 智能免费分钟
 //        run(scenario4_schemeSwitch());              // 方案切换（多段计费）
 //        run(scenario5_withEquivalentAmount());      // 等效金额计算
 //        run(scenario6_startFree());                   // 前N分钟免费（START_FREE）
@@ -173,7 +176,6 @@ public class BillingPlaygroundTest {
                                         .beginMinute(0)
                                         .endMinute(1440)
                                         .unitMinutes(60)
-                                        .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                                         .naturalPeriods(List.of(
                                                 NaturalPeriod.builder()
                                                         .beginMinute(0).endMinute(8 * 60)
@@ -195,6 +197,106 @@ public class BillingPlaygroundTest {
                                 .priority(1)
                                 .build()))
                 .build();
+    }
+
+    /**
+     * CompositeTime 专项1：跨自然时段，观察自然时段边界如何统一切断计费单元。
+     * <p>
+     * 类似商圈/景区停车：前 3 小时细粒度 30 分钟计费，后续按小时；18:00-22:00 是晚高峰。
+     */
+    static Scenario scenario_composite_continuous_crossNaturalPeriods() {
+        return Scenario.builder()
+                .name("CompositeTime - CONTINUOUS 跨自然时段")
+                .beginTime(LocalDateTime.of(2026, 7, 18, 17, 35))
+                .endTime(LocalDateTime.of(2026, 7, 18, 22, 20))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(compositeBusinessDistrictConfig("comp-cross-natural",
+                        new BigDecimal("90.00"), new BigDecimal("18.00")))
+                .externalPromotions(List.of(
+                        PromotionGrant.builder()
+                                .id("dinner-ticket-free")
+                                .type(BConstants.PromotionType.FREE_RANGE)
+                                .source(BConstants.PromotionSource.COUPON)
+                                .priority(1)
+                                .beginTime(LocalDateTime.of(2026, 7, 18, 19, 0))
+                                .endTime(LocalDateTime.of(2026, 7, 18, 20, 0))
+                                .build()))
+                .build();
+    }
+
+    /**
+     * CompositeTime 专项2：相对时段封顶 + 周期封顶。
+     * <p>
+     * 适合观察 first-period maxCharge 和 maxChargeOneCycle 同时存在时，明细如何被削减。
+     */
+    static Scenario scenario_composite_continuous_periodAndCycleCap() {
+        return Scenario.builder()
+                .name("CompositeTime - CONTINUOUS 时段封顶与周期封顶")
+                .beginTime(LocalDateTime.of(2026, 7, 18, 8, 10))
+                .endTime(LocalDateTime.of(2026, 7, 18, 23, 40))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(compositeBusinessDistrictConfig("comp-period-cycle-cap",
+                        new BigDecimal("48.00"), new BigDecimal("12.00")))
+                .build();
+    }
+
+    /**
+     * CompositeTime 专项3：DURATION_GLOBAL + SMART_FREE_MINUTES。
+     * <p>
+     * 用两天一夜场景观察 GLOBAL 模式下，智能免费分钟是否优先覆盖高价时段。
+     */
+    static Scenario scenario_composite_durationGlobal_smartFreeMinutes() {
+        return Scenario.builder()
+                .name("CompositeTime - DURATION_GLOBAL 智能免费分钟")
+                .beginTime(LocalDateTime.of(2026, 7, 18, 15, 0))
+                .endTime(LocalDateTime.of(2026, 7, 20, 10, 30))
+                .calculationMode(BConstants.CalculationMode.DURATION_GLOBAL)
+                .ruleConfig(compositeBusinessDistrictConfig("comp-global-smart",
+                        new BigDecimal("110.00"), new BigDecimal("20.00")))
+                .externalPromotions(List.of(
+                        PromotionGrant.builder()
+                                .id("vip-smart-120")
+                                .type(BConstants.PromotionType.SMART_FREE_MINUTES)
+                                .source(BConstants.PromotionSource.COUPON)
+                                .freeMinutes(120)
+                                .priority(1)
+                                .build()))
+                .build();
+    }
+
+    private static CompositeTimeConfig compositeBusinessDistrictConfig(String id,
+                                                                       BigDecimal cycleCap,
+                                                                       BigDecimal firstPeriodCap) {
+        return CompositeTimeConfig.builder()
+                .id(id)
+                .maxChargeOneCycle(cycleCap)
+                .periods(List.of(
+                        CompositePeriod.builder()
+                                .beginMinute(0)
+                                .endMinute(180)
+                                .unitMinutes(30)
+                                .maxCharge(firstPeriodCap)
+                                .naturalPeriods(compositeBusinessDistrictNaturalPeriods())
+                                .build(),
+                        CompositePeriod.builder()
+                                .beginMinute(180)
+                                .endMinute(1440)
+                                .unitMinutes(60)
+                                .naturalPeriods(compositeBusinessDistrictNaturalPeriods())
+                                .build()))
+                .build();
+    }
+
+    private static List<NaturalPeriod> compositeBusinessDistrictNaturalPeriods() {
+        return List.of(
+                NaturalPeriod.builder().beginMinute(0).endMinute(8 * 60)
+                        .unitPrice(new BigDecimal("1.50")).build(),
+                NaturalPeriod.builder().beginMinute(8 * 60).endMinute(18 * 60)
+                        .unitPrice(new BigDecimal("4.00")).build(),
+                NaturalPeriod.builder().beginMinute(18 * 60).endMinute(22 * 60)
+                        .unitPrice(new BigDecimal("7.00")).build(),
+                NaturalPeriod.builder().beginMinute(22 * 60).endMinute(1440)
+                        .unitPrice(new BigDecimal("1.50")).build());
     }
 
     /**

@@ -1,4 +1,4 @@
-# 为相关规则添加跨时段处理配置
+# 为 dayNight 添加跨时段处理配置
 
 ---
 id: TODO-20260508-005
@@ -18,14 +18,14 @@ completed_at: 2026-05-18
 |------|----------|----------|
 | `dayNight` | `blockWeight` 固定方式 | ❌ |
 | `relativeTime` | 截断固定方式 | ❌ |
-| `compositeTime` | 7 种可选模式 | ✅ |
-| `naturalTime`（已开发） | 7 种可选模式 | ✅ |
+| `compositeTime` | 自然时段边界统一切断 | ❌ |
+| `naturalTime` | 自然时段边界统一切断 | ❌ |
 
-`dayNight` 和 `naturalTime` 都适合支持多种跨段处理方式。
+当前仅 `dayNight` 保留跨日夜混合单元归属配置。
 
 ## 目标
 
-为 `dayNight` 和 `naturalTime` 添加 `crossPeriodMode` 配置能力，使用与 `compositeTime` 相同的 7 种模式。
+为 `dayNight` 添加 `crossPeriodMode` 配置能力。
 
 **设计原则**：
 - 复用 `CrossPeriodMode` 枚举，统一语义
@@ -54,11 +54,9 @@ completed_at: 2026-05-18
 4. ✓ `determineFinalAmount` 方法签名更新，接收 begin/end 时间参数
 5. ✓ 回归测试通过（DayNightParkingParityTest, DayNightQueryValueTest）
 
-### naturalTime 改造（已完成）
+### naturalTime 改造（已移除）
 
-1. ✓ `NaturalTimeConfig` 直接支持 `crossPeriodMode`，默认值 `BEGIN_TIME_TRUNCATE`
-2. ✓ `NaturalTimeCrossPeriodPriceResolver` 复用 CrossPeriodMode 逻辑
-3. ✓ 测试覆盖跨时段高价模式场景
+2026-07-15 修订后，`naturalTime` 不再支持 `crossPeriodMode`，自然时段边界统一切断。
 
 ### relativeTime 不改造
 
@@ -67,8 +65,7 @@ completed_at: 2026-05-18
 ## 验收标准
 
 - ✓ `dayNight` 可配置跨段处理方式
-- ✓ `naturalTime` 支持跨段配置
-- ✓ 与 `compositeTime` 使用相同 `CrossPeriodMode` 枚举
+- ✓ `naturalTime` / `compositeTime` 自然时段边界统一切断
 - ✓ 默认值保持向后兼容
 - ✓ 测试覆盖各模式场景
 
@@ -82,4 +79,7 @@ completed_at: 2026-05-18
 
 ## 备注
 
-已完成实现，dayNight 和 naturalTime 都支持统一的跨段处理模式配置。
+已完成实现，当前仅 dayNight 支持跨段处理模式配置。
+
+2026-07-15 修订：为降低规则组合复杂度，`crossPeriodMode` 收敛为 `dayNight` 专属配置；
+`naturalTime` 和 `compositeTime` 的自然时段边界统一切断，不再暴露跨时段定价模式。

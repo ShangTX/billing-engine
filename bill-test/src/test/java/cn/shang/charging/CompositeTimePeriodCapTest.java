@@ -9,7 +9,6 @@ import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.charge.rules.compositetime.CompositePeriod;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeConfig;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeRule;
-import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import org.junit.jupiter.api.Test;
@@ -37,7 +36,6 @@ class CompositeTimePeriodCapTest {
                         CompositePeriod.builder()
                                 .beginMinute(0).endMinute(1440).unitMinutes(60)
                                 .maxCharge(BigDecimal.valueOf(5))
-                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                                 .naturalPeriods(List.of(
                                         NaturalPeriod.builder().beginMinute(0).endMinute(1440)
                                                 .unitPrice(BigDecimal.valueOf(3)).build()
@@ -74,7 +72,6 @@ class CompositeTimePeriodCapTest {
                         CompositePeriod.builder()
                                 .beginMinute(0).endMinute(120).unitMinutes(60)
                                 .maxCharge(BigDecimal.valueOf(3))
-                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                                 .naturalPeriods(List.of(
                                         NaturalPeriod.builder().beginMinute(0).endMinute(1440)
                                                 .unitPrice(BigDecimal.valueOf(2)).build()
@@ -82,7 +79,6 @@ class CompositeTimePeriodCapTest {
                                 .build(),
                         CompositePeriod.builder()
                                 .beginMinute(120).endMinute(1440).unitMinutes(60)
-                                .crossPeriodMode(CrossPeriodMode.BLOCK_WEIGHT)
                                 .naturalPeriods(List.of(
                                         NaturalPeriod.builder().beginMinute(0).endMinute(1440)
                                                 .unitPrice(BigDecimal.valueOf(1)).build()

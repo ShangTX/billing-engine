@@ -6,6 +6,10 @@
 ## 状态
 **✅ 已确认**
 
+> 2026-07-15 修订：`CompositeTimeRule` 不再暴露 `crossPeriodMode`。
+> 自然时段价格边界统一作为边界循环切断点；切断后产生的不足单元由
+> `CompositeTimeConfig.incompleteUnitChargeMode` 处理。
+
 ---
 
 ## 一、业务场景
@@ -48,23 +52,13 @@ public class CompositeTimeConfig implements RuleConfig {
     private BigDecimal maxChargeOneCycle;
 
     /** 不足单元计费模式 */
-    private InsufficientUnitMode insufficientUnitMode;
+    private BConstants.IncompleteUnitChargeMode incompleteUnitChargeMode;
 
     /** 相对时间段列表 */
     private List<CompositePeriod> periods;
 }
 
-/**
- * 不足单元计费模式
- */
-public enum InsufficientUnitMode {
-
-    /** 全额收费 */
-    FULL,
-
-    /** 按比例收费 */
-    PROPORTIONAL
-}
+// 不足单元计费模式使用公共枚举 BConstants.IncompleteUnitChargeMode。
 
 /**
  * 相对时间段配置
@@ -83,9 +77,6 @@ public class CompositePeriod {
 
     /** 时间段独立封顶（可选） */
     private BigDecimal maxCharge;
-
-    /** 跨自然时段处理模式 */
-    private CrossPeriodMode crossPeriodMode;
 
     /** 自然时段价格列表 */
     private List<NaturalPeriod> naturalPeriods;
@@ -107,32 +98,8 @@ public class NaturalPeriod {
     private BigDecimal unitPrice;
 }
 
-/**
- * 跨自然时段处理模式
- */
-public enum CrossPeriodMode {
-
-    /** 按时间比例判断用哪个价格（类似 DayNightRule 的 blockWeight） */
-    BLOCK_WEIGHT,
-
-    /** 取较高价格 */
-    HIGHER_PRICE,
-
-    /** 取较低价格 */
-    LOWER_PRICE,
-
-    /** 按比例拆分计算 */
-    PROPORTIONAL,
-
-    /** 取开始时间所在时段的价格 */
-    BEGIN_TIME_PRICE,
-
-    /** 取结束时间所在时段的价格 */
-    END_TIME_PRICE,
-
-    /** 取开始时间价格，并用自然时段边界截断单元 */
-    BEGIN_TIME_TRUNCATE
-}
+// CompositeTime 不配置 CrossPeriodMode。
+// 自然时段边界由 BoundaryProvider 统一切断，切断后的同质段按 begin 所在自然时段定价。
 ```
 
 ---
@@ -166,8 +133,8 @@ public enum CrossPeriodMode {
    b. 在每个相对时间段内：
       - 计算该时间段在当前周期内的实际时间范围
       - 按单元长度生成计费单元
-      - 对每个单元，根据自然时段配置计算价格
-      - 应用跨自然时段处理模式
+      - 遇到自然时段价格边界时切断
+      - 对每个切断后的同质单元，根据 begin 所在自然时段计算价格
    c. 应用时间段独立封顶（如有配置）
 3. 应用周期封顶
 4. 生成结果
@@ -194,32 +161,17 @@ private NaturalPeriod findNaturalPeriod(LocalDateTime time, List<NaturalPeriod> 
 }
 ```
 
-### 4.3 跨自然时段处理
+### 4.3 自然时段边界切断
 
 ```java
 /**
- * 计算计费单元价格（考虑跨时段）
+ * 计算同质段单价。
+ * BoundaryProvider 已保证该段不会跨自然价格边界。
  */
 private BigDecimal calculateUnitPrice(LocalDateTime begin, LocalDateTime end,
                                        CompositePeriod period) {
     NaturalPeriod beginPeriod = findNaturalPeriod(begin, period.getNaturalPeriods());
-    NaturalPeriod endPeriod = findNaturalPeriod(end, period.getNaturalPeriods());
-
-    // 同一时段
-    if (beginPeriod == endPeriod) {
-        return beginPeriod.getUnitPrice();
-    }
-
-    // 跨时段处理
-    return switch (period.getCrossPeriodMode()) {
-        case BLOCK_WEIGHT -> calculateByBlockWeight(begin, end, period);
-        case HIGHER_PRICE -> max(beginPeriod.getUnitPrice(), endPeriod.getUnitPrice());
-        case LOWER_PRICE -> min(beginPeriod.getUnitPrice(), endPeriod.getUnitPrice());
-        case PROPORTIONAL -> calculateProportional(begin, end, period);
-        case BEGIN_TIME_PRICE -> beginPeriod.getUnitPrice();
-        case END_TIME_PRICE -> endPeriod.getUnitPrice();
-        case BEGIN_TIME_TRUNCATE -> throw new UnsupportedOperationException("需要截断逻辑");
-    };
+    return beginPeriod.getUnitPrice();
 }
 ```
 
@@ -253,7 +205,7 @@ private BigDecimal calculateUnitPrice(LocalDateTime begin, LocalDateTime end,
 - 内层（自然时段边界）：应用不足单元判断
 - 外层（相对时间段边界）：直接截断，截断部分也应用不足单元判断
 
-**配置**：规则级别配置 `InsufficientUnitMode`（FULL / PROPORTIONAL）
+**配置**：规则级别配置 `incompleteUnitChargeMode`，使用 `BConstants.IncompleteUnitChargeMode`。
 
 **示例**（FULL 模式）：
 ```
@@ -447,28 +399,25 @@ private int calculateExtendedBoundary(int originalEndMinute, List<TimeRange> bub
 1. `CompositeTimeConfig` 配置类
 2. `CompositePeriod` 相对时间段配置
 3. `NaturalPeriod` 自然时段配置
-4. `CrossPeriodMode` 跨时段处理模式枚举
-5. `InsufficientUnitMode` 不足单元计费模式枚举
+4. `incompleteUnitChargeMode` 不足单元计费模式配置
 
 ### Phase 2: 配置校验逻辑
 1. 自然时段覆盖全天校验
 2. 相对时间段首尾相连校验
 3. 必填字段校验
 
-### Phase 3: UNIT_BASED 模式实现
-1. 相对时间段遍历
+### Phase 3: CONTINUOUS 模式实现
+1. 相对时间段边界、自然价格边界和周期边界统一纳入边界循环
 2. 计费单元生成
 3. 自然时段价格匹配
-4. 跨自然时段处理
-5. 时间段封顶逻辑
-6. 周期封顶逻辑
-7. 不足单元计费
+4. 时间段封顶逻辑
+5. 周期封顶逻辑
+6. 不足单元计费
 
-### Phase 4: CONTINUOUS 模式实现
-1. 按免费时间段边界切分
-2. 气泡抽出模型
-3. 相对位置计算
-4. 封顶逻辑
+### Phase 4: 时长模式实现
+1. 复用 RuleSemantics 注入规则语义
+2. 支持 DURATION_PERIOD
+3. 支持 DURATION_GLOBAL
 
 ### Phase 5: 气泡型免费时间段支持
 1. 气泡弹开逻辑
@@ -496,5 +445,5 @@ private int calculateExtendedBoundary(int originalEndMinute, List<TimeRange> bub
 | 时间分层 | 无 | 相对时间段 | 相对时间段 + 自然时段 |
 | 价格维度 | 2（日/夜） | 每段一个 | 每段内多价格 |
 | 封顶层级 | 周期 | 周期 | 时间段 + 周期 |
-| 跨时段处理 | blockWeight | 边界截断 | 7种模式 |
+| 跨时段处理 | crossPeriodMode（仅 dayNight） | 边界截断 | 边界截断 |
 | 复杂度 | 低 | 中 | 高 |
