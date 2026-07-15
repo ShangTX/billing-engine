@@ -34,3 +34,4 @@
 | 2026-07-06 | TODO-20260706-002 | refactor | 计费引擎抽象重构:模式行为驱动 + 规则语义注入 | 02162b6 | [rule-abstraction-refactor.md](tracking/items/rule-abstraction-refactor.md) |
 | 2026-07-06 | TODO-20260706-003 | feature | 输出结果优化 + 废弃 GLOBAL_ORIGIN + 等效金额增强 | 87e5ef9 | [output-optimization-and-equivalent-amount.md](tracking/items/output-optimization-and-equivalent-amount.md) |
 | 2026-07-09 | TODO-20260708-001 | refactor | CONTINUOUS 直接产出 compact + 移除 CompactMerger | （实现提交） | [continuous-compact-refactor.md](tracking/items/continuous-compact-refactor.md) |
+| 2026-07-15 | TODO-20260710-001 | refactor | DayNight日夜边界Provider与定价架构改造 | 709ae21 | [daynight-boundary-provider-pricing-architecture.md](tracking/items/daynight-boundary-provider-pricing-architecture.md) |

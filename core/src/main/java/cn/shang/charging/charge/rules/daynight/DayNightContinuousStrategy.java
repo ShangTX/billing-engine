@@ -264,14 +264,14 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
     /**
      * 创建日夜边界提供器。
      * <p>
-     * TODO: 用户需要实现该方法，根据 splitDayNightBoundary 配置返回合适的边界列表：
+     * 根据 splitDayNightBoundary 配置返回当前范围内最近的日夜边界：
      * <ul>
      *   <li>splitDayNightBoundary=true（默认）：返回精确的日夜边界时间点</li>
-     *   <li>splitDayNightBoundary=false：返回snap到单元边界的日夜边界时间点</li>
+     *   <li>splitDayNightBoundary=false：将跨日夜单元整体归属到占优侧，并把边界 snap 到该归属段的起点或终点</li>
      * </ul>
      *
      * @param config DayNight配置
-     * @return BoundaryProvider lambda，返回当前范围内的日夜边界列表
+     * @return BoundaryProvider lambda，返回当前范围内最近的日夜边界
      */
     private BoundaryProvider createDayNightBoundaryProvider(DayNightConfig config) {
         return (current, end) -> {

@@ -5,9 +5,11 @@
 - **ID**: TODO-20260710-001
 - **类型**: refactor
 - **优先级**: P1
-- **状态**: in_progress
+- **状态**: done
 - **创建时间**: 2026-07-10
 - **创建提交**: af29fb4
+- **完成时间**: 2026-07-15
+- **完成提交**: 709ae21
 - **相关测试**:
   - `DayNightContinuousCrossPeriodTest`
   - `DayNightParkingParityTest`
@@ -83,11 +85,11 @@ DayNight CONTINUOUS 模式 `splitDayNightBoundary=false` 需要重新设计边�
    - `dayMinutes = countDayMinutes(unitStart, unitEnd, dayBeginMin, dayEndMin)`
    - `belongsToDay = (dayMinutes / unitMinutes) >= blockWeight`
 
-4. Snap 到占优侧单元边界：
-   - 如果 `belongsToDay`：返回 `isInDay(unitStart) ? unitEnd : unitStart`
-   - 否则（night 占优）：
-     - 如果是 `dayBegin` 边界：返回 `unitStart`
-     - 如果是 `dayEnd` 边界：返回 `unitEnd`
+4. Snap 到占优侧边界：
+   - `dayBegin` 边界且归属 day：返回 `unitStart`，让跨界单元整体并入后续 day 段
+   - `dayBegin` 边界且归属 night：返回 `unitEnd`，让跨界单元整体并入前置 night 段
+   - `dayEnd` 边界且归属 day：返回 `unitEnd`，让跨界单元整体并入前置 day 段
+   - `dayEnd` 边界且归属 night：返回 `unitStart`，让跨界单元整体并入后续 night 段
 
 ### 示例场景
 
@@ -114,7 +116,7 @@ DayNight CONTINUOUS 模式 `splitDayNightBoundary=false` 需要重新设计边�
    - exactBoundary=08:00 落在 (07:43, 08:43) 内（非边界）
    - dayMinutes = countDayMinutes(07:43, 08:43) = 43分钟（08:00-08:43）
    - belongsToDay = (43/60) >= 0.5 = true
-   - isInDay(07:43) = false，所以 snap 到 unitEnd = 08:43
+   - dayBegin 边界且跨界单元归属 day，所以 snap 到 unitStart = 07:43
 6. 07:43-08:43：snap结果，该单元归属 day，价格=dayUnitPrice
 7. 后续单元：08:43-09:43, 09:43-10:43（都是day时段）
 
@@ -151,12 +153,13 @@ DayNight CONTINUOUS 模式 `splitDayNightBoundary=false` 需要重新设计边�
 - 跨日夜单元归属（07:43-08:43 归属 day）
 - Compact 单元生成（多个同价单元合并）
 
-### 当前验证命令
+### 已验证命令
 
-- `./mvnw.cmd -q -DskipTests compile`
-- `./mvnw.cmd -q -pl bill-test -am '-Dtest=DayNightContinuousCrossPeriodTest,ContinuousSimplificationTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
-- `./mvnw.cmd -q -pl bill-test -am '-Dtest=DayNightParkingParityTest,DurationBillingModeTest,SmartFreeMinutesTest' '-Dsurefire.failIfNoSpecifiedTests=false' test`
-- `./mvnw.cmd -q test`
+- `mvn -pl bill-test -am "-Dtest=DayNightContinuousCrossPeriodTest,ContinuousSimplificationTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`
+- `mvn -pl bill-test -am "-Dtest=DayNightParkingParityTest,DurationBillingModeTest,SmartFreeMinutesTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`
+- `mvn test`
+
+验证结果：2026-07-15 全量 `mvn test` 通过，129 tests, 0 failures。
 
 ## 注意事项
 
