@@ -13,6 +13,7 @@ import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
+import cn.shang.charging.promotion.rules.startfree.StartFreePromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
 import cn.shang.charging.wrapper.BillingTemplate;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -50,6 +51,7 @@ public class BillingAutoConfiguration {
     public PromotionRuleRegistry promotionRuleRegistry() {
         PromotionRuleRegistry registry = new PromotionRuleRegistry();
         registry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
+        registry.register(BConstants.PromotionRuleType.START_FREE, new StartFreePromotionRule());
         return registry;
     }
 

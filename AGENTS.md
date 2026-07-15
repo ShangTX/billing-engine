@@ -100,7 +100,7 @@
 | 模块 | 职责 | 依赖 |
 |------|------|------|
 | **core** | 核心计费引擎，纯计算逻辑，无副作用 | 无 |
-| **billing-api** | 便捷 API 封装，视图层逻辑、查询视图、优惠等效金额 | core |
+| **billing-api** | 轻量接入门面，默认组件组装、请求归一化、兼容便捷入口 | core |
 | **billing-v3-spring-boot-starter** | Spring Boot 3.0.x - 3.4.x | billing-api |
 | **billing-v4-spring-boot-starter** | Spring Boot 3.5.x - 4.x | billing-api |
 | **bill-test** | 集成测试、示例、测试结果生成工具 | core, billing-api |
@@ -108,7 +108,7 @@
 ### 模块分层原则
 
 - `core` 只负责计费计算，不处理缓存、数据库、持久化、日志存储等副作用。
-- `billing-api` 提供调用侧便捷封装，处理查询视图、时间取整、优惠等效金额等视图层或辅助逻辑。
+- `billing-api` 提供调用侧轻量接入门面，处理默认组件组装、请求归一化和兼容便捷入口；确定性计费语义、优惠等效金额等能力归属 core。
 - 调用方优先使用 `billing-api`；需要高级定制时可以直接使用 `core`。
 - `bill-test` 可以放集成验证、可运行样例和测试辅助工具，但不要让测试工具反向污染正式 API。
 

@@ -198,7 +198,7 @@ List<PromotionUsage> usages = result.getPromotionUsages();  // 优惠使用记�
 | 模块 | 说明 |
 |------|------|
 | `billing-core` | 核心计费引擎 — 纯计算，零外部依赖 |
-| `billing-api` | 便捷 API 封装（`BillingTemplate`） |
+| `billing-api` | 轻量接入门面（`BillingTemplate`） |
 | `billing-v3-spring-boot-starter` | Spring Boot 3.0.x – 3.4.x 自动装配 |
 | `billing-v4-spring-boot-starter` | Spring Boot 3.5.x – 4.x 自动装配 |
 | `bill-test` | 集成测试和示例代码 |

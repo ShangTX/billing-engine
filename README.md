@@ -188,7 +188,7 @@ BillingResult result = billingTemplate.calculate(request);
 | Module | Description |
 |--------|-------------|
 | `billing-core` | Core billing engine — pure computation, zero dependencies |
-| `billing-api` | Convenience API wrapping core (`BillingTemplate`) |
+| `billing-api` | Lightweight integration facade wrapping core (`BillingTemplate`) |
 | `billing-v3-spring-boot-starter` | Spring Boot 3.0.x – 3.4.x auto-configuration |
 | `billing-v4-spring-boot-starter` | Spring Boot 3.5.x – 4.x auto-configuration |
 | `bill-test` | Integration tests and examples |

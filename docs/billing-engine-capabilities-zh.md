@@ -33,7 +33,7 @@ BillingRequest
 | 模块 | 能力 |
 |------|------|
 | `core` | 计费计算、优惠聚合、规则执行 |
-| `billing-api` | `BillingTemplate`、查询摘要、精确查询回退、优惠等效金额计算 |
+| `billing-api` | 轻量接入门面（`BillingTemplate`）、请求归一化、默认组件组装 |
 | `billing-v3-spring-boot-starter` | Spring Boot 3.0.x 到 3.4.x 自动装配 |
 | `billing-v4-spring-boot-starter` | Spring Boot 3.5.x 到 4.x 自动装配 |
 | `bill-test` | 集成示例、回归测试、计费结果生成器 |
@@ -48,7 +48,7 @@ BillingRequest
 - 通过 `schemeChanges` 进行多方案切换计费。
 - 通过 `externalPromotions` 传入外部优惠（跨段共享可用量池，整笔停车享一次，多分段不重复）。
 - 通过 `calcEndTime` 控制局部计算终点。
-- 通过 `timeRoundingMode` 控制时间取整。
+- `timeRoundingMode` 字段保留兼容；显式请求归一化由 billing-api 的 `TimeRounding` / `BillingTemplate` 处理。
 - 通过 `context` 传递调用方上下文。
 - 通过 `disableSimplification` 控制是否禁用简化计算。
 

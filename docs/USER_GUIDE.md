@@ -86,7 +86,6 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 | 类 | 包名 |
 |------|------|
 | `BillingTemplate` | `cn.shang.charging.wrapper.BillingTemplate` |
-| `PromotionSavingsAnalyzer` | `cn.shang.charging.wrapper.PromotionSavingsAnalyzer` |
 
 ### 2.4 计费规则类
 
@@ -140,7 +139,7 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 
 ### 3.1 推荐：billing-api
 
-`billing-api` 提供 `BillingTemplate`，封装了基础计费、时间取整、优惠等效金额等便捷方法。
+`billing-api` 提供 `BillingTemplate`，定位为轻量接入门面：默认组装 core 组件、复制并归一化请求、提供常用入口和兼容方法。
 **普通调用方应优先使用此模块。**
 
 ```xml
@@ -169,7 +168,7 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 </dependency>
 ```
 
-Starter 自动注册 `dayNight`、`compositeTime`、`relativeTime` 计费规则和 `freeMinutes` 优惠规则。
+Starter 自动注册内置计费规则（`dayNight`、`relativeTime`、`naturalTime`、`compositeTime`、`flatFree`）和内置优惠规则（`freeMinutes`、`startFree`）。
 
 ### 3.3 直接使用 core
 
@@ -314,6 +313,18 @@ BillingService billingService = new BillingService(
 
 // 4. 创建便捷入口
 BillingTemplate billingTemplate = new BillingTemplate(billingService, configResolver);
+```
+
+更推荐的轻量门面写法：
+
+```java
+BillingTemplate billingTemplate = BillingTemplate.create(configResolver);
+
+// 如需注册自定义规则，可使用 builder：
+BillingTemplate customTemplate = BillingTemplate.builder(configResolver)
+        .registerBillingRule("myRule", new MyBillingRule())
+        .registerPromotionRule("myPromotion", new MyPromotionRule())
+        .build();
 ```
 
 ---
@@ -786,6 +797,8 @@ request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCA
 
 ## 13. 时间取整
 
+> `BillingTemplate` 会复制 `BillingRequest` 并归一化副本，不会修改调用方传入的原始对象。core 内部按分钟精度计算时对秒数的截断只作为保护处理；推荐入口语义由 billing-api 的 `TimeRounding` / `BillingTemplate` 负责。
+
 引擎按**分钟精度**计费，所有时间通过 `BillingTemplate` 入口时**统一向下取整**（秒数置0）。这是一条确定性规则，不区分计费时间与优惠时间、不带业务策略：
 
 - `BillingRequest.beginTime` / `endTime` / `calcEndTime` → 向下取整
@@ -815,16 +828,16 @@ BillingResult result = billingTemplate.calculate(request);
 
 | 方法 | 说明 |
 |------|------|
-| `TimeRounding.truncate(time)` | 向下取整（秒数置0）。引擎内部统一使用 |
+| `TimeRounding.truncate(time)` | 向下取整（秒数置0）。billing-api 默认归一化使用 |
 | `TimeRounding.ceil(time)` | 向上取整（秒数>0 则 +1 分钟）。仅供外部预处理 |
 
 ### 13.2 `TimeRoundingMode` 字段说明
 
-`BillingRequest.timeRoundingMode` 和 `BillingTemplate.calculate(request, mode)` 保留向后兼容，但**引擎忽略 `mode`**，始终统一向下取整。现有调用方无需移除该字段，但建议逐步迁移到外部预处理方式。
+`BillingRequest.timeRoundingMode` 和 `BillingTemplate.calculate(request, mode)` 保留向后兼容，但 `BillingTemplate` 当前忽略 `mode`，始终统一向下取整。现有调用方无需移除该字段，但建议逐步迁移到外部预处理方式。
 
 ### 13.3 直接使用 `BillingService`
 
-`BillingService` 不做取整，直接使用时应自行保证时间对齐到分钟（或接受 `toMinutes()` 截断秒数的精度损失）。推荐通过 `BillingTemplate` 入口，由引擎统一向下取整。
+`BillingService` 不做接入层取整，直接使用时应自行保证时间对齐到分钟（或接受 core 内部 `toMinutes()` 的防御性秒数截断）。推荐通过 `BillingTemplate` 入口，由 billing-api 统一归一化。
 
 > 注：引擎内部计算（边界驱动循环、免费分钟分配等）均按分钟精度。统一向下取整后秒数为0，`toMinutes()` 精确，无 0 分钟段与精度损失问题。
 

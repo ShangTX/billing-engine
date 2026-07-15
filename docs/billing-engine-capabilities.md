@@ -33,7 +33,7 @@ The `core` module performs pure calculation. The `billing-api` module adds conve
 | Module | Capability |
 |--------|------------|
 | `core` | Pure billing calculation, promotion aggregation, rule execution |
-| `billing-api` | `BillingTemplate`, query summaries, exact-query fallback, promotion equivalent amount calculation |
+| `billing-api` | Lightweight integration facade (`BillingTemplate`), request normalization, default component assembly |
 | `billing-v3-spring-boot-starter` | Spring Boot 3.0.x to 3.4.x auto-configuration |
 | `billing-v4-spring-boot-starter` | Spring Boot 3.5.x to 4.x auto-configuration |
 | `bill-test` | Integration examples, regression tests, billing result generator |
@@ -48,7 +48,7 @@ The `core` module performs pure calculation. The `billing-api` module adds conve
 - Multi-scheme calculation through `schemeChanges`.
 - External promotions through `externalPromotions` (cross-segment shared pool, used once per parking, not duplicated across segments).
 - Partial calculation through `calcEndTime`.
-- Time rounding through `timeRoundingMode`.
+- Legacy `timeRoundingMode` field for compatibility; explicit request normalization is handled by billing-api `TimeRounding` / `BillingTemplate`.
 - Caller-defined context through `context`.
 - Exact-query fallback control through `disableSimplification`.
 
