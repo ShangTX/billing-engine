@@ -39,13 +39,8 @@ public class StartFreePromotionRule implements PromotionRule<StartFreePromotionC
                 .setSource(BConstants.PromotionSource.RULE)
                 .setPriority(config.getPriority())
                 .setBeginTime(beginTime)
-                .setEndTime(endTime);
-
-        // 条件免费：当 validateQueryTime 启用时，标记为条件免费
-        if (Boolean.TRUE.equals(config.getValidateQueryTime())) {
-            grant.setConditional(true)
-                    .setConditionalUntil(endTime);
-        }
+                .setEndTime(endTime)
+                .setActivationMode(config.getActivationMode());
 
         return List.of(grant);
     }

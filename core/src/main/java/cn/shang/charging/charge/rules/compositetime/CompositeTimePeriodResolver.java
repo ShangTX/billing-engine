@@ -31,7 +31,11 @@ final class CompositeTimePeriodResolver {
 
         for (NaturalPeriod np : naturalPeriods) {
             if (isInNaturalPeriod(currentMinuteOfDay, np)) {
-                return current.plusMinutes(np.getEndMinute() - currentMinuteOfDay);
+                LocalDateTime boundary = current.toLocalDate().atStartOfDay().plusMinutes(np.getEndMinute());
+                if (!boundary.isAfter(current)) {
+                    boundary = boundary.plusDays(1);
+                }
+                return boundary;
             }
         }
 

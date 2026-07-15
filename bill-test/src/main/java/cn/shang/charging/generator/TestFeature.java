@@ -33,7 +33,11 @@ public enum TestFeature {
 
     /**
      * 全局起算后按分段裁剪。
+     *
+     * @deprecated TODO-20260706-003：GLOBAL_ORIGIN 模式已废弃，本 feature 保留作兼容入口，
+     * 实际映射为 {@link #SEGMENT_LOCAL}。
      */
+    @Deprecated
     GLOBAL_ORIGIN,
 
     /**
@@ -50,6 +54,15 @@ public enum TestFeature {
      * 长时间计费，用于触发或观察简化计算。
      */
     SIMPLIFICATION,
+
+    /**
+     * 长同价时段窗口，用于稳定产出 compact 单元。
+     * <p>
+     * 选择纯白天或单时段的长窗口，使边界驱动循环产出的同质段足够长，
+     * 便于人工校验 compact 单元的 JSON 结构和查询时点投影。
+     * 与 {@link #DAY_NIGHT_CROSS_PERIOD_UNIT} 互斥（跨边界场景不产出 compact）。
+     */
+    COMPACT,
 
     /**
      * 规则免费分钟数。
@@ -115,11 +128,6 @@ public enum TestFeature {
      * 复合时间规则中的自然时段价格。
      */
     COMPOSITE_NATURAL_PERIOD,
-
-    /**
-     * 复合时间规则跨自然时段的处理模式。
-     */
-    COMPOSITE_CROSS_PERIOD_MODE,
 
     /**
      * 复合时间规则不足单元的收费模式。

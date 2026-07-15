@@ -1,6 +1,7 @@
 package cn.shang.charging.charge.rules.flatfree;
 
 import cn.shang.charging.billing.pojo.BConstants;
+import cn.shang.charging.billing.pojo.IncompleteUnitChargeSpec;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -24,4 +25,9 @@ public class FlatFreeConfig implements RuleConfig {
 
     @Builder.Default
     String type = BConstants.ChargeRuleType.FLAT_FREE;
+
+    /**
+     * 统一配置入口。flatFree 本身不收费，保留该字段是为了所有 RuleConfig 形态一致。
+     */
+    IncompleteUnitChargeSpec incompleteUnitChargeSpec;
 }

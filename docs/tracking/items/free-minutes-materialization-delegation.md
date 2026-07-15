@@ -1,0 +1,93 @@
+# FREE_MINUTES 时段化下放到策略侧
+
+---
+id: TODO-20260702-004
+type: refactor
+priority: P2
+status: done
+source_git: 81ca938
+created_at: 2026-07-02
+completed_at: 2026-07-03
+completed_git: 136ab21
+---
+
+## 背景
+
+当前 `FreeMinuteAllocator` 在 `PromotionEngine` 中集中把 FREE_MINUTES 时段化为时间段（`generatedFreeRanges`），混进 `freeTimeRanges` 给所有规则用。这是为单元计费的"完整覆盖才免费"判定服务——需要免费分钟落在哪些时间位置。
+
+但新设计（`docs/superpowers/specs/2026-07-02-duration-rule-and-promotion-two-tier-design.md` 3.3/3.4）指出时段化需求按模式区分：
+
+| 模式 | FREE_MINUTES 时段化 | 原因 |
+|---|---|---|
+| CONTINUOUS / UNIT_BASED | 需要 | "完整覆盖才免费"判定需要时间位置 |
+| PERIOD | 需要 | 周期内时长计费，需定位免费段在周期/时段中的位置 |
+| GLOBAL | 不需要 | 全局累加，封顶按周期数倍乘一次算，按分钟扣减 |
+
+集中时段化导致 GLOBAL 时长策略被迫走时段化路径，付不必要代价；且时段化留在聚合层会让 `PromotionEngine` 按规则+模式决定产出形式，反向耦合。
+
+## 目标
+
+- `PromotionEngine` 不集中时段化 FREE_MINUTES，产出规范中间形式（FREE_RANGE 时段 + FREE_MINUTES 分钟数 + AMOUNT/DISCOUNT 标量）
+- `FreeMinuteAllocator` 从 `PromotionEngine` 解耦，下放到策略侧
+- CONTINUOUS/UNIT_BASED/PERIOD 策略自行时段化 FREE_MINUTES（CONTINUOUS/UNIT_BASED 经 `AbstractTimeBasedRule`，PERIOD 经时长策略）
+- GLOBAL 策略不时段化，按分钟直接扣减 chargedMinutes
+
+## 范围
+
+包含：
+
+- `PromotionEngine` 产出改为规范中间形式：合并后的 FREE_RANGE 时段 + 未时段化的 FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量
+- `FreeMinuteAllocator` 移出 `PromotionEngine`，成为策略侧工具
+- CONTINUOUS/UNIT_BASED 策略（经 `AbstractTimeBasedRule`）调用 `FreeMinuteAllocator` 时段化
+- PERIOD 策略时段化 FREE_MINUTES（周期内定位）
+- GLOBAL 策略不时段化，按分钟扣减 chargedMinutes
+- 等效金额的 `cloneAndExclude` 适配中间形式（时段化未发生，exclude 未时段化的 FREE_MINUTES）
+
+不包含：
+
+- 门面策略结构（TODO-20260702-002，本 TODO 的前置）
+- 优惠两级模型（TODO-20260702-003）
+- FREE_RANGE 的 PromotionUsage 产出（TODO-20260701-001）
+- GLOBAL 策略侧时段化后的 PromotionUsage 形式
+
+## 验收标准
+
+- `PromotionEngine` 不再时段化 FREE_MINUTES，产出中间形式
+- `FreeMinuteAllocator` 不在 `PromotionEngine`，在策略侧
+- CONTINUOUS/UNIT_BASED/PERIOD 策略时段化 FREE_MINUTES，行为与现状一致
+- GLOBAL 策略不时段化，按分钟扣减，结果与时段化路径等价（或符合预期语义）
+- 等效金额计算在中间形式上 exclude 仍有效
+- 现有测试通过
+
+## 相关文件
+
+- `core/src/main/java/cn/shang/charging/promotion/PromotionEngine.java`（产出中间形式，移除 FreeMinuteAllocator）
+- `core/src/main/java/cn/shang/charging/promotion/FreeMinuteAllocator.java`（移到策略侧）
+- `core/src/main/java/cn/shang/charging/charge/rules/AbstractTimeBasedRule.java`（CONTINUOUS 策略时段化）
+- 时长策略类（PERIOD/GLOBAL 均策略侧时段化，输出语义不同）
+- `billing-api/src/main/java/cn/shang/charging/wrapper/PromotionEquivalentCalculator.java`（适配中间形式）
+
+## 备注
+
+- 依赖 TODO-20260702-002（门面策略结构）：时段化下放到策略侧，策略结构先立
+- 与 TODO-20260701-001（FREE_RANGE PromotionUsage）关联：PromotionUsage 产出位置随时段化下放
+- 时段化下放消除聚合层对规则+模式的反向耦合（spec 3.3 耦合论证）
+- 优先级 P2：GLOBAL 输出汇总桶是结果清晰度优化，策略侧时段化路径现状可工作
+
+## 完成说明（2026-07-03）
+
+实现见 commit `136ab21`。设计决策与改动清单见 `docs/superpowers/plans/2026-07-03-free-minutes-materialization-delegation.md`。
+
+### 关键决策
+
+- **GLOBAL FREE_MINUTES 消费**（2026-07-15 后续修订）：GLOBAL 已改为策略侧时段化，物化免费段参与边界驱动和收费分钟扣除；最终输出收费汇总桶，不把免费段落为 `DurationSegment`。这取代了早期"按分钟流扣减 chargedMinutes"方案。
+- **PromotionCarryOver 迁移**：`PromotionEngine` 不再构建 carryOver（不再有 materialization 产出的 usages）。`buildCarryOver` 逻辑移到 `PromotionAggregateUtil`，各策略在产出 usages + finalFreeRanges 后调用并写回 `aggregate.promotionCarryOver`，`ResultAssembler` 读取路径不变。RelativeTime/NaturalTime/CompositeTime 虽沿用既有空 result.usages 行为，但写回 carryOver，保证 CONTINUE + FREE_MINUTES 续算不 break。
+- **非 DayNight 规则范围**：评估发现 RelativeTime/NaturalTime/CompositeTime 也消费 `freeTimeRanges` 且被 `PromotionCarryOverTest`/`ContinueModeTest` 覆盖，必须纳入（调 `materializeFreeMinutes` 取 finalFreeRanges + 写回 carryOver）。
+
+### 验证命令
+
+```
+mvn -pl bill-test -am test
+```
+
+结果：95 测试全绿（89 既有 + 6 新增 `FreeMinutesMaterializationTest`：GLOBAL 分钟扣减 3 场景、PERIOD/CONTINUOUS 时段化对照、中间形式断言）。

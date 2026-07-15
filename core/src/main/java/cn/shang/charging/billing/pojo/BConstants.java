@@ -8,27 +8,27 @@ public class BConstants {
     /**
      * 继续模式（是否从上次结果继续计算）
      */
-    public enum ContinueMode {
-        FROM_SCRATCH, // 从开始时间计算
-        CONTINUE      // 从上一次的结果继续计算
-    }
 
     /**
-     * 计费模式（计费单位如何划分）
+     * 计算模式（计费如何计算）
+     * <p>
+     * 合并自原 BillingMode（CONTINUOUS/UNIT_BASED）与 DurationMode（PERIOD/GLOBAL），
+     * 四种模式平级、互斥分派。TODO-20260706-002 阶段1。
      */
-    public enum BillingMode {
-        CONTINUOUS, // 连续时间计费模式
-        UNIT_BASED  // 计费单位模式
+    public enum CalculationMode {
+        CONTINUOUS,       // 连续时间计费（边界驱动切断）
+        UNIT_BASED,       // 固定单元对齐计费
+        DURATION_PERIOD,  // 周期内时长计费
+        DURATION_GLOBAL   // 全局时长计费
     }
 
     /**
      * 优惠模式
      */
     public enum PromotionType {
-        AMOUNT, // 金额
-        DISCOUNT, // 折扣
         FREE_RANGE, // 免费时间段
-        FREE_MINUTES, // 免费分钟数
+        FREE_MINUTES, // 免费分钟数（从窗口起点顺序分配）
+        SMART_FREE_MINUTES, // 智能免费分钟数（仅 DURATION_GLOBAL 消费，按单价降序优先高价分配；TODO-20260706-002 阶段5）
     }
 
     /**
@@ -41,11 +41,14 @@ public class BConstants {
 
     /**
      * 分段计算方式
+     * <p>
+     * TODO-20260706-003：GLOBAL_ORIGIN（全局起算 + 分段截取，减法方案 4B）已废弃，
+     * externalPool 跨段共享替代其外部优惠一致性目标；4A 减法方案见
+     * {@code docs/designs/segment-promotion-consistency.md}（设计参考）。SEGMENT_LOCAL 保留作扩展点。
      */
     public enum SegmentCalculationMode {
         SINGLE, // 仅单个分段
-        SEGMENT_LOCAL,     // 分段独立起算
-        GLOBAL_ORIGIN      // 全局起算 + 分段截取
+        SEGMENT_LOCAL      // 分段独立起算
     }
 
     /**

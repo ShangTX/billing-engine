@@ -2,6 +2,7 @@ package cn.shang.charging.promotion.rules.startfree;
 
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.PromotionRuleConfig;
+import cn.shang.charging.promotion.pojo.PromotionActivationMode;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,10 +28,6 @@ public class StartFreePromotionConfig implements PromotionRuleConfig {
 
     int minutes;
 
-    /**
-     * 是否启用查询时间校验
-     * 当为 true 时，queryTime 必须落在免费时间段内才生效，
-     * 否则该规则完全失效（不产生任何免费时段）
-     */
-    Boolean validateQueryTime;
+    @Builder.Default
+    PromotionActivationMode activationMode = PromotionActivationMode.ALWAYS;
 }

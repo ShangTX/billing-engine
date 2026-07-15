@@ -11,7 +11,6 @@ import lombok.experimental.Accessors;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 分段计费结果
@@ -32,11 +31,9 @@ public class BillingSegmentResult {
     private LocalDateTime segmentStartTime;
     private LocalDateTime segmentEndTime;
 
-
     /** 本次实际参与计算的时间范围（考虑截取） */
     private LocalDateTime calculationStartTime;
     private LocalDateTime calculationEndTime;
-
 
     /* ========== 二、计费结果（核心数值） ========== */
 
@@ -46,71 +43,24 @@ public class BillingSegmentResult {
     /** 本分段实际计费时长 分钟数（不含免费） */
     private Integer chargedDuration;
 
-    /* ========== 三、费用稳定性 / 有效期（用于缓存判断） ========== */
-
-    /**
-     * 从什么时候开始，当前费用是确定的
-     * 通常是最后一个已完成计费单元的结束时间
-     */
-    private LocalDateTime feeEffectiveStart;
-
-    /**
-     * 到什么时候为止，当前费用不会变化
-     * ⚠️ 可能为 null（无法预测）
-     */
-    private LocalDateTime feeEffectiveEnd;
-
-
-    /* ========== 四、优惠结果（强需求） ========== */
+    /* ========== 三、优惠结果 ========== */
 
     /** 本分段内的优惠聚合结果 */
     private PromotionAggregate promotionAggregate;
 
+    /* ========== 四、计费过程明细 ========== */
 
-    /* ========== 五、计费过程明细（可追溯） ========== */
-
-    /**
-     * 按最小计费单元拆分的明细
-     * 是未来对账 / 仲裁 / 调试的唯一证据
-     */
+    /** 按最小计费单元拆分的明细 */
     private List<BillingUnit> billingUnits;
 
+    /** 时长计费段明细（仅在时长计费模式下填充） */
+    private List<DurationSegment> durationSegments;
 
-    /* ========== 六、继续计算支持（状态输出） ========== */
+    /** 计算模式标记 */
+    private BConstants.CalculationMode calculationMode;
 
-    /**
-     * 本分段结束后的结转状态
-     * 用于下一个分段 or 下次继续计算
-     */
-    private BillingCarryOver carryOverAfter;
-
-    /**
-     * 规则计算过程中的输出状态（供 buildCarryOverState 提取）
-     */
-    private Map<String, Object> ruleOutputState;
+    /** 周期封顶金额（时长模式下填充，null=无封顶或未配置） */
+    private BigDecimal cycleCapApplied;
 
     private List<PromotionUsage> promotionUsages;
-
-    /* ========== 七、金额折扣优惠结果 ========== */
-
-    /**
-     * 折扣前金额（规则计算结果）
-     */
-    private BigDecimal originalAmount;
-
-    /**
-     * 折扣优惠金额（折扣减免）
-     */
-    private BigDecimal discountSavedAmount;
-
-    /**
-     * 金额减免总额
-     */
-    private BigDecimal amountDiscount;
-
-    /**
-     * 最终实收金额（折扣和减免后）
-     */
-    private BigDecimal finalAmount;
-
 }

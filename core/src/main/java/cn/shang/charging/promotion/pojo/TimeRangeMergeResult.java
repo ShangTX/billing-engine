@@ -8,13 +8,26 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 时间段合并结果。
+ * <p>
+ * 由 {@code FreeTimeRangeMerger.merge()} 产出，包含：
+ * <ul>
+ *   <li>合并后的互斥时间段（mergedRanges）</li>
+ *   <li>被舍弃的时间段（discardedRanges：超出整体区间、被高优先级覆盖）</li>
+ *   <li>原始段ID到被舍弃部分的映射（originalToDiscarded）</li>
+ * </ul>
+ */
 @Data
 @AllArgsConstructor
 public class TimeRangeMergeResult {
 
-    private List<FreeTimeRange> mergedRanges;      // 合并后的时间段集合
-    private List<FreeTimeRange> discardedRanges;   // 被舍弃的时间段集合
-    private Map<String, List<FreeTimeRange>> originalToDiscarded; // 原始时间段与被舍弃部分的映射
+    /** 合并后的互斥时间段（按时间排序，已截取到整体区间内） */
+    private List<FreeTimeRange> mergedRanges;
+    /** 被舍弃的时间段（超出整体区间或被高优先级覆盖的部分） */
+    private List<FreeTimeRange> discardedRanges;
+    /** 原始时间段ID → 被舍弃部分列表（用于追踪哪些原始段被丢弃了多少） */
+    private Map<String, List<FreeTimeRange>> originalToDiscarded;
 
 
     public TimeRangeMergeResult() {

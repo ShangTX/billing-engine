@@ -1,6 +1,5 @@
 package cn.shang.charging.billing.pojo;
 
-import cn.shang.charging.billing.value.UnitValueSpec;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -52,7 +51,7 @@ public class BillingUnit {
 
     /**
      * 是否被 calcEndTime 截断
-     * 用于 CONTINUE 模式恢复截断单元
+     * 用于触发不足单元计费（IncompleteUnitChargeMode）
      */
     private Boolean isTruncated;
 
@@ -67,15 +66,10 @@ public class BillingUnit {
     private BigDecimal chargedAmount;
 
     /**
-     * 从计费开始到当前单元的累计金额
-     * CONTINUE 模式下，从 previousAccumulatedAmount 继续累加
+     * 段内累计金额：从当前分段起点到本单元的累计 chargedAmount。
+     * 不跨分段累计。
      */
     private BigDecimal accumulatedAmount;
-
-    /**
-     * 单元内统一求值描述
-     */
-    private UnitValueSpec valueSpec;
 
     /**
      * 规则扩展数据，由具体规则使用
@@ -83,10 +77,17 @@ public class BillingUnit {
     private Object ruleData;
 
     /**
-     * 此单元是否是通过 CONTINUE 模式合并生成的
-     * 如果为 true，此单元的开始时间在上次计算的截断单元位置
-     * @deprecated 已废弃，改用 accumulatedAmount 字段
+     * 是否为 compact 单元（合并了 N 个连续相同子单元）。
+     * <p>
+     * 当 compact=true 时，{@link #count} 表示子单元数量，
+     * {@link #durationMinutes} = count * 子单元时长。
+     * compact 单元由边界驱动循环自然产出，截断单元（isTruncated=true）永不 compact。
      */
-    @Deprecated
-    private Boolean mergedFromPrevious;
+    private boolean compact;
+
+    /**
+     * compact 单元代表的子单元数量。非 compact 单元始终为 1。
+     */
+    @Builder.Default
+    private int count = 1;
 }

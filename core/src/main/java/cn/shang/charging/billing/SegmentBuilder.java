@@ -8,7 +8,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 计费分段Builder
+ * 计费方案分段构建器。
+ * <p>
+ * 根据计费请求构建 {@link BillingSegment} 列表：
+ * <ul>
+ *   <li>单方案场景：直接生成一段 [beginTime, endTime]</li>
+ *   <li>方案切换场景：按 schemeChanges 时间轴切割为多段，每段绑定对应方案ID</li>
+ * </ul>
  */
 public class SegmentBuilder {
 
@@ -51,7 +57,7 @@ public class SegmentBuilder {
             } else {
                 segmentBegin = schemeChange.getChangeTime();
             }
-            currentBegin = segmentBegin;
+            currentBegin = schemeChange.getChangeTime();
 
             var segment = BillingSegment.builder()
                     .id(generateSegmentId(schemeChange.getLastSchemeId()))

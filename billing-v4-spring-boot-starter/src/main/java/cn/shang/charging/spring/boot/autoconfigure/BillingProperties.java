@@ -31,9 +31,9 @@ public class BillingProperties {
         private String ruleType;
 
         /**
-         * 计费模式: CONTINUOUS, UNIT_BASED
+         * 计算模式: CONTINUOUS, UNIT_BASED, DURATION_PERIOD, DURATION_GLOBAL
          */
-        private BConstants.BillingMode billingMode;
+        private BConstants.CalculationMode calculationMode;
 
         /**
          * 简化计算阈值（连续无优惠周期数超过此值时启用简化，0 表示禁用）

@@ -9,7 +9,6 @@ import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeRule;
 import cn.shang.charging.charge.rules.daynight.DayNightRule;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
@@ -62,9 +61,8 @@ public class BillingAutoConfiguration {
     public PromotionEngine promotionEngine(
             BillingConfigResolver configResolver,
             FreeTimeRangeMerger freeTimeRangeMerger,
-            FreeMinuteAllocator freeMinuteAllocator,
             PromotionRuleRegistry promotionRuleRegistry) {
-        return new PromotionEngine(configResolver, freeTimeRangeMerger, freeMinuteAllocator, promotionRuleRegistry);
+        return new PromotionEngine(configResolver, freeTimeRangeMerger, promotionRuleRegistry);
     }
 
     /**
@@ -74,15 +72,6 @@ public class BillingAutoConfiguration {
     @ConditionalOnMissingBean
     public FreeTimeRangeMerger freeTimeRangeMerger() {
         return new FreeTimeRangeMerger();
-    }
-
-    /**
-     * 免费分钟分配器
-     */
-    @Bean
-    @ConditionalOnMissingBean
-    public FreeMinuteAllocator freeMinuteAllocator() {
-        return new FreeMinuteAllocator();
     }
 
     /**

@@ -2,6 +2,7 @@ package cn.shang.charging.charge.rules.naturaltime;
 
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -45,5 +46,18 @@ final class NaturalTimePeriodResolver {
     int findNextPeriodBoundary(int currentMinute, List<NaturalPeriod> periods) {
         NaturalPeriod current = findPeriodByMinute(currentMinute, periods);
         return current.getEndMinute();
+    }
+
+    /**
+     * 查找当前时间之后最近的自然时段边界。
+     */
+    LocalDateTime findNextPeriodBoundary(LocalDateTime current, List<NaturalPeriod> periods) {
+        int currentMinute = current.getHour() * 60 + current.getMinute();
+        int periodEnd = findNextPeriodBoundary(currentMinute, periods);
+        LocalDateTime boundary = current.toLocalDate().atStartOfDay().plusMinutes(periodEnd);
+        if (!boundary.isAfter(current)) {
+            boundary = boundary.plusDays(1);
+        }
+        return boundary;
     }
 }

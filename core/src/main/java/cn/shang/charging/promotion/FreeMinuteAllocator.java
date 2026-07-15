@@ -11,7 +11,15 @@ import lombok.Data;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Stream;
 
+/**
+ * FREE_MINUTES 时段化工具（TODO-20260702-004：从 PromotionEngine 下放到策略侧）。
+ * <p>
+ * 把 FREE_MINUTES（分钟数标量）分配到计算窗口内非 FREE_RANGE 的空隙，转为具体时间段。
+ * 策略侧（CONTINUOUS/UNIT_BASED/PERIOD）调用 {@link #allocateAndMerge} 获得最终免费段与 usage；
+ * GLOBAL 策略不时段化，按分钟扣减 chargedMinutes。
+ */
 public class FreeMinuteAllocator {
 
     record TimeRange(LocalDateTime beginTime, LocalDateTime endTime) {
@@ -19,16 +27,51 @@ public class FreeMinuteAllocator {
     }
 
     /**
-     * 分配免费分钟数
-     * @param freeMinutesPromotions 免费分钟数
-     * @param explicitFreeRanges 合并后的免费时间范围
-     * @param window 计算窗口
+     * 分配 FREE_MINUTES 并与 FREE_RANGE 合并，产出最终免费段 + usage。
+     * <p>
+     * 时段化位置只依赖窗口起点 + FREE_RANGE + 窗口长度，与计费规则无关（这是 GLOBAL_ORIGIN 减法
+     * 与外部优惠跨段一致性的技术基础）。
+     *
+     * @param freeMinutesPromotions 未时段化的 FREE_MINUTES 列表
+     * @param explicitFreeRanges    已合并的 FREE_RANGE 时段（不含 FREE_MINUTES）
+     * @param window                计算窗口
      */
-    public FreeMinuteAllocationResult allocate(List<FreeMinutes> freeMinutesPromotions,
-                                               List<FreeTimeRange> explicitFreeRanges,
-                                               CalculationWindow window) {
+    public FreeMinuteAllocationResult allocateAndMerge(List<FreeMinutes> freeMinutesPromotions,
+                                                        List<FreeTimeRange> explicitFreeRanges,
+                                                        CalculationWindow window) {
+        AllocateOutput output = allocate(freeMinutesPromotions,
+                explicitFreeRanges != null ? explicitFreeRanges : List.of(),
+                window);
+
+        // 最终合并 FREE_RANGE + 时段化 FREE_MINUTES
+        List<FreeTimeRange> merged = new FreeTimeRangeMerger().merge(
+                Stream.concat(
+                        output.explicitFreeRanges.stream(),
+                        output.generatedFreeRanges.stream()
+                ).toList(),
+                window.getCalculationBegin(),
+                window.getCalculationEnd()
+        ).getMergedRanges();
+
+        return new FreeMinuteAllocationResult()
+                .setFinalFreeRanges(merged)
+                .setPromotionUsages(output.promotionUsages);
+    }
+
+    /**
+     * 分配免费分钟数（核心算法，产出未与 FREE_RANGE 合并的生成段）。
+     *
+     * @param freeMinutesPromotions 免费分钟数
+     * @param explicitFreeRanges    合并后的 FREE_RANGE 时段
+     * @param window                计算窗口
+     */
+    private AllocateOutput allocate(List<FreeMinutes> freeMinutesPromotions,
+                                    List<FreeTimeRange> explicitFreeRanges,
+                                    CalculationWindow window) {
         // 首先对免费分钟数进行排序
-        var sortedFreeMinutesPromotions = freeMinutesPromotions.stream()
+        var sortedFreeMinutesPromotions = freeMinutesPromotions == null
+                ? List.<FreeMinutes>of()
+                : freeMinutesPromotions.stream()
                 .sorted(Comparator.comparing(FreeMinutes::getPriority)).toList();
 
         // ===== 1. 初始化结果容器 =====
@@ -75,8 +118,11 @@ public class FreeMinuteAllocator {
                         currentFreeMinutes = freeMinutesIterator.next();
                         currentPromotionUsage = new PromotionUsage().setPromotionId(currentFreeMinutes.getId())
                                 .setType(BConstants.PromotionType.FREE_MINUTES)
+                                .setSource(currentFreeMinutes.getSource())
                                 .setGrantedMinutes(currentFreeMinutes.getMinutes())
-                                .setUsedMinutes(0);
+                                .setUsedMinutes(0)
+                                .setUsedFrom(cursor)
+                                .setUsedTo(cursor);
                         promotionUsages.add(currentPromotionUsage);
                     }
                     // 计算这个范围内的分钟数
@@ -92,9 +138,12 @@ public class FreeMinuteAllocator {
                                 .setBeginTime(cursor).setEndTime(allocateEndTime)
                                 .setId(currentFreeMinutes.getId())
                                 .setPriority(currentFreeMinutes.getPriority())
+                                .setSource(currentFreeMinutes.getSource())
+                                .setActivationMode(currentFreeMinutes.getActivationMode())
                                 .setPromotionType(BConstants.PromotionType.FREE_MINUTES));
                         // 更新已使用分钟数
                         currentPromotionUsage.setUsedMinutes(currentPromotionUsage.getUsedMinutes() + gapMinutes);
+                        currentPromotionUsage.setUsedTo(allocateEndTime);
                         // 游标前进
                         cursor = nextCursorTime;
                         if (remainFreeMinutes == 0) {
@@ -110,10 +159,13 @@ public class FreeMinuteAllocator {
                                 .setEndTime(newRangeEndTime)
                                 .setId(currentFreeMinutes.getId())
                                 .setPriority(currentFreeMinutes.getPriority())
+                                .setSource(currentFreeMinutes.getSource())
+                                .setActivationMode(currentFreeMinutes.getActivationMode())
                                 .setPromotionType(BConstants.PromotionType.FREE_MINUTES));
 
                         // 更新已使用分钟数
                         currentPromotionUsage.setUsedMinutes(currentPromotionUsage.getGrantedMinutes());
+                        currentPromotionUsage.setUsedTo(newRangeEndTime);
 
                         currentFreeMinutes = null; // 下次计算用下一份免费分钟数
                         currentPromotionUsage = null; // 下次计算用下一份免费分钟数
@@ -128,9 +180,23 @@ public class FreeMinuteAllocator {
             }
 
         }
-        // 计算未使用的优惠
-        return new FreeMinuteAllocationResult().setGeneratedFreeRanges(generatedFreeRanges)
-                .setPromotionUsages(promotionUsages);
+        return new AllocateOutput(explicitFreeRanges, generatedFreeRanges, promotionUsages);
+    }
+
+    /** 内部分配输出：FREE_RANGE（透传）+ 生成的 FREE_MINUTES 段 + usage。 */
+    @Data
+    private static class AllocateOutput {
+        final List<FreeTimeRange> explicitFreeRanges;
+        final List<FreeTimeRange> generatedFreeRanges;
+        final List<PromotionUsage> promotionUsages;
+
+        AllocateOutput(List<FreeTimeRange> explicitFreeRanges,
+                       List<FreeTimeRange> generatedFreeRanges,
+                       List<PromotionUsage> promotionUsages) {
+            this.explicitFreeRanges = explicitFreeRanges;
+            this.generatedFreeRanges = generatedFreeRanges;
+            this.promotionUsages = promotionUsages;
+        }
     }
 
 

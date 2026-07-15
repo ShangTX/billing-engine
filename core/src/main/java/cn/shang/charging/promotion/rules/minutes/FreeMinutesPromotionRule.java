@@ -31,6 +31,7 @@ public class FreeMinutesPromotionRule implements PromotionRule<FreeMinutesPromot
                 .source(BConstants.PromotionSource.RULE)
                 .priority(config.getPriority())
                 .id(config.getId())
+                .activationMode(config.getActivationMode())
                 .build();
         return List.of(promotionGrant);
     }

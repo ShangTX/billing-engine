@@ -12,7 +12,6 @@ import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
 import cn.shang.charging.charge.rules.daynight.DayNightRule;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
@@ -43,6 +42,7 @@ class DayNightParkingParityTest {
                 .dayUnitPrice(new BigDecimal("9.40"))
                 .nightUnitPrice(new BigDecimal("1.50"))
                 .maxChargeOneDay(new BigDecimal("158.27"))
+                .splitDayNightBoundary(false)  // 跨日夜单元按 blockWeight 归属（旧版本语义）
                 .build();
 
         BillingResult result = createService(config).calculate(baseRequest(beginTime, endTime));
@@ -73,8 +73,8 @@ class DayNightParkingParityTest {
     private BillingService createService(DayNightConfig config) {
         BillingConfigResolver resolver = new BillingConfigResolver() {
             @Override
-            public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-                return BConstants.BillingMode.CONTINUOUS;
+            public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+                return BConstants.CalculationMode.CONTINUOUS;
             }
 
             @Override
@@ -96,7 +96,6 @@ class DayNightParkingParityTest {
         PromotionEngine promotionEngine = new PromotionEngine(
                 resolver,
                 new FreeTimeRangeMerger(),
-                new FreeMinuteAllocator(),
                 new PromotionRuleRegistry()
         );
 

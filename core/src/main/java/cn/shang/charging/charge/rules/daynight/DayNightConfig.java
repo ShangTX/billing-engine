@@ -1,6 +1,7 @@
 package cn.shang.charging.charge.rules.daynight;
 
 import cn.shang.charging.billing.pojo.BConstants;
+import cn.shang.charging.billing.pojo.IncompleteUnitChargeSpec;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import lombok.*;
@@ -46,6 +47,15 @@ public class DayNightConfig implements RuleConfig {
     CrossPeriodMode crossPeriodMode = CrossPeriodMode.BLOCK_WEIGHT;
 
     /**
+     * CONTINUOUS 模式是否在日夜边界切断单元。
+     * true（默认）：日夜边界切断单元，每单元纯 day/night（现状）。
+     * false：不在日夜边界切断，单元跨日夜时按 crossPeriodMode（默认 BLOCK_WEIGHT）+ blockWeight 归属白天/夜晚价。
+     * 仅 CONTINUOUS 模式生效；UNIT_BASED 固定单元对齐本就不切断；时长模式按时长计费不涉及单元归属。
+     */
+    @Builder.Default
+    Boolean splitDayNightBoundary = true;
+
+    /**
      * 白天价格
      */
     BigDecimal dayUnitPrice;
@@ -66,6 +76,11 @@ public class DayNightConfig implements RuleConfig {
     Boolean simplifiedSupported;
 
     /**
+     * 不足单元计费配置对象。优先于旧散字段读取。
+     */
+    IncompleteUnitChargeSpec incompleteUnitChargeSpec;
+
+    /**
      * 不完整计费单元收费模式
      * 默认 FULL_CHARGE（完整收费）
      */
@@ -83,5 +98,31 @@ public class DayNightConfig implements RuleConfig {
      * 如 0.5 表示超过50%后全额收费
      */
     BigDecimal thresholdRatio;
+
+    @Override
+    public BConstants.IncompleteUnitChargeMode getIncompleteUnitChargeMode() {
+        if (incompleteUnitChargeSpec != null && incompleteUnitChargeSpec.getMode() != null) {
+            return incompleteUnitChargeSpec.getMode();
+        }
+        return incompleteUnitChargeMode != null
+                ? incompleteUnitChargeMode
+                : BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
+    }
+
+    @Override
+    public Integer getThresholdMinutes() {
+        if (incompleteUnitChargeSpec != null && incompleteUnitChargeSpec.getThresholdMinutes() != null) {
+            return incompleteUnitChargeSpec.getThresholdMinutes();
+        }
+        return thresholdMinutes;
+    }
+
+    @Override
+    public BigDecimal getThresholdRatio() {
+        if (incompleteUnitChargeSpec != null && incompleteUnitChargeSpec.getThresholdRatio() != null) {
+            return incompleteUnitChargeSpec.getThresholdRatio();
+        }
+        return thresholdRatio;
+    }
 
 }

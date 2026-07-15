@@ -4,9 +4,7 @@ import cn.shang.charging.billing.BillingSegment;
 import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
-import cn.shang.charging.billing.pojo.BillingUnit;
 import cn.shang.charging.billing.pojo.CalculationWindow;
-import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.charge.rules.naturaltime.NaturalTimeConfig;
 import cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule;
@@ -18,74 +16,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 class NaturalTimeSmokeTest {
-
-    @Test
-    void unitBasedBasicCalculationShouldStayStable() {
-        NaturalTimeRule rule = new NaturalTimeRule();
-        BillingSegmentResult result = rule.calculate(
-                createContext(
-                        LocalDateTime.of(2026, 1, 1, 8, 0),
-                        LocalDateTime.of(2026, 1, 1, 10, 0),
-                        BConstants.BillingMode.UNIT_BASED
-                ),
-                createSinglePeriodConfig(CrossPeriodMode.BEGIN_TIME_TRUNCATE, BigDecimal.ONE, null),
-                PromotionAggregate.builder().build()
-        );
-
-        assertEquals(0, BigDecimal.valueOf(2).compareTo(result.getChargedAmount()));
-        assertEquals(2, result.getBillingUnits().size());
-    }
-
-    @Test
-    void unitBasedCrossPeriodHigherPriceShouldStayStable() {
-        NaturalTimeConfig config = NaturalTimeConfig.builder()
-                .id("test")
-                .unitMinutes(60)
-                .crossPeriodMode(CrossPeriodMode.HIGHER_PRICE)
-                .periods(List.of(
-                        NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
-                        NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
-                        NaturalPeriod.builder().beginMinute(1200).endMinute(1440).unitPrice(BigDecimal.ONE).build()
-                ))
-                .build();
-
-        NaturalTimeRule rule = new NaturalTimeRule();
-        BillingSegmentResult result = rule.calculate(
-                createContext(
-                        LocalDateTime.of(2026, 1, 1, 19, 30),
-                        LocalDateTime.of(2026, 1, 1, 20, 30),
-                        BConstants.BillingMode.UNIT_BASED
-                ),
-                config,
-                PromotionAggregate.builder().build()
-        );
-
-        // 19:30-20:30 跨时段(1元时段->2元时段)，用 HIGHER_PRICE 应收2元
-        assertEquals(0, BigDecimal.valueOf(2).compareTo(result.getChargedAmount()));
-        assertEquals(1, result.getBillingUnits().size());
-    }
-
-    @Test
-    void unitBasedDailyCapShouldStayStable() {
-        NaturalTimeRule rule = new NaturalTimeRule();
-        BillingSegmentResult result = rule.calculate(
-                createContext(
-                        LocalDateTime.of(2026, 1, 1, 8, 0),
-                        LocalDateTime.of(2026, 1, 1, 12, 0),
-                        BConstants.BillingMode.UNIT_BASED
-                ),
-                createSinglePeriodConfig(CrossPeriodMode.BEGIN_TIME_TRUNCATE, BigDecimal.ONE, BigDecimal.valueOf(3)),
-                PromotionAggregate.builder().build()
-        );
-
-        assertEquals(0, BigDecimal.valueOf(3).compareTo(result.getChargedAmount()));
-        BillingUnit lastUnit = result.getBillingUnits().get(result.getBillingUnits().size() - 1);
-        assertTrue(lastUnit.isFree());
-        assertEquals("DAILY_CAP", lastUnit.getFreePromotionId());
-    }
 
     @Test
     void continuousBasicCalculationShouldStayStable() {
@@ -94,9 +25,9 @@ class NaturalTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 8, 0),
                         LocalDateTime.of(2026, 1, 1, 10, 0),
-                        BConstants.BillingMode.CONTINUOUS
+                        BConstants.CalculationMode.CONTINUOUS
                 ),
-                createSinglePeriodConfig(CrossPeriodMode.BEGIN_TIME_TRUNCATE, BigDecimal.ONE, null),
+                createSinglePeriodConfig(BigDecimal.ONE, null),
                 PromotionAggregate.builder().build()
         );
 
@@ -108,7 +39,6 @@ class NaturalTimeSmokeTest {
         NaturalTimeConfig config = NaturalTimeConfig.builder()
                 .id("test")
                 .unitMinutes(60)
-                .crossPeriodMode(CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                 .periods(List.of(
                         NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
                         NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
@@ -121,7 +51,7 @@ class NaturalTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 6, 0),
                         LocalDateTime.of(2026, 1, 1, 10, 0),
-                        BConstants.BillingMode.CONTINUOUS
+                        BConstants.CalculationMode.CONTINUOUS
                 ),
                 config,
                 PromotionAggregate.builder().build()
@@ -132,11 +62,10 @@ class NaturalTimeSmokeTest {
         assertEquals(0, BigDecimal.valueOf(6).compareTo(result.getChargedAmount()));
     }
 
-    private static NaturalTimeConfig createSinglePeriodConfig(CrossPeriodMode mode, BigDecimal unitPrice, BigDecimal maxChargeOneDay) {
+    private static NaturalTimeConfig createSinglePeriodConfig(BigDecimal unitPrice, BigDecimal maxChargeOneDay) {
         return NaturalTimeConfig.builder()
                 .id("test")
                 .unitMinutes(60)
-                .crossPeriodMode(mode)
                 .maxChargeOneDay(maxChargeOneDay)
                 .periods(List.of(
                         NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(unitPrice).build()
@@ -144,7 +73,7 @@ class NaturalTimeSmokeTest {
                 .build();
     }
 
-    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.BillingMode mode) {
+    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.CalculationMode mode) {
         CalculationWindow window = new CalculationWindow();
         window.setCalculationBegin(begin);
         window.setCalculationEnd(end);
@@ -156,7 +85,7 @@ class NaturalTimeSmokeTest {
         return BillingContext.builder()
                 .beginTime(begin)
                 .endTime(end)
-                .billingMode(mode)
+                .calculationMode(mode)
                 .segment(segment)
                 .window(window)
                 .build();

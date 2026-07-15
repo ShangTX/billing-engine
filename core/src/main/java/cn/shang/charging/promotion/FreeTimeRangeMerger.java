@@ -9,6 +9,19 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * 免费时间段合并器。
+ * <p>
+ * 将多个免费时间段（可能重叠、不同优先级）合并为互斥的连续时间段。
+ * 合并规则：
+ * <ul>
+ *   <li>按优先级分组处理（数字越小优先级越高）</li>
+ *   <li>高优先级时间段覆盖低优先级时间段的交集部分</li>
+ *   <li>同优先级时间段按时间顺序合并相邻/重叠段</li>
+ *   <li>超出整体区间 [overallStart, overallEnd] 的部分被舍弃</li>
+ * </ul>
+ * 输出 {@link TimeRangeMergeResult}：包含合并后的段、被舍弃的段、原始段与被舍弃段的映射。
+ */
 public class FreeTimeRangeMerger {
 
     /**
@@ -105,8 +118,8 @@ public class FreeTimeRangeMerger {
                         .setPriority(originalRange.getPriority())
                         .setPromotionType(originalRange.getPromotionType())
                         .setRangeType(originalRange.getRangeType())
-                        .setConditional(originalRange.isConditional())
-                        .setConditionalUntil(originalRange.getConditionalUntil());
+                        .setSource(originalRange.getSource())
+                        .setActivationMode(originalRange.getActivationMode());
                 result.addDiscardedRange(discarded);
             }
 
@@ -125,8 +138,8 @@ public class FreeTimeRangeMerger {
                         .setPriority(originalRange.getPriority())
                         .setPromotionType(originalRange.getPromotionType())
                         .setRangeType(originalRange.getRangeType())
-                        .setConditional(originalRange.isConditional())
-                        .setConditionalUntil(originalRange.getConditionalUntil());
+                        .setSource(originalRange.getSource())
+                        .setActivationMode(originalRange.getActivationMode());
                 processedRange.setData(originalRange.getData());
                 processed.add(processedRange);
             }
@@ -167,8 +180,8 @@ public class FreeTimeRangeMerger {
                             .setPriority(next.getPriority())
                             .setPromotionType(next.getPromotionType())
                             .setRangeType(next.getRangeType())
-                            .setConditional(next.isConditional())
-                            .setConditionalUntil(next.getConditionalUntil()));
+                            .setSource(next.getSource())
+                            .setActivationMode(next.getActivationMode()));
 
                     // 分割下一个时间段
                     List<FreeTimeRange> splitParts = splitFreeTimeRange(next, overlap);
@@ -231,8 +244,8 @@ public class FreeTimeRangeMerger {
                                     .setPriority(part.getPriority())
                                     .setPromotionType(part.getPromotionType())
                                     .setRangeType(part.getRangeType())
-                                    .setConditional(part.isConditional())
-                                    .setConditionalUntil(part.getConditionalUntil()));
+                                    .setSource(part.getSource())
+                                    .setActivationMode(part.getActivationMode()));
 
                             // 分割时间段
                             List<FreeTimeRange> splitParts = splitFreeTimeRange(part, overlap);
@@ -275,8 +288,8 @@ public class FreeTimeRangeMerger {
                     .setPriority(original.getPriority())
                     .setPromotionType(original.getPromotionType())
                     .setRangeType(original.getRangeType())
-                    .setConditional(original.isConditional())
-                    .setConditionalUntil(original.getConditionalUntil()));
+                    .setSource(original.getSource())
+                    .setActivationMode(original.getActivationMode()));
         }
 
         // 重叠部分在中间（会产生两个部分）
@@ -289,8 +302,8 @@ public class FreeTimeRangeMerger {
                     .setPriority(original.getPriority())
                     .setPromotionType(original.getPromotionType())
                     .setRangeType(original.getRangeType())
-                    .setConditional(original.isConditional())
-                    .setConditionalUntil(original.getConditionalUntil()));
+                    .setSource(original.getSource())
+                    .setActivationMode(original.getActivationMode()));
         }
 
         return parts;

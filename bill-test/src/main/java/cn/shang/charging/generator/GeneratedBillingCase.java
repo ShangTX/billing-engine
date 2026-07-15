@@ -5,7 +5,6 @@ import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.PromotionRuleConfig;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
-import cn.shang.charging.wrapper.QuerySummary;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -68,10 +67,8 @@ public class GeneratedBillingCase {
     /**
      * 根据 QUERY_TIME 功能点生成的查询摘要。
      */
-    private List<QuerySummary> querySummaries;
 
     /**
      * CONTINUE 功能点下的分步计算结果。
      */
-    private List<GeneratedContinueStep> continueSteps;
 }

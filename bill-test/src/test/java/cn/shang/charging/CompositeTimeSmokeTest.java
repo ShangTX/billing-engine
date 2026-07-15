@@ -9,7 +9,6 @@ import cn.shang.charging.billing.pojo.CalculationWindow;
 import cn.shang.charging.charge.rules.compositetime.CompositePeriod;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeConfig;
 import cn.shang.charging.charge.rules.compositetime.CompositeTimeRule;
-import cn.shang.charging.charge.rules.compositetime.CrossPeriodMode;
 import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import org.junit.jupiter.api.Test;
@@ -30,18 +29,22 @@ class CompositeTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 8, 0),
                         LocalDateTime.of(2026, 1, 1, 10, 0),
-                        BConstants.BillingMode.UNIT_BASED
+                        BConstants.CalculationMode.UNIT_BASED
                 ),
-                createSinglePeriodConfig(CrossPeriodMode.BLOCK_WEIGHT, BigDecimal.ONE, BigDecimal.valueOf(50)),
+                createSinglePeriodConfig(BigDecimal.ONE, BigDecimal.valueOf(50)),
                 PromotionAggregate.builder().build()
         );
 
         assertEquals(0, BigDecimal.valueOf(2).compareTo(result.getChargedAmount()));
-        assertEquals(2, result.getBillingUnits().size());
+        // CONTINUOUS 段内直接产出 compact：8:00-10:00 单时段 2 单元合并为 1 个 compact（count=2）
+        assertEquals(1, result.getBillingUnits().size());
+        BillingUnit unit = result.getBillingUnits().get(0);
+        assertTrue(unit.isCompact());
+        assertEquals(2, unit.getCount());
     }
 
     @Test
-    void crossPeriodHigherPriceShouldStayStable() {
+    void crossNaturalPeriodShouldSplitAtBoundary() {
         CompositeTimeConfig config = CompositeTimeConfig.builder()
                 .id("test")
                 .maxChargeOneCycle(BigDecimal.valueOf(50))
@@ -50,7 +53,6 @@ class CompositeTimeSmokeTest {
                                 .beginMinute(0)
                                 .endMinute(1440)
                                 .unitMinutes(60)
-                                .crossPeriodMode(CrossPeriodMode.HIGHER_PRICE)
                                 .naturalPeriods(List.of(
                                         NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(BigDecimal.ONE).build(),
                                         NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(BigDecimal.valueOf(2)).build(),
@@ -65,14 +67,15 @@ class CompositeTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 19, 30),
                         LocalDateTime.of(2026, 1, 1, 20, 30),
-                        BConstants.BillingMode.UNIT_BASED
+                        BConstants.CalculationMode.UNIT_BASED
                 ),
                 config,
                 PromotionAggregate.builder().build()
         );
 
-        assertEquals(0, BigDecimal.valueOf(2).compareTo(result.getChargedAmount()));
-        assertEquals(1, result.getBillingUnits().size());
+        assertEquals(0, BigDecimal.valueOf(3).compareTo(result.getChargedAmount()));
+        assertEquals(2, result.getBillingUnits().size());
+        assertEquals(LocalDateTime.of(2026, 1, 1, 20, 0), result.getBillingUnits().get(0).getEndTime());
     }
 
     @Test
@@ -82,9 +85,9 @@ class CompositeTimeSmokeTest {
                 createContext(
                         LocalDateTime.of(2026, 1, 1, 8, 0),
                         LocalDateTime.of(2026, 1, 1, 12, 0),
-                        BConstants.BillingMode.CONTINUOUS
+                        BConstants.CalculationMode.CONTINUOUS
                 ),
-                createSinglePeriodConfig(CrossPeriodMode.BLOCK_WEIGHT, BigDecimal.ONE, BigDecimal.valueOf(3)),
+                createSinglePeriodConfig(BigDecimal.ONE, BigDecimal.valueOf(3)),
                 PromotionAggregate.builder().build()
         );
 
@@ -94,7 +97,7 @@ class CompositeTimeSmokeTest {
         assertEquals("CYCLE_CAP", lastUnit.getFreePromotionId());
     }
 
-    private static CompositeTimeConfig createSinglePeriodConfig(CrossPeriodMode mode, BigDecimal unitPrice, BigDecimal maxChargeOneCycle) {
+    private static CompositeTimeConfig createSinglePeriodConfig(BigDecimal unitPrice, BigDecimal maxChargeOneCycle) {
         return CompositeTimeConfig.builder()
                 .id("test")
                 .maxChargeOneCycle(maxChargeOneCycle)
@@ -103,7 +106,6 @@ class CompositeTimeSmokeTest {
                                 .beginMinute(0)
                                 .endMinute(1440)
                                 .unitMinutes(60)
-                                .crossPeriodMode(mode)
                                 .naturalPeriods(List.of(
                                         NaturalPeriod.builder().beginMinute(0).endMinute(1440).unitPrice(unitPrice).build()
                                 ))
@@ -112,7 +114,7 @@ class CompositeTimeSmokeTest {
                 .build();
     }
 
-    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.BillingMode mode) {
+    private static BillingContext createContext(LocalDateTime begin, LocalDateTime end, BConstants.CalculationMode mode) {
         CalculationWindow window = new CalculationWindow();
         window.setCalculationBegin(begin);
         window.setCalculationEnd(end);
@@ -124,7 +126,7 @@ class CompositeTimeSmokeTest {
         return BillingContext.builder()
                 .beginTime(begin)
                 .endTime(end)
-                .billingMode(mode)
+                .calculationMode(mode)
                 .segment(segment)
                 .window(window)
                 .build();

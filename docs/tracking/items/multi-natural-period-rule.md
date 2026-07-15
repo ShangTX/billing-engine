@@ -48,12 +48,6 @@ public class NaturalTimeConfig implements RuleConfig {
     int unitMinutes;
     
     /**
-     * 跨时段处理模式
-     * 默认 BEGIN_TIME_TRUNCATE
-     */
-    CrossPeriodMode crossPeriodMode;
-    
-    /**
      * 每日封顶（可选）
      */
     BigDecimal maxChargeOneDay;
@@ -90,7 +84,6 @@ public class NaturalPeriod {
 2. **NaturalTimeConfig 配置类**
    - `periods`: 自然时段列表
    - `unitMinutes`: 统一单元时长
-   - `crossPeriodMode`: 跨段处理模式（复用 CrossPeriodMode）
    - `maxChargeOneDay`: 每日封顶（可选）
    - `simplifiedSupported`: 简化计算支持标记
 
@@ -98,7 +91,7 @@ public class NaturalPeriod {
    - 继承 `AbstractTimeBasedRule<NaturalTimeConfig>`
    - 支持 `UNIT_BASED` 和 `CONTINUOUS` 模式
    - 时段覆盖校验
-   - 跨时段价格计算（复用 CrossPeriodMode）
+   - 自然时段边界统一切断
 
 4. **子组件拆分（遵循已有优化原则）**
    - `NaturalTimeUnitBasedCalculator`: UNIT_BASED 模式计算
@@ -119,7 +112,7 @@ public class NaturalPeriod {
 ## 验收标准
 
 - ✓ 可配置 1-N 个自然时段覆盖全天
-- ✓ 跨段处理可配置（复用 CrossPeriodMode）
+- ✓ 自然时段边界统一切断
 - ✓ 配置比 compositeTime 简洁直观
 - ✓ 测试和文档同步完成
 
@@ -128,10 +121,13 @@ public class NaturalPeriod {
 - `core/src/main/java/cn/shang/charging/billing/pojo/BConstants.java`
 - `core/src/main/java/cn/shang/charging/charge/rules/naturaltime/`（新建）
 - `core/src/main/java/cn/shang/charging/charge/rules/compositetime/NaturalPeriod.java`（复用）
-- `core/src/main/java/cn/shang/charging/charge/rules/compositetime/CrossPeriodMode.java`（复用）
 - `core/src/main/java/cn/shang/charging/charge/rules/BillingRuleRegistry.java`（注册）
 - `bill-test/src/test/java/cn/shang/charging/NaturalTimeSmokeTest.java`（测试）
 
 ## 备注
 
 naturalTime 是简化版 compositeTime，只关注自然时段场景，配置更直观。
+
+2026-07-15 修订：为避免 non-dayNight 规则继续扩散跨时段归属策略，`naturalTime`
+移除 `crossPeriodMode` 配置，统一在自然时段边界切断；不足单元收费仍通过
+`incompleteUnitChargeMode` / `thresholdMinutes` / `thresholdRatio` 控制。

@@ -25,7 +25,6 @@ import cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
-import cn.shang.charging.promotion.FreeMinuteAllocator;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
 import cn.shang.charging.promotion.pojo.FreeTimeRangeType;
@@ -36,8 +35,6 @@ import cn.shang.charging.promotion.rules.minutes.FreeMinutesPromotionRule;
 import cn.shang.charging.promotion.rules.startfree.StartFreePromotionConfig;
 import cn.shang.charging.promotion.rules.startfree.StartFreePromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
-import cn.shang.charging.wrapper.BillingResultViewer;
-import cn.shang.charging.wrapper.QuerySummary;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -85,25 +82,11 @@ public class BillingTestCaseGenerator {
         String ruleType = generationRequest.getChargeRuleType();
         RuleConfig ruleConfig = createRuleConfig(ruleType, features, index);
         List<PromotionRuleConfig> promotionConfigs = createPromotionConfigs(features, index);
-        BConstants.BillingMode billingMode = selectBillingMode(features);
-        BillingService billingService = createBillingService(ruleType, ruleConfig, promotionConfigs, billingMode, features);
-        BillingResultViewer viewer = new BillingResultViewer();
+        BConstants.CalculationMode calculationMode = selectBillingMode(features);
+        BillingService billingService = createBillingService(ruleType, ruleConfig, promotionConfigs, calculationMode, features);
 
         BillingRequest request = createRequest("case-" + (index + 1), features, index, random);
-        BillingResult result;
-        List<QuerySummary> querySummaries;
-        List<GeneratedContinueStep> continueSteps = new ArrayList<>();
-
-        if (features.contains(TestFeature.CONTINUE)) {
-            ContinueScenario scenario = calculateContinueScenario(request, billingService, viewer, features);
-            result = scenario.finalResult();
-            querySummaries = scenario.finalQuerySummaries();
-            continueSteps = scenario.steps();
-            request = scenario.finalRequest();
-        } else {
-            result = billingService.calculate(request);
-            querySummaries = createQuerySummaries(result, viewer, features);
-        }
+        BillingResult result = billingService.calculate(request);
 
         return GeneratedBillingCase.builder()
                 .caseId(request.getId())
@@ -114,8 +97,6 @@ public class BillingTestCaseGenerator {
                 .promotionConfigs(promotionConfigs)
                 .externalPromotions(request.getExternalPromotions())
                 .result(result)
-                .querySummaries(querySummaries)
-                .continueSteps(continueSteps)
                 .build();
     }
 
@@ -168,7 +149,9 @@ public class BillingTestCaseGenerator {
      * 未显式指定计费模式时，根据功能点选择更自然的默认模式。
      */
     private TestFeature selectDefaultModeFeature(Set<TestFeature> features) {
-        if (features.contains(TestFeature.BUBBLE_FREE_RANGE) || features.contains(TestFeature.SIMPLIFICATION)) {
+        if (features.contains(TestFeature.BUBBLE_FREE_RANGE)
+                || features.contains(TestFeature.SIMPLIFICATION)
+                || features.contains(TestFeature.COMPACT)) {
             return TestFeature.CONTINUOUS;
         }
         return TestFeature.UNIT_BASED;
@@ -260,8 +243,6 @@ public class BillingTestCaseGenerator {
         return NaturalTimeConfig.builder()
                 .id("generated-natural-time-" + (index + 1))
                 .unitMinutes(60)
-                .crossPeriodMode(features.contains(TestFeature.COMPOSITE_CROSS_PERIOD_MODE)
-                        ? CrossPeriodMode.HIGHER_PRICE : CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                 .periods(List.of(
                         NaturalPeriod.builder().beginMinute(0).endMinute(360).unitPrice(new BigDecimal("1.00")).build(),
                         NaturalPeriod.builder().beginMinute(360).endMinute(720).unitPrice(new BigDecimal("2.00")).build(),
@@ -285,8 +266,6 @@ public class BillingTestCaseGenerator {
                                 .beginMinute(0)
                                 .endMinute(1440)
                                 .unitMinutes(60)
-                                .crossPeriodMode(features.contains(TestFeature.COMPOSITE_CROSS_PERIOD_MODE)
-                                        ? CrossPeriodMode.HIGHER_PRICE : CrossPeriodMode.BEGIN_TIME_TRUNCATE)
                                 .naturalPeriods(List.of(
                                         NaturalPeriod.builder().beginMinute(0).endMinute(480).unitPrice(new BigDecimal("1.00")).build(),
                                         NaturalPeriod.builder().beginMinute(480).endMinute(1200).unitPrice(new BigDecimal("2.00")).build(),
@@ -325,7 +304,6 @@ public class BillingTestCaseGenerator {
                     .id("rule-start-free-" + (index + 1))
                     .priority(5)
                     .minutes(60)
-                    .validateQueryTime(features.contains(TestFeature.CONDITIONAL_START_FREE))
                     .build());
         }
         return configs;
@@ -342,9 +320,9 @@ public class BillingTestCaseGenerator {
         request.setEndTime(timeWindow.end());
         request.setSchemeId(DEFAULT_SCHEME_ID);
         request.setSchemeChanges(List.of());
-        request.setSegmentCalculationMode(features.contains(TestFeature.GLOBAL_ORIGIN)
-                ? BConstants.SegmentCalculationMode.GLOBAL_ORIGIN
-                : BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
+        // TODO-20260706-003：GLOBAL_ORIGIN 已废弃，统一 SEGMENT_LOCAL。
+        // TestFeature.GLOBAL_ORIGIN 保留作兼容入口，行为同 SEGMENT_LOCAL。
+        request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCAL);
         request.setExternalPromotions(createExternalPromotions(features, timeWindow, index));
         if (features.contains(TestFeature.TIME_ROUNDING)) {
             request.setTimeRoundingMode(TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
@@ -368,6 +346,11 @@ public class BillingTestCaseGenerator {
                 || features.contains(TestFeature.DAY_NIGHT_MIXED_VALUE_SPEC)) {
             LocalDateTime begin = day.withHour(18).withMinute(40 + minuteNoise % 10);
             return new TimeWindow(begin, day.withHour(22).withMinute(20 + minuteNoise % 5));
+        }
+        if (features.contains(TestFeature.COMPACT)) {
+            // 纯白天长窗口（8:00-16:00）：DayNight 60min 单元同价产出 1 个 count=8 的 compact；
+            // RelativeTime 单时段产出 1 个 compact；NaturalTime 跨两个自然时段产出 2 个 compact。
+            return new TimeWindow(day.withHour(8).withMinute(0), day.withHour(16).withMinute(0));
         }
         if (features.contains(TestFeature.BUBBLE_FREE_RANGE)) {
             return new TimeWindow(day.withHour(8).withMinute(30 + minuteNoise), day.withHour(18).withMinute(30));
@@ -431,85 +414,15 @@ public class BillingTestCaseGenerator {
     }
 
     /**
-     * 执行 CONTINUE 场景。
-     * <p>
-     * 第一步计算到中间时间并产出 carryOver，第二步携带 carryOver 继续算到原始结束时间。
-     */
-    private ContinueScenario calculateContinueScenario(
-            BillingRequest fullRequest,
-            BillingService billingService,
-            BillingResultViewer viewer,
-            Set<TestFeature> features) {
-        LocalDateTime splitTime = fullRequest.getBeginTime()
-                .plusMinutes(java.time.Duration.between(fullRequest.getBeginTime(), fullRequest.getEndTime()).toMinutes() / 2);
-
-        BillingRequest firstRequest = copyRequest(fullRequest);
-        firstRequest.setId(fullRequest.getId() + "-continue-1");
-        firstRequest.setEndTime(splitTime);
-        BillingResult firstResult = billingService.calculate(firstRequest);
-
-        BillingRequest secondRequest = copyRequest(fullRequest);
-        secondRequest.setId(fullRequest.getId() + "-continue-2");
-        secondRequest.setPreviousCarryOver(firstResult.getCarryOver());
-        BillingResult secondResult = billingService.calculate(secondRequest);
-
-        List<GeneratedContinueStep> steps = List.of(
-                GeneratedContinueStep.builder()
-                        .stepId(firstRequest.getId())
-                        .request(firstRequest)
-                        .result(firstResult)
-                        .querySummaries(createQuerySummaries(firstResult, viewer, features))
-                        .build(),
-                GeneratedContinueStep.builder()
-                        .stepId(secondRequest.getId())
-                        .request(secondRequest)
-                        .result(secondResult)
-                        .querySummaries(createQuerySummaries(secondResult, viewer, features))
-                        .build()
-        );
-        return new ContinueScenario(secondRequest, secondResult, createQuerySummaries(secondResult, viewer, features), steps);
-    }
-
-    /**
-     * 根据计费结果生成查询摘要。
-     * <p>
-     * 查询点覆盖开头附近、中间位置和计算结束前，便于人工观察单元内 valueSpec 的即时值。
-     */
-    private List<QuerySummary> createQuerySummaries(BillingResult result, BillingResultViewer viewer, Set<TestFeature> features) {
-        if (!features.contains(TestFeature.QUERY_TIME) || result == null || result.getUnits() == null || result.getUnits().isEmpty()) {
-            return List.of();
-        }
-
-        LocalDateTime firstBegin = result.getUnits().get(0).getBeginTime();
-        LocalDateTime calculationEnd = result.getCalculationEndTime();
-        LocalDateTime middle = firstBegin.plusMinutes(
-                Math.max(1, java.time.Duration.between(firstBegin, calculationEnd).toMinutes() / 2)
-        );
-        List<LocalDateTime> candidates = List.of(
-                firstBegin.plusMinutes(1),
-                middle,
-                calculationEnd.minusMinutes(1).isAfter(firstBegin) ? calculationEnd.minusMinutes(1) : calculationEnd
-        );
-
-        List<QuerySummary> summaries = new ArrayList<>();
-        for (LocalDateTime queryTime : candidates) {
-            if (queryTime.isAfter(firstBegin) && !queryTime.isAfter(calculationEnd)) {
-                summaries.add(viewer.createQuerySummary(result, queryTime));
-            }
-        }
-        return summaries;
-    }
-
-    /**
      * 为样本装配一套纯内存 BillingService。
      */
     private BillingService createBillingService(
             String ruleType,
             RuleConfig ruleConfig,
             List<PromotionRuleConfig> promotionConfigs,
-            BConstants.BillingMode billingMode,
+            BConstants.CalculationMode calculationMode,
             Set<TestFeature> features) {
-        BillingConfigResolver resolver = new StaticResolver(ruleConfig, promotionConfigs, billingMode, features);
+        BillingConfigResolver resolver = new StaticResolver(ruleConfig, promotionConfigs, calculationMode, features);
 
         PromotionRuleRegistry promotionRegistry = new PromotionRuleRegistry();
         promotionRegistry.register(BConstants.PromotionRuleType.FREE_MINUTES, new FreeMinutesPromotionRule());
@@ -520,7 +433,7 @@ public class BillingTestCaseGenerator {
         return new BillingService(
                 new SegmentBuilder(),
                 resolver,
-                new PromotionEngine(resolver, new FreeTimeRangeMerger(), new FreeMinuteAllocator(), promotionRegistry),
+                new PromotionEngine(resolver, new FreeTimeRangeMerger(), promotionRegistry),
                 new BillingCalculator(ruleRegistry),
                 new ResultAssembler()
         );
@@ -528,11 +441,17 @@ public class BillingTestCaseGenerator {
 
     /**
      * 从功能点选择实际计费模式。
+     * UNIT_BASED 已降级为独立规则类型，普通规则只支持 CONTINUOUS；
+     * 生成器默认产出 CONTINUOUS 用例（TestFeature.UNIT_BASED 保留为兼容标记，按 CONTINUOUS 生成）。
+     * <p>
+     * BUBBLE 免费段例外：CONTINUOUS 不支持 BUBBLE（{@code ContinuousStrategy.assertNoBubbleSupported} 校验），
+     * 改用 DURATION_PERIOD（已支持 bubble：effective 周期切分）。
      */
-    private BConstants.BillingMode selectBillingMode(Set<TestFeature> features) {
-        return features.contains(TestFeature.CONTINUOUS)
-                ? BConstants.BillingMode.CONTINUOUS
-                : BConstants.BillingMode.UNIT_BASED;
+    private BConstants.CalculationMode selectBillingMode(Set<TestFeature> features) {
+        if (features.contains(TestFeature.BUBBLE_FREE_RANGE)) {
+            return BConstants.CalculationMode.DURATION_PERIOD;
+        }
+        return BConstants.CalculationMode.CONTINUOUS;
     }
 
     /**
@@ -548,7 +467,6 @@ public class BillingTestCaseGenerator {
         copied.setSegmentCalculationMode(source.getSegmentCalculationMode());
         copied.setSchemeId(source.getSchemeId());
         copied.setSchemeChanges(source.getSchemeChanges());
-        copied.setPreviousCarryOver(source.getPreviousCarryOver());
         copied.setTimeRoundingMode(source.getTimeRoundingMode());
         copied.setContext(source.getContext());
         copied.setDisableSimplification(source.getDisableSimplification());
@@ -562,16 +480,6 @@ public class BillingTestCaseGenerator {
     }
 
     /**
-     * CONTINUE 场景的中间结果。
-     */
-    private record ContinueScenario(
-            BillingRequest finalRequest,
-            BillingResult finalResult,
-            List<QuerySummary> finalQuerySummaries,
-            List<GeneratedContinueStep> steps) {
-    }
-
-    /**
      * 静态配置解析器。
      * <p>
      * 生成器不接入数据库或外部服务，所有规则和优惠都由当前样本直接提供。
@@ -579,23 +487,23 @@ public class BillingTestCaseGenerator {
     private static class StaticResolver implements BillingConfigResolver {
         private final RuleConfig ruleConfig;
         private final List<PromotionRuleConfig> promotionConfigs;
-        private final BConstants.BillingMode billingMode;
+        private final BConstants.CalculationMode calculationMode;
         private final Set<TestFeature> features;
 
         StaticResolver(
                 RuleConfig ruleConfig,
                 List<PromotionRuleConfig> promotionConfigs,
-                BConstants.BillingMode billingMode,
+                BConstants.CalculationMode calculationMode,
                 Set<TestFeature> features) {
             this.ruleConfig = ruleConfig;
             this.promotionConfigs = promotionConfigs;
-            this.billingMode = billingMode;
+            this.calculationMode = calculationMode;
             this.features = features;
         }
 
         @Override
-        public BConstants.BillingMode resolveBillingMode(String schemeId, Map<String, Object> context) {
-            return billingMode;
+        public BConstants.CalculationMode resolveCalculationMode(String schemeId, Map<String, Object> context) {
+            return calculationMode;
         }
 
         @Override
