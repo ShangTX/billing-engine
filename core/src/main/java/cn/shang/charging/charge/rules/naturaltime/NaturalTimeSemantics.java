@@ -61,6 +61,17 @@ final class NaturalTimeSemantics implements RuleSemantics<NaturalTimeConfig> {
         return priceResolver.calculateUnitPrice(begin, end, config.getPeriods());
     }
 
+    @Override
+    public String periodKey(LocalDateTime time, NaturalTimeConfig config, LocalDateTime cycleOrigin) {
+        NaturalPeriod period = resolvePeriod(time, config);
+        return period.getBeginMinute() + "-" + period.getEndMinute();
+    }
+
+    @Override
+    public String periodLabel(LocalDateTime time, NaturalTimeConfig config, LocalDateTime cycleOrigin) {
+        return periodKey(time, config, cycleOrigin);
+    }
+
     /**
      * 自然时段边界 provider：从当前自然日内分钟算到下一个 period.endMinute。
      * 从原 NaturalTimeContinuousStrategy.calculate 的 period 边界 lambda 搬来。
@@ -80,5 +91,10 @@ final class NaturalTimeSemantics implements RuleSemantics<NaturalTimeConfig> {
     @Override
     public BigDecimal cycleCap(NaturalTimeConfig config) {
         return config.getMaxChargeOneDay();
+    }
+
+    private NaturalPeriod resolvePeriod(LocalDateTime time, NaturalTimeConfig config) {
+        int minuteOfDay = time.getHour() * 60 + time.getMinute();
+        return periodResolver.findPeriodByMinute(minuteOfDay, config.getPeriods());
     }
 }

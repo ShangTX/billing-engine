@@ -9,6 +9,7 @@ import cn.shang.charging.billing.pojo.BillingRequest;
 import cn.shang.charging.billing.pojo.BillingResult;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.billing.pojo.DurationSegment;
+import cn.shang.charging.billing.pojo.IncompleteUnitChargeSpec;
 import cn.shang.charging.billing.pojo.PromotionRuleConfig;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.charge.rules.BillingRuleRegistry;
@@ -209,7 +210,7 @@ class DurationBillingModeTest {
         assertEquals(180, totalCharged);
     }
 
-    /** GLOBAL 模式 + FREE_MINUTES：时段化后免费段独立，DurationSegment 同质（TODO-20260706-001） */
+    /** GLOBAL 模式 + FREE_MINUTES：时段化后只输出收费汇总桶，免费信息走 PromotionUsage。 */
     @Test
     void globalMode_freeMinutesMaterialization_homogeneousSegments() {
         DayNightConfig config = dayNightConfig("global-fm-mat", new BigDecimal("1000.00"));
@@ -282,6 +283,23 @@ class DurationBillingModeTest {
                 LocalDateTime.of(2026, 1, 1, 9, 30)));
 
         // PROPORTIONAL：2 × 90 / 60 = 3 元
+        assertEquals(0, new BigDecimal("3.00").compareTo(result.getFinalAmount()));
+    }
+
+    /** PERIOD 模式：IncompleteUnitChargeSpec 优先于旧散字段参与实际计费。 */
+    @Test
+    void periodMode_incompleteSpecOverridesLegacyFields() {
+        DayNightConfig config = dayNightConfig("period-spec", new BigDecimal("100.00"),
+                BConstants.IncompleteUnitChargeMode.FULL_CHARGE);
+        config.setIncompleteUnitChargeSpec(IncompleteUnitChargeSpec.builder()
+                .mode(BConstants.IncompleteUnitChargeMode.PROPORTIONAL)
+                .build());
+        BillingService service = createService(config, BConstants.CalculationMode.DURATION_PERIOD);
+
+        BillingResult result = service.calculate(request(
+                LocalDateTime.of(2026, 1, 1, 8, 0),
+                LocalDateTime.of(2026, 1, 1, 9, 30)));
+
         assertEquals(0, new BigDecimal("3.00").compareTo(result.getFinalAmount()));
     }
 

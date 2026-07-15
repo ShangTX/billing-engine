@@ -13,7 +13,7 @@
 - 时段化前：FREE_MINUTES 是"潜在免费额度"——只知数量，不知落在时间轴哪里
 - 时段化后：FREE_MINUTES 落实为"具体免费时间段"——位置确定
 
-时段化的目的：让计费规则能判断"哪些单元/时段被免费覆盖"。CONTINUOUS/UNIT_BASED 的"完整覆盖才免费"判定、PERIOD 的"周期内定位免费段"都需要时间位置，故需时段化；GLOBAL 全局按分钟累加，免费分钟直接从总分钟扣减，不需时段化（见 3.3/3.4）。
+时段化的目的：让计费规则能判断"哪些单元/时段被免费覆盖"。CONTINUOUS/UNIT_BASED 的"完整覆盖才免费"判定、PERIOD 的"周期内定位免费段"都需要时间位置，故需时段化。2026-07-15 修订：GLOBAL 也在策略侧时段化，用于边界驱动切割、优惠用量追踪和收费分钟扣除；但最终 `DurationSegment` 只输出收费汇总桶，不按时间轴落免费段。
 
 **与"物化索引"区分**：`TODO-20260630-002`（物化索引预估收入）中的"物化"是另一概念，指把计费结果存储为可按时间索引查询的固定数据，与 FREE_MINUTES 时段化无关。本 spec 后续"时段化"均指 FREE_MINUTES 时段化。
 
@@ -110,11 +110,11 @@
 |---|---|---|
 | CONTINUOUS / UNIT_BASED | 转时间段 | "完整覆盖才免费"判定需要时间位置 |
 | PERIOD | 转时间段 | 周期内时长计费，需定位免费段在周期/时段中的位置（逐周期封顶、周期内时段封顶都依赖时间位置） |
-| GLOBAL | 按分钟扣减 chargedMinutes | 全局累加，封顶按周期数倍乘一次算，无需时间位置，按分钟扣减 |
+| GLOBAL | 策略侧转时间段参与边界驱动；最终只输出收费汇总桶 | 需要时间位置扣除收费分钟与追踪 usage；展示层不落免费段 |
 
 FREE_RANGE 本就是时间区间，所有消费方都按时段消费。AMOUNT/DISCOUNT 是标量，事后结算。
 
-**现状问题**：`FreeMinuteAllocator` 集中时段化 FREE_MINUTES（`generatedFreeRanges`），混进 `freeTimeRanges` 给所有规则用。GLOBAL 时长策略被迫走时段化路径，付不必要代价（CONTINUOUS/UNIT_BASED/PERIOD 需要时段化，GLOBAL 不需要）。
+**现状问题**：`FreeMinuteAllocator` 集中时段化 FREE_MINUTES（`generatedFreeRanges`），混进 `freeTimeRanges` 给所有规则用。时段化应由策略侧显式消费，GLOBAL 虽然也需要物化免费段参与计算，但最终输出应保持汇总桶形态，避免把内部时间轴切分泄漏到结果结构。
 
 **为什么必须下放（耦合论证）**：若时段化留在聚合层，`PromotionEngine` 要按"规则 + 模式"决定产出形式（CONTINUOUS/UNIT_BASED/PERIOD 需时段化、GLOBAL 不需），即规则与模式反向耦合进优惠聚合层。每新增一个规则族或模式，聚合层需加分支。时段化下放到消费者侧后，聚合层只产出对所有规则一致的中间形式，不预知规则与模式，耦合消除。
 
@@ -129,12 +129,12 @@ FREE_RANGE 本就是时间区间，所有消费方都按时段消费。AMOUNT/DI
 | 原归属 | 职责 | 新归属 |
 |---|---|---|
 | `PromotionEngine` | FREE_RANGE 合并（`FreeTimeRangeMerger`） | 保留（优惠自身合并，与规则无关） |
-| `PromotionEngine` | FREE_MINUTES 时段化（`FreeMinuteAllocator`） | 下放给规则侧（CONTINUOUS/UNIT_BASED/PERIOD 策略承担，GLOBAL 策略不时段化） |
+| `PromotionEngine` | FREE_MINUTES 时段化（`FreeMinuteAllocator`） | 下放给规则侧（CONTINUOUS/UNIT_BASED/PERIOD/GLOBAL 策略按各自结果语义消费） |
 | `PromotionEngine` | AMOUNT/DISCOUNT 汇总 | 保留（标量汇总，与规则无关） |
 
 `PromotionEngine` 产出变为：合并后的 FREE_RANGE 时段 + 未时段化的 FREE_MINUTES 列表 + AMOUNT/DISCOUNT 标量。`FreeMinuteAllocator` 从 `PromotionEngine` 解耦，成为规则侧工具。
 
-**与 3.1 的关系**：时长计费类的 GLOBAL 策略有独立的优惠消费方式（按分钟扣减，不时段化），PERIOD 策略仍需时段化（周期内定位）。这是时长模式按模式区分优惠消费的结构体现，也是 GLOBAL 策略不被时段化路径绑架的理由。
+**与 3.1 的关系**：时长计费类的 PERIOD 与 GLOBAL 都在策略侧时段化。PERIOD 把免费段作为时间轴明细落盘；GLOBAL 只用免费段参与计算与 `PromotionUsage`，最终输出收费汇总桶。这是时长模式按模式区分输出结构的体现。
 
 ### 3.4 模式特性矩阵
 
@@ -145,21 +145,21 @@ FREE_RANGE 本就是时间区间，所有消费方都按时段消费。AMOUNT/DI
 | 产出结构 | BillingUnit | BillingUnit | DurationSegment | DurationSegment |
 | 切分模型 | 边界驱动切断 | 固定单元对齐 | 边界驱动分钟流 | 边界驱动分钟流 |
 | 公共调度层（BoundaryDrivenLoop） | 用 | 不用 | 用 | 用 |
-| FREE_MINUTES 时段化 | 需要 | 需要 | 需要 | 不需要 |
+| FREE_MINUTES 时段化 | 需要 | 需要 | 需要 | 需要（策略侧；结果不落免费段） |
 | valueSpec（查询投影） | 有 | 有 | 无 | 无 |
 | compact 合并 | 有 | 无 | 无 | 无 |
 | 简化计算 | 有 | 无 | 无 | 无 |
 | CONTINUE 续算 | 支持 | 支持 | 不支持 | 不支持 |
-| 封顶基准 | 逐周期封顶 | 每日封顶 | 周期内封顶 | 全局封顶 × 周期数 |
+| 封顶基准 | 逐周期封顶 | 每日封顶 | 周期内封顶 | 完整周期封顶 + 尾周期实际费用封顶 |
 | 跨段累计（previousAccumulatedAmount） | 展示用 | 展示用 | 无 | 无 |
 
 **读法**：
 - 产出结构与切分模型决定策略属于单元计费类还是时长计费类（见 3.1 二级分类）。
 - 公共调度层只有 UNIT_BASED 不用，其余三模式共享边界驱动循环。
-- FREE_MINUTES 时段化只有 GLOBAL 不需要（见 3.3），其余三模式需时段化为时间段。
+- FREE_MINUTES 在四种模式都由策略侧时段化（见 3.3）；GLOBAL 只把物化结果用于计算和 usage，不把免费段落为 `DurationSegment`。
 - valueSpec/compact/简化是单元计费类专属（CONTINUOUS 全有，UNIT_BASED 无 compact/简化因不走公共循环）；时长计费类不背这些特性。
 - CONTINUE 续算只单元计费类支持，时长计费类不参与（见 3.1 CONTINUE 限定）。
-- 封顶基准与跨段累计按模式不同：CONTINUOUS/UNIT_BASED 逐周期/每日封顶 + 展示用累计；PERIOD 周期内封顶；GLOBAL 全局封顶 × 周期数，无跨段累计。
+- 封顶基准与跨段累计按模式不同：CONTINUOUS/UNIT_BASED 逐周期/每日封顶 + 展示用累计；PERIOD 周期内封顶；GLOBAL 按完整周期与尾周期分别封顶，无跨段累计。
 
 ---
 

@@ -38,9 +38,9 @@ completed_at: 2026-05-18
 3. **默认行为保持兼容**
    - 默认值 `FULL_CHARGE`，保持现有行为
 
-### 待后续实现
+### 后续实现状态
 
-实际计费逻辑需要根据配置调整 chargedAmount 计算（当前已添加配置框架，具体实现可在后续业务需求时添加）。
+计费逻辑已读取不足单元配置并影响 `chargedAmount` 计算；详见 2026-07-15 增量说明。
 
 ## 验收标准
 
@@ -54,3 +54,10 @@ completed_at: 2026-05-18
 - `core/src/main/java/cn/shang/charging/charge/rules/daynight/DayNightConfig.java`
 - `core/src/main/java/cn/shang/charging/charge/rules/relativetime/RelativeTimeConfig.java`
 - `core/src/main/java/cn/shang/charging/charge/rules/naturaltime/NaturalTimeConfig.java`
+
+## 后续增量（2026-07-15）
+
+- 新增 `IncompleteUnitChargeSpec`，将 `mode`、`thresholdMinutes`、`thresholdRatio` 合并为一个配置对象。
+- 内置规则 Config 优先读取 `IncompleteUnitChargeSpec`；旧的 `incompleteUnitChargeMode` / `thresholdMinutes` / `thresholdRatio` 散字段继续兼容，便于平滑迁移。
+- `FlatFreeConfig` 也保留 `IncompleteUnitChargeSpec` 字段，用于统一 RuleConfig 形态。
+- 当前计费逻辑已实际消费不足单元配置，覆盖 CONTINUOUS / UNIT_BASED / DURATION_PERIOD / DURATION_GLOBAL。

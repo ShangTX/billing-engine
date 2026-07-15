@@ -28,7 +28,7 @@ spec [2026-07-02 3.3](../superpowers/specs/2026-07-02-duration-rule-and-promotio
 
 ## 目标
 
-GLOBAL 模式改走前置时段化(复用 `materializeFreeMinutes`),删 `deductFreeMinutesGlobal` 与 `buildDurationSegmentsGlobalMode` 的分钟扣减路径。免费段独立成段,DurationSegment 恢复同质。
+GLOBAL 模式改走前置时段化(复用 `materializeFreeMinutes`),删 `deductFreeMinutesGlobal` 与 `buildDurationSegmentsGlobalMode` 的分钟扣减路径。2026-07-15 后续修订后,GLOBAL 仍先物化免费段参与边界驱动,但最终不再把免费段独立落为 `DurationSegment`,而是输出收费汇总桶。
 
 ## 范围
 
@@ -48,8 +48,8 @@ GLOBAL 模式改走前置时段化(复用 `materializeFreeMinutes`),删 `deductF
 ## 验收标准
 
 - 现有 GLOBAL 模式测试金额不变(`DurationBillingModeTest` 等)
-- DurationSegment 同质:免费段时间跨度 = chargedMinutes(0),收费段时间跨度 = chargedMinutes
-- 明细:免费段独立,不再"揉进"收费段
+- DurationSegment 同质:GLOBAL 汇总桶代表同一 periodKey/periodLabel/unitPrice/unitMinutes 的收费分钟集合,`beginTime`/`endTime` 为空
+- 明细:免费段不再"揉进"收费分钟,也不作为时间轴段落盘;优惠原因与使用分钟通过 `PromotionUsage` 追踪
 - `deductFreeMinutesGlobal` 及其单测删除
 - spec 3.3 表述已纠正
 
@@ -63,5 +63,5 @@ GLOBAL 模式改走前置时段化(复用 `materializeFreeMinutes`),删 `deductF
 ## 备注
 
 - 此修复独立于主体重构,可先行(降风险前置)
-- 修复后 GLOBAL 与 PERIOD 的 FREE_MINUTES 处理统一(都前置时段化),差异收敛到封顶数学,为主体重构阶段 4(拆两个时长策略)铺路
+- 修复后 GLOBAL 与 PERIOD 的 FREE_MINUTES 处理统一(都前置时段化),差异收敛到输出汇总策略与封顶数学,为主体重构阶段 4(拆两个时长策略)铺路
 - 验证命令:`mvn -t C:/Users/shang/.m2/toolchains.xml test -pl bill-test -Dtest=DurationBillingModeTest,FreeMinutesMaterializationTest`

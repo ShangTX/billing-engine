@@ -48,7 +48,7 @@ completed_git: 136ab21
 - 门面策略结构（TODO-20260702-002，本 TODO 的前置）
 - 优惠两级模型（TODO-20260702-003）
 - FREE_RANGE 的 PromotionUsage 产出（TODO-20260701-001）
-- GLOBAL 不时段化时的 PromotionUsage 形式（spec §5 开放问题，待定）
+- GLOBAL 策略侧时段化后的 PromotionUsage 形式
 
 ## 验收标准
 
@@ -64,7 +64,7 @@ completed_git: 136ab21
 - `core/src/main/java/cn/shang/charging/promotion/PromotionEngine.java`（产出中间形式，移除 FreeMinuteAllocator）
 - `core/src/main/java/cn/shang/charging/promotion/FreeMinuteAllocator.java`（移到策略侧）
 - `core/src/main/java/cn/shang/charging/charge/rules/AbstractTimeBasedRule.java`（CONTINUOUS 策略时段化）
-- 时长策略类（PERIOD 时段化、GLOBAL 不时段化）
+- 时长策略类（PERIOD/GLOBAL 均策略侧时段化，输出语义不同）
 - `billing-api/src/main/java/cn/shang/charging/wrapper/PromotionEquivalentCalculator.java`（适配中间形式）
 
 ## 备注
@@ -72,7 +72,7 @@ completed_git: 136ab21
 - 依赖 TODO-20260702-002（门面策略结构）：时段化下放到策略侧，策略结构先立
 - 与 TODO-20260701-001（FREE_RANGE PromotionUsage）关联：PromotionUsage 产出位置随时段化下放
 - 时段化下放消除聚合层对规则+模式的反向耦合（spec 3.3 耦合论证）
-- 优先级 P2：GLOBAL 不时段化是性能/清晰度优化，时段化路径现状可工作
+- 优先级 P2：GLOBAL 输出汇总桶是结果清晰度优化，策略侧时段化路径现状可工作
 
 ## 完成说明（2026-07-03）
 
@@ -80,7 +80,7 @@ completed_git: 136ab21
 
 ### 关键决策
 
-- **GLOBAL FREE_MINUTES 分钟扣减**（spec §5 待定项定案）：按分钟流扣减 `chargedMinutes`（跳过 FREE_RANGE 免费段，按 priority 顺序消费），与时段化路径最终金额等价。FREE_MINUTES usage 仅记 `usedMinutes`（不设 usedFrom/usedTo），与 CONTINUOUS/UNIT_BASED/PERIOD 的 usage 形式一致，不进入等效金额消去法迭代。
+- **GLOBAL FREE_MINUTES 消费**（2026-07-15 后续修订）：GLOBAL 已改为策略侧时段化，物化免费段参与边界驱动和收费分钟扣除；最终输出收费汇总桶，不把免费段落为 `DurationSegment`。这取代了早期"按分钟流扣减 chargedMinutes"方案。
 - **PromotionCarryOver 迁移**：`PromotionEngine` 不再构建 carryOver（不再有 materialization 产出的 usages）。`buildCarryOver` 逻辑移到 `PromotionAggregateUtil`，各策略在产出 usages + finalFreeRanges 后调用并写回 `aggregate.promotionCarryOver`，`ResultAssembler` 读取路径不变。RelativeTime/NaturalTime/CompositeTime 虽沿用既有空 result.usages 行为，但写回 carryOver，保证 CONTINUE + FREE_MINUTES 续算不 break。
 - **非 DayNight 规则范围**：评估发现 RelativeTime/NaturalTime/CompositeTime 也消费 `freeTimeRanges` 且被 `PromotionCarryOverTest`/`ContinueModeTest` 覆盖，必须纳入（调 `materializeFreeMinutes` 取 finalFreeRanges + 写回 carryOver）。
 

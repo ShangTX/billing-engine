@@ -15,6 +15,7 @@ import cn.shang.charging.charge.rules.naturaltime.NaturalTimeRule;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeConfig;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimePeriod;
 import cn.shang.charging.charge.rules.relativetime.RelativeTimeRule;
+import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +26,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -100,6 +102,37 @@ class DurationModeThreeFamiliesTest {
         assertEquals(BConstants.CalculationMode.DURATION_GLOBAL, result.getCalculationMode());
     }
 
+    /** GLOBAL：相同 relative period 被免费段切开后，先汇总分钟再按不足单元计费。 */
+    @Test
+    void relativeTime_global_aggregatesSameBucketAcrossFreeRange() {
+        RelativeTimeConfig config = relativeTimeConfig(new BigDecimal("1000.00"));
+        LocalDateTime begin = LocalDateTime.of(2026, 1, 1, 8, 0);
+        BillingSegmentResult result = new RelativeTimeRule().calculate(
+                ctx(begin, begin.plusMinutes(90), BConstants.CalculationMode.DURATION_GLOBAL),
+                config,
+                freeRangeAggregate("middle-free", begin.plusMinutes(30), begin.plusMinutes(60)));
+
+        assertEquals(0, new BigDecimal("2.00").compareTo(result.getChargedAmount()));
+        assertEquals(1, result.getDurationSegments().size());
+        DurationSegment bucket = result.getDurationSegments().get(0);
+        assertEquals(60, bucket.chargedMinutes());
+        assertEquals(0, new BigDecimal("2.00").compareTo(bucket.chargedAmount()));
+        assertNull(bucket.beginTime());
+        assertNull(bucket.endTime());
+    }
+
+    /** GLOBAL：尾周期按实际费用封顶，25h 不能直接套用 2 个完整周期封顶。 */
+    @Test
+    void relativeTime_global_tailCycleCapUsesTailCharge() {
+        RelativeTimeConfig config = relativeTimeConfig(new BigDecimal("20.00"));
+        LocalDateTime begin = LocalDateTime.of(2026, 1, 1, 8, 0);
+        BillingSegmentResult result = new RelativeTimeRule().calculate(
+                ctx(begin, begin.plusHours(25), BConstants.CalculationMode.DURATION_GLOBAL),
+                config, PromotionAggregate.builder().build());
+
+        assertEquals(0, new BigDecimal("22.00").compareTo(result.getChargedAmount()));
+    }
+
     // ==================== NaturalTime ====================
 
     /** PERIOD：日段 8:00-20:00 单价 2 元/h，3h = 6 元 */
@@ -132,6 +165,25 @@ class DurationModeThreeFamiliesTest {
         assertEquals(0, new BigDecimal("6.00").compareTo(result.getChargedAmount()));
         List<DurationSegment> segs = result.getDurationSegments();
         assertTrue(segs.size() >= 2, "应至少 2 段（日/夜）");
+    }
+
+    /** GLOBAL：naturalTime 同价桶跨免费段汇总，输出桶不带 begin/end。 */
+    @Test
+    void naturalTime_global_aggregatesSameBucketAcrossFreeRange() {
+        NaturalTimeConfig config = naturalTimeConfig(new BigDecimal("1000.00"));
+        LocalDateTime begin = LocalDateTime.of(2026, 1, 1, 8, 0);
+        BillingSegmentResult result = new NaturalTimeRule().calculate(
+                ctx(begin, begin.plusMinutes(90), BConstants.CalculationMode.DURATION_GLOBAL),
+                config,
+                freeRangeAggregate("middle-free", begin.plusMinutes(30), begin.plusMinutes(60)));
+
+        assertEquals(0, new BigDecimal("2.00").compareTo(result.getChargedAmount()));
+        assertEquals(1, result.getDurationSegments().size());
+        DurationSegment bucket = result.getDurationSegments().get(0);
+        assertEquals(60, bucket.chargedMinutes());
+        assertNull(bucket.beginTime());
+        assertNull(bucket.endTime());
+        assertEquals("480-1200", bucket.periodLabel());
     }
 
     // ==================== CompositeTime ====================
@@ -174,6 +226,24 @@ class DurationModeThreeFamiliesTest {
                 .anyMatch(s -> s.periodCap() != null && s.periodCap().compareTo(new BigDecimal("3.00")) == 0));
     }
 
+    /** PERIOD：CompositeTime 的 periodLabel 同时表达外层相对时段与内部自然时段。 */
+    @Test
+    void compositeTime_period_labelIncludesRelativeAndNaturalPeriod() {
+        CompositeTimeConfig config = compositeTimeNaturalSplitConfig();
+        BillingSegmentResult result = new CompositeTimeRule().calculate(
+                ctx(LocalDateTime.of(2026, 1, 1, 7, 0),
+                    LocalDateTime.of(2026, 1, 1, 9, 0),
+                    BConstants.CalculationMode.DURATION_PERIOD),
+                config, PromotionAggregate.builder().build());
+
+        assertEquals(0, new BigDecimal("3.00").compareTo(result.getChargedAmount()));
+        List<String> periodLabels = result.getDurationSegments().stream()
+                .map(DurationSegment::periodLabel)
+                .toList();
+        assertTrue(periodLabels.contains("r:0-1440|n:0-480"), "periodLabels=" + periodLabels);
+        assertTrue(periodLabels.contains("r:0-1440|n:480-1200"), "periodLabels=" + periodLabels);
+    }
+
     /** GLOBAL：跨周期，periodCap × 周期数 */
     @Test
     void compositeTime_global_periodCapMultiplied() {
@@ -185,6 +255,24 @@ class DurationModeThreeFamiliesTest {
 
         // 48h = 2 周期，periodCap 5 × 2 = 10 元（单 period 全天，封顶 × 周期数）
         assertEquals(0, new BigDecimal("10.00").compareTo(result.getChargedAmount()));
+    }
+
+    /** GLOBAL：compositeTime 的 periodCap 与 cycleCap 都采用 full cycles + tail 的汇总语义。 */
+    @Test
+    void compositeTime_global_tailPeriodCapUsesTailCharge() {
+        CompositeTimeConfig config = compositeTimeConfig(new BigDecimal("1000.00"), new BigDecimal("20.00"));
+        LocalDateTime begin = LocalDateTime.of(2026, 1, 1, 8, 0);
+        BillingSegmentResult result = new CompositeTimeRule().calculate(
+                ctx(begin, begin.plusHours(25), BConstants.CalculationMode.DURATION_GLOBAL),
+                config, PromotionAggregate.builder().build());
+
+        assertEquals(0, new BigDecimal("22.00").compareTo(result.getChargedAmount()));
+        assertEquals(1, result.getDurationSegments().size());
+        DurationSegment bucket = result.getDurationSegments().get(0);
+        assertNull(bucket.beginTime());
+        assertNull(bucket.endTime());
+        assertEquals(25 * 60, bucket.chargedMinutes());
+        assertEquals(0, new BigDecimal("22.00").compareTo(bucket.chargedAmount()));
     }
 
     // ==================== 辅助方法 ====================
@@ -234,6 +322,34 @@ class DurationModeThreeFamiliesTest {
                 .build();
     }
 
+    private static CompositeTimeConfig compositeTimeNaturalSplitConfig() {
+        return CompositeTimeConfig.builder()
+                .id("comp-natural-label")
+                .maxChargeOneCycle(new BigDecimal("100.00"))
+                .periods(List.of(CompositePeriod.builder()
+                        .beginMinute(0)
+                        .endMinute(1440)
+                        .unitMinutes(60)
+                        .naturalPeriods(List.of(
+                                NaturalPeriod.builder()
+                                        .beginMinute(0)
+                                        .endMinute(480)
+                                        .unitPrice(new BigDecimal("1.00"))
+                                        .build(),
+                                NaturalPeriod.builder()
+                                        .beginMinute(480)
+                                        .endMinute(1200)
+                                        .unitPrice(new BigDecimal("2.00"))
+                                        .build(),
+                                NaturalPeriod.builder()
+                                        .beginMinute(1200)
+                                        .endMinute(1440)
+                                        .unitPrice(new BigDecimal("1.00"))
+                                        .build()))
+                        .build()))
+                .build();
+    }
+
     private static BillingContext ctx(LocalDateTime begin, LocalDateTime end, BConstants.CalculationMode mode) {
         CalculationWindow window = new CalculationWindow();
         window.setCalculationBegin(begin);
@@ -245,6 +361,16 @@ class DurationModeThreeFamiliesTest {
                 .calculationMode(mode)
                 .segment(segment)
                 .window(window)
+                .build();
+    }
+
+    private static PromotionAggregate freeRangeAggregate(String id, LocalDateTime begin, LocalDateTime end) {
+        return PromotionAggregate.builder()
+                .freeTimeRanges(List.of(FreeTimeRange.builder()
+                        .id(id)
+                        .beginTime(begin)
+                        .endTime(end)
+                        .build()))
                 .build();
     }
 }

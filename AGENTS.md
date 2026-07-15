@@ -128,6 +128,7 @@ BillingService.calculate()
 - `BillingService` - 核心调度入口
 - `BillingRequest` / `BillingResult` - 输入/输出 POJO
 - `BillingContext` - 计算上下文
+- `IncompleteUnitChargeSpec` - 不足单元计费配置对象（mode + thresholdMinutes + thresholdRatio），内置规则 Config 优先读取，旧散字段兼容
 - `BillingRule` / `PromotionRule` - 规则接口（新增规则时实现）；`BillingRule.supportedCalculationModes()` 声明支持的模式
 - `PromotionAggregate` - 聚合免费时段与免费分钟（含 `smartFreeMinutesList` 标量透传）
 - `RuleSemantics` - 层 0，规则族语义接口（周期/时段/单元边界 provider + 价格函数 + 封顶配置 + 周期切换判定）；各规则族实现自己的 `*Semantics`

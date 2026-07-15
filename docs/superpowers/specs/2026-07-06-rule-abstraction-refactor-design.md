@@ -55,6 +55,8 @@
 
 **spec 3.3 范畴错误**:从"封顶不需时间位置"正确推出"金额不需时段化",却错误推广到"明细也不需时段化"。封顶确实不需时间位置(GLOBAL 全局倍乘),但明细产出需要(保证段同质)。
 
+**2026-07-15 修订**:GLOBAL 仍需先把 `FREE_MINUTES` / `SMART_FREE_MINUTES` 物化为免费时段,用于边界驱动切割、优惠用量追踪和收费分钟扣除;但最终 `DurationSegment` 不再按时间轴落免费段,而是只输出收费汇总桶。免费原因与使用分钟统一通过 `PromotionUsage` 表达。
+
 ### 3.2 FREE_MINUTES 处理的分层
 
 | 层 | 职责 | 公共/特化 |
@@ -149,7 +151,7 @@ interface RuleSemantics<C extends RuleConfig> {
 | ContinuousStrategy | BillingUnit | 边界驱动切断 + compact + 简化 + 不足单元 | 前置时段化(起点) |
 | UnitBasedStrategy | BillingUnit | 固定单元对齐 + 完整覆盖才免费 | 前置时段化(起点) |
 | DurationPeriodStrategy | DurationSegment | 周期边界 + 周期内累计封顶 | 前置时段化(起点) |
-| DurationGlobalStrategy | DurationSegment | 无周期边界 + 全局倍乘封顶 + SMART_FREE_MINUTES | 前置时段化(起点)+ SMART_FREE_MINUTES 规则侧分配 |
+| DurationGlobalStrategy | DurationSegment | 同质收费桶汇总 + 完整周期/尾周期分别封顶 + SMART_FREE_MINUTES | 前置时段化(起点)+ SMART_FREE_MINUTES 规则侧分配 |
 
 `ContinuousStrategy` 持有**唯一一份** `applyCapAndAccumulate`(通用),周期切换通过 `RuleSemantics.isCycleBoundary` 注入,periodCap 通过 `periodLabeler` 注入(CompositeTime 提供,其余返回 null)。4 份重复消除为 1 份。
 
@@ -242,7 +244,7 @@ SegmentContext resolveSegmentContext(
 | SMART_FREE_MINUTES | 报错 | 报错 | 报错 | 规则侧优先高价分配 |
 | compact 合并 | 有 | 无 | 无 | 无 |
 | 简化计算 | 全局空隙 | 无 | 无 | 无 |
-| 封顶基准 | 逐周期封顶 | 每日封顶 | 周期内封顶 | 全局封顶 × 周期数 |
+| 封顶基准 | 逐周期封顶 | 每日封顶 | 周期内封顶 | 完整周期封顶 + 尾周期实际费用封顶 |
 
 ## 7. 迁移顺序
 
@@ -250,7 +252,7 @@ SegmentContext resolveSegmentContext(
 
 **阶段 0:GLOBAL 时段化修复(独立先行,降风险)**
 - `DurationGlobalStrategy`(当前 `DayNightDurationStrategy` 的 GLOBAL 路径)改走前置时段化,删 `deductFreeMinutesGlobal`
-- 验收:金额不变 + DurationSegment 同质(免费段独立)
+- 验收:金额不变 + DurationSegment 同质(收费汇总桶,`beginTime`/`endTime` 为空)
 - 纠正 spec 3.3 表述
 - 无论后续阶段是否进行,此项都有价值
 
@@ -271,6 +273,7 @@ SegmentContext resolveSegmentContext(
 **阶段 4:抽 DurationSupport + 拆两个时长策略(决策 B)**
 - 提取 `DurationSupport`(`segmentCharge` / `DurationResult` / `PeriodResolver` 接口)
 - `DayNightDurationStrategy` 拆为 `DurationPeriodStrategy` / `DurationGlobalStrategy`(通用,接收 RuleSemantics)
+- `DurationGlobalStrategy` 输出同质收费汇总桶,并按完整周期与尾周期分别处理时段封顶/周期封顶
 - dayNight 私有部分(`dayNightBoundary` + day/night 标签)归 `DayNightSemantics`
 
 **阶段 5:SMART_FREE_MINUTES(决策 D)**
@@ -301,13 +304,13 @@ SegmentContext resolveSegmentContext(
 ### 8.1 改动
 
 - `DayNightDurationStrategy.calculate` 的 GLOBAL 分支:改用前置时段化(复用 `materializeFreeMinutes`),删 `deductFreeMinutesGlobal` 与 `buildDurationSegmentsGlobalMode` 的分钟扣减路径
-- GLOBAL 路径产出:免费段独立(同质),与 PERIOD 路径一致的切段方式,仅封顶数学不同(全局倍乘)
+- GLOBAL 路径先物化免费段参与边界驱动,最终产出按同质收费桶汇总;免费段不落 `DurationSegment`,使用信息走 `PromotionUsage`
 
 ### 8.2 验收
 
 - 现有 GLOBAL 模式测试金额不变
-- DurationSegment 同质:免费段时间跨度 = chargedMinutes(0),收费段时间跨度 = chargedMinutes
-- 明细:免费段独立,不再"揉进"收费段
+- DurationSegment 同质:每个 GLOBAL 汇总桶代表相同 periodKey/periodLabel/unitPrice/unitMinutes 的收费分钟集合,`beginTime` / `endTime` 为空
+- 明细:免费段不再"揉进"收费桶的收费分钟,但也不作为时间轴段落盘;优惠原因与使用分钟由 `PromotionUsage` 追踪
 
 ### 8.3 文档
 
@@ -320,7 +323,7 @@ SegmentContext resolveSegmentContext(
 2. **简化单元 ruleData 结构**:`dayAmount`/`nightAmount`/`cycleCount` 的具体字段与序列化
 3. **RuleSemantics 与 config 的关系**:语义方法直接读 config,还是规则族在构造时固化
 4. **DurationSupport 工具形态**:静态工具类还是注入实例
-5. **不足单元配置位置**:`IncompleteUnitChargeMode` 归 RuleSemantics 还是 config 直读
+5. **不足单元配置位置**:已于 2026-07-15 定案为 config 直读；新增 `IncompleteUnitChargeSpec` 统一承载 mode 与阈值，`RuleSemantics` 继续通过 `RuleConfig` 默认 getter 读取。
 
 ## 10. 相关文档与 TODO
 

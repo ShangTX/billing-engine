@@ -34,14 +34,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>
  * 验证：
  * <ul>
- *   <li>GLOBAL 不时段化，按分钟扣减 chargedMinutes，finalAmount 与时段化路径等价</li>
+ *   <li>GLOBAL 策略侧时段化，finalAmount 与旧分钟扣减路径等价，最终输出收费汇总桶</li>
  *   <li>PERIOD / CONTINUOUS 时段化 FREE_MINUTES，行为与现状一致</li>
  *   <li>PromotionEngine 产出中间形式（freeMinutesList），不再集中时段化</li>
  * </ul>
  */
 class FreeMinutesMaterializationTest {
 
-    /** GLOBAL：FREE_MINUTES 在单一日段内扣减，与时段化路径等价。 8:00-12:00 日段 4h=8 元，60 分钟免费 → 6 元。 */
+    /** GLOBAL：FREE_MINUTES 在单一日段内扣减。8:00-12:00 日段 4h=8 元，60 分钟免费 → 6 元。 */
     @Test
     void global_freeMinutes_singleDaySegment() {
         DayNightConfig config = dayNightConfig(new BigDecimal("100.00"));

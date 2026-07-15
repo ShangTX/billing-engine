@@ -25,11 +25,12 @@ import java.util.List;
  * DURATION_GLOBAL 模式通用策略（层 2）：全局时长计费。
  * <p>
  * 规则族差异通过 {@link RuleSemantics} 注入，通用产出逻辑由 {@link DurationSupport} 承载。
- * 与 {@link DurationPeriodStrategy} 共享切分模型，仅封顶数学不同：
- * 无周期边界切断（segment 跨周期合并），周期封顶 = cap × 周期数（全局倍乘）。
+ * 与 {@link DurationPeriodStrategy} 共享边界驱动输入，但输出按同质收费桶汇总；
+ * 周期封顶按完整周期与尾周期分别处理。
  * 复用 {@link BoundaryDrivenLoop} 公共调度层，不继承 {@code AbstractTimeBasedRule}。
  * <p>
- * FREE_MINUTES 时段化（TODO-20260706-001）：与 PERIOD 同路径，免费段独立，DurationSegment 同质。
+ * FREE_MINUTES 时段化（TODO-20260706-001）：免费段参与边界驱动与收费分钟扣除；
+ * 最终仅输出收费汇总桶，免费信息通过 PromotionUsage 追踪。
  * <p>
  * SMART_FREE_MINUTES（TODO-20260706-002 阶段5）：本策略独享消费。用 {@link RuleSemantics#priceAt}
  * + {@link RuleSemantics#periodBoundaryProvider} 把窗口切成同价时段，按单价降序消费
@@ -62,7 +63,7 @@ public final class DurationGlobalStrategy {
         LocalDateTime cycleOrigin = semantics.cycleOrigin(context);
         BigDecimal cycleCap = semantics.cycleCap(config);
 
-        // FREE_MINUTES 时段化（TODO-20260706-001：PERIOD/GLOBAL 统一，免费段独立，DurationSegment 同质）
+        // FREE_MINUTES 时段化：免费段参与边界驱动，GLOBAL 最终只输出收费汇总桶。
         FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutes(promotionAggregate, window);
         List<FreeTimeRange> regularFreeRanges = materialized.getFinalFreeRanges() != null
                 ? materialized.getFinalFreeRanges() : List.of();

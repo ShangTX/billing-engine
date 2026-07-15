@@ -79,6 +79,14 @@ final class CompositeTimeSemantics implements RuleSemantics<CompositeTimeConfig>
     }
 
     @Override
+    public String periodLabel(LocalDateTime time, CompositeTimeConfig config, LocalDateTime cycleOrigin) {
+        CompositePeriod relativePeriod = resolvePeriod(time, config, cycleOrigin);
+        NaturalPeriod naturalPeriod = resolveNaturalPeriod(time, relativePeriod);
+        return "r:" + relativePeriod.getBeginMinute() + "-" + relativePeriod.getEndMinute()
+                + "|n:" + naturalPeriod.getBeginMinute() + "-" + naturalPeriod.getEndMinute();
+    }
+
+    @Override
     public BigDecimal priceAt(LocalDateTime begin, LocalDateTime end, CompositeTimeConfig config, LocalDateTime cycleOrigin) {
         // periodBoundaryProvider 同时切相对时段边界与自然时段边界，priceAt 取段起点自然时段价格。
         CompositePeriod period = resolvePeriod(begin, config, cycleOrigin);
@@ -130,6 +138,11 @@ final class CompositeTimeSemantics implements RuleSemantics<CompositeTimeConfig>
         int positionInCycle = (int) (((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE);
         List<CompositePeriod> periods = config.getPeriods();
         return periodResolver.findPeriodForMinute(positionInCycle, periods);
+    }
+
+    private NaturalPeriod resolveNaturalPeriod(LocalDateTime time, CompositePeriod relativePeriod) {
+        int minuteOfDay = time.getHour() * 60 + time.getMinute();
+        return periodResolver.findNaturalPeriod(minuteOfDay, relativePeriod.getNaturalPeriods());
     }
 
     @Override

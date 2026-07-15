@@ -1,6 +1,7 @@
 package cn.shang.charging.charge.rules.compositetime;
 
 import cn.shang.charging.billing.pojo.BConstants;
+import cn.shang.charging.billing.pojo.IncompleteUnitChargeSpec;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -32,6 +33,9 @@ public class CompositeTimeConfig implements RuleConfig {
     /** 是否支持简化计算，null 表示默认支持 */
     private Boolean simplifiedSupported;
 
+    /** 不足单元计费配置对象。优先于旧散字段读取。 */
+    private IncompleteUnitChargeSpec incompleteUnitChargeSpec;
+
     /** 不足单元计费模式（默认全额） */
     @Builder.Default
     private BConstants.IncompleteUnitChargeMode incompleteUnitChargeMode = BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
@@ -44,4 +48,30 @@ public class CompositeTimeConfig implements RuleConfig {
 
     /** 相对时间段列表 */
     private List<CompositePeriod> periods;
+
+    @Override
+    public BConstants.IncompleteUnitChargeMode getIncompleteUnitChargeMode() {
+        if (incompleteUnitChargeSpec != null && incompleteUnitChargeSpec.getMode() != null) {
+            return incompleteUnitChargeSpec.getMode();
+        }
+        return incompleteUnitChargeMode != null
+                ? incompleteUnitChargeMode
+                : BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
+    }
+
+    @Override
+    public Integer getThresholdMinutes() {
+        if (incompleteUnitChargeSpec != null && incompleteUnitChargeSpec.getThresholdMinutes() != null) {
+            return incompleteUnitChargeSpec.getThresholdMinutes();
+        }
+        return thresholdMinutes;
+    }
+
+    @Override
+    public BigDecimal getThresholdRatio() {
+        if (incompleteUnitChargeSpec != null && incompleteUnitChargeSpec.getThresholdRatio() != null) {
+            return incompleteUnitChargeSpec.getThresholdRatio();
+        }
+        return thresholdRatio;
+    }
 }

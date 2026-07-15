@@ -10,7 +10,7 @@
 
 `PromotionEngine.evaluate`（`core/.../promotion/PromotionEngine.java:108-113`）集中调 `FreeMinuteAllocator.allocate` 把 FREE_MINUTES 时段化为时间段，混入 `freeTimeRanges` 给所有策略用。问题：
 
-- GLOBAL 时长策略被迫走时段化路径（spec §3.3：GLOBAL 不需时段化）。
+- GLOBAL 时长策略也需要策略侧时段化，但最终不应把免费段作为时间轴明细落盘。
 - 时段化留在聚合层 → `PromotionEngine` 需按"规则+模式"决定产出形式 → 反向耦合。
 
 ## 2. 评估阶段的关键发现（超出原任务描述的范围）
@@ -51,7 +51,7 @@ protected FreeMinuteAllocationResult materializeFreeMinutes(
 | CONTINUOUS（DayNight/Relative/Natural/Composite 经 AbstractTimeBasedRule） | 调 `materializeFreeMinutes` → finalFreeRanges 用于 `splitTimeAxis`/`runBoundaryDrivenLoop` | DayNight：合并 FREE_MINUTES usages（替代旧 `aggregate.getUsages()`）；其余 3 规则：**保留既有空 usages 行为**（仅用 ranges，丢弃 usages） |
 | DayNightUnitBasedStrategy | 调 `allocateAndMerge` → finalFreeRanges 用于"完整覆盖才免费"判定 | 合并 FREE_MINUTES usages（同现状） |
 | DayNightDurationStrategy PERIOD | 调 `allocateAndMerge` → finalFreeRanges 用于免费段 | 合并 FREE_MINUTES usages |
-| DayNightDurationStrategy GLOBAL | **不时段化**；用 `aggregate.freeTimeRanges`（FREE_RANGE）标免费段；FREE_MINUTES 按分钟流扣减 chargedMinutes（见 D6） | 产出 FREE_MINUTES usage（usedMinutes=扣减分钟，usedFrom/usedTo=扣减起止点名义位置） |
+| DayNightDurationStrategy GLOBAL | 策略侧时段化；免费段参与边界驱动与收费分钟扣除，但最终不落 `DurationSegment` | 产出 FREE_MINUTES usage |
 
 ### D5. PromotionCarryOver 构建迁移（必须，保 CONTINUE）
 - `PromotionEngine.buildPromotionCarryOver` 逻辑移到 `PromotionAggregateUtil.buildCarryOver(List<PromotionUsage> freeMinutesUsages, List<FreeTimeRange> finalFreeRanges, LocalDateTime calcEnd)`（static）。
@@ -60,10 +60,10 @@ protected FreeMinuteAllocationResult materializeFreeMinutes(
 - **关键**：RelativeTime/NaturalTime/CompositeTime 虽丢弃 result.usages，但**必须写回 carryOver**（用 helper 的 usages + finalFreeRanges 构建），否则 `testContinue_FreeMinutesCarryOver_RelativeTime` 等 break。
 - GLOBAL：用其 FREE_MINUTES usages（分钟扣减）+ `aggregate.freeTimeRanges`（FREE_RANGE）构建 carryOver（GLOBAL 不参与 CONTINUE，构建仅为格式一致）。
 
-### D6. GLOBAL 分钟扣减语义（spec §5 待定项定案）
-**决策**：按分钟流扣减 `chargedMinutes`，与时段化路径**最终金额等价**（segment 结构可能不同，但无现成测试断言 GLOBAL+FREE_MINUTES 段结构）。
+### D6. GLOBAL 免费分钟消费语义（2026-07-15 修订）
+**决策**：GLOBAL 改为策略侧时段化，和 PERIOD 共用免费段物化入口；最终金额与原分钟流扣减等价，但输出不落免费段，只保留收费汇总桶。
 
-`buildDurationSegmentsGlobalMode` 改造（在原 pass1 rawCharges 之后、pass2 period 封顶之前插入扣减 pass）：
+旧分钟流扣减方案曾计划在 `buildDurationSegmentsGlobalMode` 的 rawCharges 与 period 封顶之间插入扣减 pass；该方案已被通用 `DurationGlobalStrategy` 的时段化 + 汇总桶输出取代。保留等价性论证如下：
 1. pass1：rawCharges[i] = segmentCharge（FREE_RANGE 段=0，其余按规则算）；同时记 `chargedMinutes[i]`。
 2. **新 pass1.5（FREE_MINUTES 扣减）**：按 priority 排序 freeMinutesList，顺序消费。游标从 calcBegin 起，跳过 FREE_RANGE 免费段，对后续段按分钟扣减 `chargedMinutes[i]`（可部分扣减），同步缩减 `rawCharges[i]`（`rawCharges = chargedMinutes × price / unitMinutes`），累计 `usedMinutes` 与扣减起止点。
 3. pass2：period 封顶（用扣减后 rawCharges，等价于 materialized 下 FREE_MINUTES 段不进 period 累计）。

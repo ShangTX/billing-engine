@@ -56,12 +56,22 @@
 - 提取 `DurationSupport` 工具(`segmentCharge` / `segmentOriginalCharge` / `DurationResult` / `PeriodResolver` 接口)
 - `DayNightDurationStrategy` 拆为 `DurationPeriodStrategy` / `DurationGlobalStrategy`(通用,接收 `RuleSemantics`)
   - `DurationPeriodStrategy`:周期边界 + 周期内累计封顶
-  - `DurationGlobalStrategy`:无周期边界 + 全局倍乘封顶(阶段 0 已时段化)
+  - `DurationGlobalStrategy`:同质收费桶汇总 + 完整周期与尾周期分别封顶(阶段 0 已时段化)
 - dayNight 私有部分(`dayNightBoundary` + day/night 标签)归 `DayNightSemantics`
 - 3 规则族(阶段 2 已门面化)声明 `supportedCalculationModes` 含 `DURATION_PERIOD`/`DURATION_GLOBAL`,自动获得时长能力
 - 删 `DayNightDurationStrategy`(拆解完毕)
 
 **验证**:`DurationBillingModeTest` 全绿;3 规则族新增时长模式冒烟测试(声明即支持);`DayNightDurationStrategy` 无引用。
+
+### 2026-07-15 GLOBAL 汇总修订 ✅ DONE
+
+- `DurationGlobalStrategy` 成为 dayNight / relativeTime / naturalTime / compositeTime 的唯一 GLOBAL 策略入口。
+- GLOBAL 输出统一为收费汇总桶：`beginTime` / `endTime` 为空，免费段不落 `DurationSegment`，优惠使用通过 `PromotionUsage` 表达。
+- 时段封顶与周期封顶统一采用「完整周期 N-1 汇总 + 尾周期 N 单独处理」：先完成桶内 periodCap，再完成 cycleCap。
+- 删除 `DayNightDurationGlobalStrategy`，避免 dayNight 保留一套特殊汇总语义。
+
+**验证**:
+`mvn -pl bill-test -am "-Dtest=DurationBillingModeTest,DurationModeThreeFamiliesTest,SmartFreeMinutesTest,FreeMinutesMaterializationTest,BubbleFreeRangeTest,ConditionalPromotionActivationTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`
 
 ### 阶段 5:SMART_FREE_MINUTES(决策 D)
 

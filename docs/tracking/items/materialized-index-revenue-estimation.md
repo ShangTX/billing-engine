@@ -68,6 +68,64 @@ completed_git:
 3. **compact 与物化索引正交**：compact 服务传输压缩，物化索引服务查询预估，各自适用不同场景，不混用。
 4. **能力查询暴露配置约束**：配了 PROPORTIONAL + 单元模式、或用了 conditional 免费段、或要求段内投影的调用方想用物化预估时，引擎应能告知"此配置不支持精确物化"，引导改用 FULL_CHARGE、时长模式或接受粗略预估。
 
+## 开放讨论记录（2026-07-15）
+
+### continue 的重新定位
+
+不建议恢复旧 `CONTINUE` 计算模式。旧机制把截断单元重算、累计金额续算、周期封顶状态、优惠结转、规则状态和分段状态揉进全局 carryOver，导致 core 主流程和规则实现高度耦合，也削弱了当前架构的易用性。
+
+如果未来仍需要“继续计算”，更适合放在 billing-api 或业务层，定义为“差额结算”而非 core 计算模式：
+
+```text
+currentTotal = calculate(entryTime, queryTime, stableRuleSnapshot)
+delta = currentTotal - settledAmount
+```
+
+这要求调用方保存已结算金额、规则版本、优惠版本、方案快照和入场时间。规则或优惠发生变化时，应由业务明确选择“按旧版本续算”还是“按新版本重算并调整”。这属于结算账本问题，不应重新引入 `CalculationMode.CONTINUE`。
+
+### 物化功能的核心难点
+
+物化功能不应理解为“保存 BillingResult”或“保存 compact 后的 BillingUnit”。真正困难的是：查询时刻 `T` 的金额能否由预先落库的数据通过时间索引直接得到。
+
+主要困难包括：
+
+- **段内投影**：`queryTime` 落在计费单元内部时，FULL_CHARGE、PROPORTIONAL、THRESHOLD 等不足单元模式会产生不同金额曲线，固定 `chargedAmount` 不够表达。
+- **conditional 免费段**：优惠是否生效依赖最终计费窗口，`queryTime` 改变会导致已物化数据失效。
+- **SMART_FREE_MINUTES**：免费分钟按高价优先分配，随着查询窗口延长，未来高价段进入窗口后可能改变免费分钟分配位置。
+- **封顶**：封顶会产生平台期、部分削减单元和周期重置，要求物化的是金额函数或原子段，而不是简单单价表。
+- **compact**：compact 是结果传输压缩，不是索引结构。物化索引需要未 compact 的原子段或专门的 timeline atom。
+
+### 可能的长期方向：ChargeTimeline
+
+比起恢复 continue，更值得探索的是引入一个不面向展示、不 compact、不直接承担结算语义的可选中间产物：
+
+```text
+ChargeTimeline
+  ChargeAtom:
+    begin
+    end
+    valueType: STEP / LINEAR / CONSTANT
+    amountBefore
+    amountAfter
+    slope
+    capGroup
+    promotionIds
+    materializationPrecision
+```
+
+业务层可以基于 `ChargeTimeline` 自行建立时间索引、物化表和批量求和逻辑；core 仍保持纯计算和无存储副作用。
+
+能力查询可进一步细分为：
+
+| 等级 | 含义 | 典型场景 |
+|------|------|----------|
+| `ROUGH` | 粗略预估，允许一个单元或一个原子段误差 | 所有规则基本可提供 |
+| `EXACT_STEP` | 金额只在边界跳变 | FULL_CHARGE、无段内投影、无 conditional 优惠 |
+| `EXACT_LINEAR` | 金额在段内线性增长 | 时长模式、部分比例计费场景 |
+| `UNSUPPORTED` | 必须查询时重算 | conditional 优惠、动态窗口下的 SMART_FREE_MINUTES 等 |
+
+因此，长期愿景的重点不是“少算一次”的 continue，而是“能否把金额表达为可索引函数”的 timeline / atom 能力。
+
 ## 验收标准
 
 - 时长模式的 BillingUnit 包含 validMinutes 字段

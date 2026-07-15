@@ -9,6 +9,7 @@ An extensible and traceable time-based billing engine for parking fees, venue re
 - Extensible billing rules without changing the core engine
 - 5 built-in rule types: `dayNight`, `relativeTime`, `naturalTime`, `compositeTime`, `flatFree`
 - 4 calculation modes: `CONTINUOUS`, `UNIT_BASED`, `DURATION_PERIOD`, `DURATION_GLOBAL`
+- Incomplete-unit charging via unified `IncompleteUnitChargeSpec`
 - Promotions: free time ranges, free minutes, smart free minutes, and conditional activation for duration modes
 - Detailed billing units for audit and debugging
 - Scheme switching over time (multi-segment billing)

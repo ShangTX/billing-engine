@@ -4,6 +4,7 @@ import cn.shang.charging.billing.pojo.BConstants;
 import cn.shang.charging.billing.pojo.BillingContext;
 import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.charge.rules.BillingRule;
+import cn.shang.charging.charge.rules.DurationGlobalStrategy;
 import cn.shang.charging.charge.rules.DurationPeriodStrategy;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 
@@ -17,7 +18,7 @@ import java.util.Set;
  * 按 {@link BConstants.CalculationMode} 分派到独立策略实现，自身只分派不扛计费逻辑：
  * <ul>
  *   <li>DURATION_PERIOD → {@link DurationPeriodStrategy}（通用时长 PERIOD 策略）</li>
- *   <li>DURATION_GLOBAL → {@link DurationGlobalStrategy}（通用时长 GLOBAL 策略）</li>
+ *   <li>DURATION_GLOBAL → {@link DurationGlobalStrategy}（通用时长 GLOBAL 汇总策略）</li>
  *   <li>UNIT_BASED → {@link DayNightUnitBasedStrategy}（固定单元对齐）</li>
  *   <li>CONTINUOUS → {@link DayNightContinuousStrategy}（边界驱动切断）</li>
  * </ul>
@@ -55,7 +56,7 @@ public class DayNightRule implements BillingRule<DayNightConfig> {
             }
             case DURATION_GLOBAL -> {
                 validateConfig(config);
-                yield DayNightDurationGlobalStrategy.calculate(context, config, promotionAggregate);
+                yield DurationGlobalStrategy.calculate(dayNightSemantics, context, config, promotionAggregate);
             }
             case UNIT_BASED -> unitBasedStrategy.calculate(context, config, promotionAggregate);
             case CONTINUOUS -> continuousStrategy.calculate(context, config, promotionAggregate);

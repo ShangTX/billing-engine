@@ -10,6 +10,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -169,14 +170,15 @@ public final class DurationSupport {
         String currentPeriodKey = null;
         BigDecimal periodAccumulated = BigDecimal.ZERO;
         BigDecimal periodCap = null;
-        String periodLabel = null;
 
         for (HomogeneousSegment seg : segments) {
             if (seg.isBubble()) {
                 // bubble 段不切分、不占用周期时长、不触发周期切换，charged=0
+                String bubblePeriodLabel = semantics.periodLabel(seg.getBeginTime(), config, cycleOrigin);
+                BigDecimal bubblePeriodCap = semantics.periodCap(seg.getBeginTime(), config, cycleOrigin);
                 result.add(new DurationSegment(
-                        seg.getBeginTime(), seg.getEndTime(), periodLabel,
-                        0, seg.getUnitPrice(), BigDecimal.ZERO, periodCap,
+                        seg.getBeginTime(), seg.getEndTime(), bubblePeriodLabel,
+                        0, seg.getUnitPrice(), BigDecimal.ZERO, bubblePeriodCap,
                         seg.getFreePromotionId(), BigDecimal.ZERO));
                 continue;
             }
@@ -214,8 +216,8 @@ public final class DurationSupport {
                     currentPeriodKey = newPeriodKey;
                     periodAccumulated = BigDecimal.ZERO;
                     periodCap = semantics.periodCap(segBegin, config, cycleOrigin);
-                    periodLabel = semantics.periodLabel(segBegin, config, cycleOrigin);
                 }
+                String segmentPeriodLabel = semantics.periodLabel(segBegin, config, cycleOrigin);
 
                 // 时段封顶（周期内累计，落盘到 chargedAmount）
                 if (periodCap != null && !isFree) {
@@ -233,7 +235,7 @@ public final class DurationSupport {
                 effectiveAccumInCycle += frontMinutes;
 
                 result.add(new DurationSegment(
-                        segBegin, frontEnd, periodLabel,
+                        segBegin, frontEnd, segmentPeriodLabel,
                         isFree ? 0 : frontMinutes,
                         seg.getUnitPrice(), charged, periodCap,
                         isFree ? seg.getFreePromotionId() : null, original));
@@ -261,12 +263,13 @@ public final class DurationSupport {
     }
 
     /**
-     * GLOBAL 模式：全局按时长计费。
+     * GLOBAL 模式：全局按时长计费，输出聚合后的收费桶。
      * <p>
-     * - FREE_MINUTES 时段化（TODO-20260706-001）：与 PERIOD 同路径，免费段独立，DurationSegment 同质<br>
-     * - 时段封顶：同 period 类型全局累计达 period.maxCharge × 周期数，该 period 后续段削减（落盘）<br>
-     * - 周期封顶：所有段 chargedAmount 之和达 maxChargeOneCycle × 周期数，实收 = min(cap×周期数, 总额)（不落盘到段）<br>
-     * - 周期数 = ceil(总分钟数 / 周期分钟数)
+     * - FREE_MINUTES 时段化（TODO-20260706-001）：免费段参与边界驱动，最终只输出收费汇总桶<br>
+     * - 同质收费桶：按 periodKey + periodLabel + unitPrice + unitMinutes 聚合收费分钟，begin/end 置空<br>
+     * - 时段封顶：完整周期部分按 period.maxCharge × fullCycles，尾周期按实际尾周期费用与 period.maxCharge 取小<br>
+     * - 周期封顶：完整周期部分按 maxChargeOneCycle × fullCycles，尾周期按实际尾周期费用与 maxChargeOneCycle 取小<br>
+     * - 周期划分基于 effective minutes；BUBBLE 免费段不占用周期时长
      */
     public static <C extends RuleConfig> DurationResult buildGlobalMode(
             List<HomogeneousSegment> segments,
@@ -276,93 +279,193 @@ public final class DurationSupport {
             C config,
             LocalDateTime cycleOrigin) {
 
-        List<DurationSegment> result = new ArrayList<>();
         if (segments.isEmpty()) {
-            return new DurationResult(result, cycleCap, BigDecimal.ZERO);
+            return new DurationResult(new ArrayList<>(), cycleCap, BigDecimal.ZERO);
         }
 
         int cycleMinutes = semantics.cycleMinutes();
-        // bubble 免费段不占用周期时长：周期数按有效时长（总时长 - bubble 时长）算
+        // bubble 免费段不占用周期时长：full/tail 周期按有效时长（总时长 - bubble 时长）算
         int bubbleMinutes = sumBubbleDuration(segments);
         int effectiveMinutes = Math.max((int) (totalMinutes - bubbleMinutes), 0);
-        int cycleCount = (int) Math.ceil((double) effectiveMinutes / cycleMinutes);
-        if (cycleCount < 1) cycleCount = 1;
+        int fullCycles = cycleMinutes > 0 ? effectiveMinutes / cycleMinutes : 0;
+        int tailMinutes = cycleMinutes > 0 ? effectiveMinutes % cycleMinutes : 0;
+        int fullEndOffset = fullCycles * cycleMinutes;
 
-        int n = segments.size();
-        BigDecimal[] rawCharges = new BigDecimal[n];
-        int[] chargedMinutesArr = new int[n];   // 每段收费分钟（免费段=0，收费段=段时长）
-        Map<String, BigDecimal> periodCapMap = new HashMap<>();     // 各 period 封顶
-        Map<String, String> periodLabelMap = new HashMap<>();       // 各 period 标签
+        LinkedHashMap<GlobalBucketKey, GlobalBucketAccumulator> buckets = new LinkedHashMap<>();
+        GlobalPartResult fullPart = buildGlobalPart(segments, 0, fullEndOffset, fullCycles,
+                semantics, config, cycleOrigin, buckets);
+        GlobalPartResult tailPart = buildGlobalPart(segments, fullEndOffset, effectiveMinutes,
+                tailMinutes > 0 ? 1 : 0, semantics, config, cycleOrigin, buckets);
 
-        // 第一遍：计算每段原始应收 + chargedMinutes，并识别 period 封顶/标签
-        for (int i = 0; i < n; i++) {
-            HomogeneousSegment seg = segments.get(i);
-            BigDecimal charged = segmentCharge(seg, semantics, config, cycleOrigin);
-            rawCharges[i] = charged;
-            chargedMinutesArr[i] = seg.isFree() ? 0 : seg.durationMinutes();
-            if (!seg.isFree()) {
-                String key = semantics.periodKey(seg.getBeginTime(), config, cycleOrigin);
-                periodCapMap.putIfAbsent(key, semantics.periodCap(seg.getBeginTime(), config, cycleOrigin));
-                periodLabelMap.putIfAbsent(key, semantics.periodLabel(seg.getBeginTime(), config, cycleOrigin));
-            }
+        BigDecimal totalBeforeCycleCap = fullPart.chargedAmount.add(tailPart.chargedAmount);
+        BigDecimal finalAmount = totalBeforeCycleCap;
+        BigDecimal cycleCapApplied = null;
+        if (cycleCap != null && cycleCap.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal fullLimit = cycleCap.multiply(BigDecimal.valueOf(fullCycles));
+            BigDecimal fullCharged = fullPart.chargedAmount.min(fullLimit);
+            BigDecimal tailCharged = tailMinutes > 0 ? tailPart.chargedAmount.min(cycleCap) : BigDecimal.ZERO;
+            finalAmount = fullCharged.add(tailCharged).setScale(2, RoundingMode.HALF_UP);
+            cycleCapApplied = fullLimit.add(tailCharged).setScale(2, RoundingMode.HALF_UP);
         }
 
-        // 第二遍：应用时段封顶（period.maxCharge × 周期数），按时间顺序累计削减
-        Map<String, BigDecimal> periodApplied = new HashMap<>();
-        for (int i = 0; i < n; i++) {
-            HomogeneousSegment seg = segments.get(i);
-            BigDecimal charged = rawCharges[i];
-
-            if (!seg.isFree()) {
-                String key = semantics.periodKey(seg.getBeginTime(), config, cycleOrigin);
-                BigDecimal cap = periodCapMap.get(key);
-                if (cap != null) {
-                    BigDecimal capMultiplied = cap.multiply(BigDecimal.valueOf(cycleCount));
-                    BigDecimal before = periodApplied.getOrDefault(key, BigDecimal.ZERO);
-                    BigDecimal after = before.add(charged);
-                    if (after.compareTo(capMultiplied) > 0) {
-                        charged = capMultiplied.subtract(before);
-                        if (charged.signum() < 0) charged = BigDecimal.ZERO;
-                        periodApplied.put(key, capMultiplied);
-                    } else {
-                        periodApplied.put(key, after);
-                    }
-                }
+        List<DurationSegment> result = new ArrayList<>();
+        for (GlobalBucketAccumulator bucket : buckets.values()) {
+            if (bucket.chargedMinutes <= 0) {
+                continue;
             }
-            rawCharges[i] = charged;
-        }
-
-        // 第三遍：构建 DurationSegment，求总额
-        BigDecimal totalAmount = BigDecimal.ZERO;
-        for (int i = 0; i < n; i++) {
-            HomogeneousSegment seg = segments.get(i);
-            BigDecimal charged = rawCharges[i];
-            totalAmount = totalAmount.add(charged);
-
-            String key = semantics.periodKey(seg.getBeginTime(), config, cycleOrigin);
-            String label = periodLabelMap.get(key);
-            BigDecimal pCap = periodCapMap.get(key);
-
             result.add(new DurationSegment(
-                    seg.getBeginTime(),
-                    seg.getEndTime(),
-                    label,
-                    chargedMinutesArr[i],
-                    seg.getUnitPrice(),
-                    charged,
-                    pCap,
-                    seg.isFree() ? seg.getFreePromotionId() : null,
-                    segmentOriginalCharge(seg, semantics, config, cycleOrigin)
+                    null,
+                    null,
+                    bucket.periodLabel,
+                    bucket.chargedMinutes,
+                    bucket.unitPrice,
+                    bucket.chargedAmount.setScale(2, RoundingMode.HALF_UP),
+                    bucket.periodCap,
+                    null,
+                    bucket.originalAmount.setScale(2, RoundingMode.HALF_UP)
             ));
         }
 
-        // 周期封顶（不落盘到段）
-        BigDecimal cycleCapApplied = cycleCap != null
-                ? cycleCap.multiply(BigDecimal.valueOf(cycleCount)) : null;
-        BigDecimal finalAmount = (cycleCapApplied != null && totalAmount.compareTo(cycleCapApplied) > 0)
-                ? cycleCapApplied : totalAmount;
+        return new DurationResult(result, cycleCapApplied, finalAmount.setScale(2, RoundingMode.HALF_UP));
+    }
 
-        return new DurationResult(result, cycleCapApplied, finalAmount);
+    private static <C extends RuleConfig> GlobalPartResult buildGlobalPart(
+            List<HomogeneousSegment> segments,
+            int effectiveBegin,
+            int effectiveEnd,
+            int capMultiplier,
+            RuleSemantics<C> semantics,
+            C config,
+            LocalDateTime cycleOrigin,
+            LinkedHashMap<GlobalBucketKey, GlobalBucketAccumulator> outputBuckets) {
+
+        if (effectiveEnd <= effectiveBegin) {
+            return new GlobalPartResult(BigDecimal.ZERO);
+        }
+
+        LinkedHashMap<String, GlobalPeriodAccumulator> periods = new LinkedHashMap<>();
+        int effectiveCursor = 0;
+        for (HomogeneousSegment seg : segments) {
+            if (seg.isBubble()) {
+                continue;
+            }
+
+            int segEffectiveBegin = effectiveCursor;
+            int segEffectiveEnd = effectiveCursor + seg.durationMinutes();
+            int overlapBegin = Math.max(segEffectiveBegin, effectiveBegin);
+            int overlapEnd = Math.min(segEffectiveEnd, effectiveEnd);
+            int overlapMinutes = Math.max(overlapEnd - overlapBegin, 0);
+
+            if (overlapMinutes > 0 && !seg.isFree()) {
+                LocalDateTime clippedBegin = seg.getBeginTime().plusMinutes(overlapBegin - segEffectiveBegin);
+                BigDecimal unitPrice = seg.getUnitPrice() != null ? seg.getUnitPrice() : BigDecimal.ZERO;
+                int unitMinutes = semantics.unitMinutes(clippedBegin, config, cycleOrigin);
+                String periodKey = semantics.periodKey(clippedBegin, config, cycleOrigin);
+                String periodLabel = semantics.periodLabel(clippedBegin, config, cycleOrigin);
+                BigDecimal periodCap = semantics.periodCap(clippedBegin, config, cycleOrigin);
+
+                GlobalPeriodAccumulator period = periods.computeIfAbsent(periodKey,
+                        ignored -> new GlobalPeriodAccumulator(periodLabel, periodCap));
+                GlobalBucketKey bucketKey = new GlobalBucketKey(periodKey, periodLabel, unitPrice, unitMinutes);
+                GlobalRawBucket rawBucket = period.buckets.computeIfAbsent(bucketKey,
+                        ignored -> new GlobalRawBucket(periodKey, periodLabel, unitPrice, unitMinutes, periodCap));
+                rawBucket.minutes += overlapMinutes;
+            }
+
+            effectiveCursor = segEffectiveEnd;
+        }
+
+        BigDecimal partCharged = BigDecimal.ZERO;
+        for (GlobalPeriodAccumulator period : periods.values()) {
+            BigDecimal periodBudget = null;
+            if (period.periodCap != null && period.periodCap.compareTo(BigDecimal.ZERO) > 0) {
+                periodBudget = period.periodCap.multiply(BigDecimal.valueOf(capMultiplier));
+            }
+
+            for (GlobalRawBucket rawBucket : period.buckets.values()) {
+                BigDecimal rawAmount = chargeByMode(rawBucket.unitPrice, rawBucket.minutes,
+                        rawBucket.unitMinutes, semantics, config);
+                BigDecimal chargedAmount = rawAmount;
+                if (periodBudget != null) {
+                    chargedAmount = rawAmount.min(periodBudget.max(BigDecimal.ZERO));
+                    periodBudget = periodBudget.subtract(chargedAmount);
+                }
+
+                GlobalBucketAccumulator out = outputBuckets.computeIfAbsent(rawBucket.key(),
+                        ignored -> new GlobalBucketAccumulator(rawBucket.periodLabel,
+                                rawBucket.unitPrice, rawBucket.unitMinutes, rawBucket.periodCap));
+                out.chargedMinutes += rawBucket.minutes;
+                out.chargedAmount = out.chargedAmount.add(chargedAmount);
+                out.originalAmount = out.originalAmount.add(rawAmount);
+                partCharged = partCharged.add(chargedAmount);
+            }
+        }
+
+        return new GlobalPartResult(partCharged.setScale(2, RoundingMode.HALF_UP));
+    }
+
+    private record GlobalBucketKey(String periodKey, String periodLabel, BigDecimal unitPrice, int unitMinutes) {
+        GlobalBucketKey {
+            unitPrice = unitPrice != null ? unitPrice.stripTrailingZeros() : BigDecimal.ZERO;
+        }
+    }
+
+    private static final class GlobalPartResult {
+        final BigDecimal chargedAmount;
+
+        GlobalPartResult(BigDecimal chargedAmount) {
+            this.chargedAmount = chargedAmount;
+        }
+    }
+
+    private static final class GlobalPeriodAccumulator {
+        final String periodLabel;
+        final BigDecimal periodCap;
+        final LinkedHashMap<GlobalBucketKey, GlobalRawBucket> buckets = new LinkedHashMap<>();
+
+        GlobalPeriodAccumulator(String periodLabel, BigDecimal periodCap) {
+            this.periodLabel = periodLabel;
+            this.periodCap = periodCap;
+        }
+    }
+
+    private static final class GlobalRawBucket {
+        final String periodKey;
+        final String periodLabel;
+        final BigDecimal unitPrice;
+        final int unitMinutes;
+        final BigDecimal periodCap;
+        int minutes;
+
+        GlobalRawBucket(String periodKey, String periodLabel, BigDecimal unitPrice, int unitMinutes, BigDecimal periodCap) {
+            this.periodKey = periodKey;
+            this.periodLabel = periodLabel;
+            this.unitPrice = unitPrice;
+            this.unitMinutes = unitMinutes;
+            this.periodCap = periodCap;
+        }
+
+        GlobalBucketKey key() {
+            return new GlobalBucketKey(periodKey, periodLabel, unitPrice, unitMinutes);
+        }
+    }
+
+    private static final class GlobalBucketAccumulator {
+        final String periodLabel;
+        final BigDecimal unitPrice;
+        final int unitMinutes;
+        final BigDecimal periodCap;
+        int chargedMinutes;
+        BigDecimal chargedAmount = BigDecimal.ZERO;
+        BigDecimal originalAmount = BigDecimal.ZERO;
+
+        GlobalBucketAccumulator(String periodLabel, BigDecimal unitPrice,
+                                int unitMinutes, BigDecimal periodCap) {
+            this.periodLabel = periodLabel;
+            this.unitPrice = unitPrice;
+            this.unitMinutes = unitMinutes;
+            this.periodCap = periodCap;
+        }
     }
 
     // ==================== 简化路径（PERIOD 模式） ====================

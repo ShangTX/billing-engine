@@ -52,7 +52,7 @@ public final class DurationPeriodStrategy {
         LocalDateTime cycleOrigin = semantics.cycleOrigin(context);
         BigDecimal cycleCap = semantics.cycleCap(config);
 
-        // FREE_MINUTES 时段化（TODO-20260706-001：PERIOD/GLOBAL 统一，免费段独立，DurationSegment 同质）
+        // FREE_MINUTES 时段化：PERIOD 会把免费段作为 DurationSegment 明细落盘。
         FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutesForDuration(
                 promotionAggregate, window, context.getEndTime());
         List<FreeTimeRange> freeTimeRanges = materialized.getFinalFreeRanges() != null

@@ -9,6 +9,8 @@
 > 2026-07-15 修订：`CompositeTimeRule` 不再暴露 `crossPeriodMode`。
 > 自然时段价格边界统一作为边界循环切断点；切断后产生的不足单元由
 > `CompositeTimeConfig.incompleteUnitChargeMode` 处理。
+> 2026-07-15 更新：推荐改用 `IncompleteUnitChargeSpec` 统一配置不足单元计费，
+> 旧 `incompleteUnitChargeMode` 字段继续兼容。
 
 ---
 

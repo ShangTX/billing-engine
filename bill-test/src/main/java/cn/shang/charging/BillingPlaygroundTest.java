@@ -62,8 +62,8 @@ public class BillingPlaygroundTest {
 //        run(scenario1_dayNight_continuous());        // 日夜分时段 + 连续计费 + 免费时段
 //        run(scenario2_dayNight_durationGlobal());   // 日夜 + 全局时长计费 + 智能免费分钟
         run(scenario3_compositeTime_period());      // 混合时段 + 周期时长计费 + 免费分钟
-        run(scenario_composite_continuous_crossNaturalPeriods()); // CompositeTime：跨自然时段边界截断
-        run(scenario_composite_continuous_periodAndCycleCap());   // CompositeTime：相对时段封顶 + 周期封顶
+//        run(scenario_composite_continuous_crossNaturalPeriods()); // CompositeTime：跨自然时段边界截断
+//        run(scenario_composite_continuous_periodAndCycleCap());   // CompositeTime：相对时段封顶 + 周期封顶
         run(scenario_composite_durationGlobal_smartFreeMinutes()); // CompositeTime：GLOBAL + 智能免费分钟
 //        run(scenario4_schemeSwitch());              // 方案切换（多段计费）
 //        run(scenario5_withEquivalentAmount());      // 等效金额计算
@@ -75,7 +75,7 @@ public class BillingPlaygroundTest {
         System.out.println("  Snap算法测试场景");
         System.out.println("=".repeat(72));
 //        run(scenario_snap1_exactBoundary());         // Snap测试1：边界恰好落在单元边界
-        run(scenario_snap2_dayBegin_belongToDay());  // Snap测试2：dayBegin跨单元归属day
+//        run(scenario_snap2_dayBegin_belongToDay());  // Snap测试2：dayBegin跨单元归属day
 //        run(scenario_snap3_dayBegin_belongToNight()); // Snap测试3：dayBegin跨单元归属night
 //        run(scenario_snap4_dayEnd_belongToDay());    // Snap测试4：dayEnd跨单元归属day
 //        run(scenario_snap5_dayEnd_belongToNight());  // Snap测试5：dayEnd跨单元归属night
@@ -106,7 +106,7 @@ public class BillingPlaygroundTest {
                 .name("日夜分时段 + CONTINUOUS + 免费时段")
                 .beginTime(LocalDateTime.of(2026, 7, 7, 9, 0))
                 .endTime(LocalDateTime.of(2026, 7, 7, 15, 30))
-                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .calculationMode(BConstants.CalculationMode.DURATION_GLOBAL)
                 .ruleConfig(new DayNightConfig()
                         .setId("dn-1")
                         .setDayBeginMinute(8 * 60)
@@ -167,35 +167,55 @@ public class BillingPlaygroundTest {
                 .name("混合时段 + DURATION_PERIOD + 免费分钟")
                 .beginTime(LocalDateTime.of(2026, 7, 7, 7, 0))
                 .endTime(LocalDateTime.of(2026, 7, 7, 19, 0))
-                .calculationMode(BConstants.CalculationMode.DURATION_PERIOD)
+                .calculationMode(BConstants.CalculationMode.DURATION_GLOBAL)
                 .ruleConfig(CompositeTimeConfig.builder()
                         .id("comp-1")
-                        .maxChargeOneCycle(new BigDecimal("40"))
+                        .maxChargeOneCycle(new BigDecimal("25"))
+                        .incompleteUnitChargeMode(BConstants.IncompleteUnitChargeMode.PROPORTIONAL)
                         .periods(List.of(
                                 CompositePeriod.builder()
                                         .beginMinute(0)
-                                        .endMinute(1440)
+                                        .endMinute(180)
                                         .unitMinutes(60)
+                                        .naturalPeriods(List.of(
+                                                NaturalPeriod.builder()
+                                                        .beginMinute(0).endMinute(8 * 60)
+                                                        .unitPrice(new BigDecimal("2")).build(),
+                                                NaturalPeriod.builder()
+                                                        .beginMinute(8 * 60).endMinute(20 * 60)
+                                                        .unitPrice(new BigDecimal("3")).build(),
+                                                NaturalPeriod.builder()
+                                                        .beginMinute(20 * 60).endMinute(1440)
+                                                        .unitPrice(new BigDecimal("2")).build()))
+                                        .build(),
+                                CompositePeriod.builder()
+                                        .beginMinute(180)
+                                        .endMinute(1440)
+                                        .unitMinutes(30)
                                         .naturalPeriods(List.of(
                                                 NaturalPeriod.builder()
                                                         .beginMinute(0).endMinute(8 * 60)
                                                         .unitPrice(new BigDecimal("1")).build(),
                                                 NaturalPeriod.builder()
                                                         .beginMinute(8 * 60).endMinute(20 * 60)
-                                                        .unitPrice(new BigDecimal("3")).build(),
+                                                        .unitPrice(new BigDecimal("1.5")).build(),
                                                 NaturalPeriod.builder()
                                                         .beginMinute(20 * 60).endMinute(1440)
                                                         .unitPrice(new BigDecimal("1")).build()))
                                         .build()))
                         .build())
+                .promotionRuleConfigs(List.of(
+                        StartFreePromotionConfig.builder().priority(1).id("start-30")
+                                .minutes(30).build()
+                ))
                 .externalPromotions(List.of(
-                        PromotionGrant.builder()
+                        /*PromotionGrant.builder()
                                 .id("free-90min")
                                 .type(BConstants.PromotionType.FREE_MINUTES)
                                 .source(BConstants.PromotionSource.COUPON)
                                 .freeMinutes(90)
                                 .priority(1)
-                                .build()))
+                                .build()*/))
                 .build();
     }
 

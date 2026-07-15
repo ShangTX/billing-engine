@@ -29,6 +29,10 @@ public interface RuleConfig {
      * 默认完整收费，具体规则配置可按需覆盖为字段值。
      */
     default BConstants.IncompleteUnitChargeMode getIncompleteUnitChargeMode() {
+        IncompleteUnitChargeSpec spec = getIncompleteUnitChargeSpec();
+        if (spec != null && spec.getMode() != null) {
+            return spec.getMode();
+        }
         return BConstants.IncompleteUnitChargeMode.FULL_CHARGE;
     }
 
@@ -36,6 +40,10 @@ public interface RuleConfig {
      * THRESHOLD_MINUTES 模式阈值（分钟）。null 表示未配置。
      */
     default Integer getThresholdMinutes() {
+        IncompleteUnitChargeSpec spec = getIncompleteUnitChargeSpec();
+        if (spec != null && spec.getThresholdMinutes() != null) {
+            return spec.getThresholdMinutes();
+        }
         return null;
     }
 
@@ -43,6 +51,17 @@ public interface RuleConfig {
      * THRESHOLD_RATIO 模式阈值比例。null 表示未配置。
      */
     default BigDecimal getThresholdRatio() {
+        IncompleteUnitChargeSpec spec = getIncompleteUnitChargeSpec();
+        if (spec != null && spec.getThresholdRatio() != null) {
+            return spec.getThresholdRatio();
+        }
+        return null;
+    }
+
+    /**
+     * 不足单元计费配置对象。推荐新配置使用本对象，旧散字段可继续兼容。
+     */
+    default IncompleteUnitChargeSpec getIncompleteUnitChargeSpec() {
         return null;
     }
 

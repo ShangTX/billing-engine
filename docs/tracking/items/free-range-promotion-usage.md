@@ -48,7 +48,7 @@ completed_git: a1043ab
 
 ## 待定（GLOBAL 策略的 usage 形式）
 
-GLOBAL 策略不时段化 FREE_MINUTES（按分钟扣减，见 spec 3.3/3.4），其 `PromotionUsage` 形式与时段化策略不同——按时段归属记分钟数还是记时间区间，影响等效金额计算的取用方式（spec §5 开放问题）。本 TODO 实现时需先定 GLOBAL usage 形式。
+GLOBAL 策略侧时段化 FREE_MINUTES，但最终输出收费汇总桶，不把免费段落为 `DurationSegment`；其 `PromotionUsage` 形式与 PERIOD 的时间轴明细不同，影响等效金额计算的取用方式。本 TODO 实现时需先定 GLOBAL usage 形式。
 
 ## 验收标准
 

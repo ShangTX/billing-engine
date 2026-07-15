@@ -67,6 +67,17 @@ final class RelativeTimeSemantics implements RuleSemantics<RelativeTimeConfig> {
         return periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods()).getUnitPrice();
     }
 
+    @Override
+    public String periodKey(LocalDateTime time, RelativeTimeConfig config, LocalDateTime cycleOrigin) {
+        RelativeTimePeriod period = resolvePeriod(time, config, cycleOrigin);
+        return period.getBeginMinute() + "-" + period.getEndMinute();
+    }
+
+    @Override
+    public String periodLabel(LocalDateTime time, RelativeTimeConfig config, LocalDateTime cycleOrigin) {
+        return periodKey(time, config, cycleOrigin);
+    }
+
     /**
      * period 结束边界 provider：从当前位置算到下一个 period.endMinute。
      * 从原 RelativeTimeContinuousStrategy.calculate 的 period 边界 lambda 搬来。
@@ -97,5 +108,11 @@ final class RelativeTimeSemantics implements RuleSemantics<RelativeTimeConfig> {
     @Override
     public BigDecimal cycleCap(RelativeTimeConfig config) {
         return config.getMaxChargeOneCycle();
+    }
+
+    private RelativeTimePeriod resolvePeriod(LocalDateTime time, RelativeTimeConfig config, LocalDateTime cycleOrigin) {
+        long minutesFromOrigin = Duration.between(cycleOrigin, time).toMinutes();
+        int positionInCycle = (int) (((minutesFromOrigin % MINUTES_PER_CYCLE) + MINUTES_PER_CYCLE) % MINUTES_PER_CYCLE);
+        return periodResolver.findPeriodForMinute(positionInCycle, config.getPeriods());
     }
 }

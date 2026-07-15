@@ -73,6 +73,7 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 | `CalculationWindow` | `cn.shang.charging.billing.pojo.CalculationWindow` |
 | `DurationSegment` | `cn.shang.charging.billing.pojo.DurationSegment` |
 | `EquivalentAmountSpec` | `cn.shang.charging.billing.pojo.EquivalentAmountSpec` |
+| `IncompleteUnitChargeSpec` | `cn.shang.charging.billing.pojo.IncompleteUnitChargeSpec` |
 | `SchemeChange` | `cn.shang.charging.billing.pojo.SchemeChange` |
 | `RuleConfig` | `cn.shang.charging.billing.pojo.RuleConfig` |
 | `PromotionRuleConfig` | `cn.shang.charging.billing.pojo.PromotionRuleConfig` |
@@ -520,7 +521,7 @@ BillingResult result = billingTemplate.calculate(request);
 |------|------|------|
 | `beginTime` | `LocalDateTime` | 段起点 |
 | `endTime` | `LocalDateTime` | 段终点 |
-| `periodLabel` | `String` | 时段标签（"day"/"night"/"period-1"，规则自定义） |
+| `periodLabel` | `String` | 时段标签（"day"/"night"/"period-1"，规则自定义；`compositeTime` 为 `r:x-y|n:a-b`，同时表达外层相对时段和内部自然时段） |
 | `chargedMinutes` | `int` | 收费分钟数（免费段=0） |
 | `unitPrice` | `BigDecimal` | 单价 |
 | `chargedAmount` | `BigDecimal` | 应收金额（时段封顶后，周期封顶前） |
@@ -528,7 +529,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `freePromotionId` | `String` | 免费段对应的 FreeTimeRange.id（非免费段为 null） |
 | `originalAmount` | `BigDecimal` | 按规则原价（封顶前；免费段非 0，用于等效金额计算） |
 
-> `dayNight` 的 `DURATION_GLOBAL` 产出为全局收费汇总桶：同质收费分钟会聚合到一个 `DurationSegment`，`beginTime` / `endTime` 为 `null`，免费分钟和免费时段通过 `PromotionUsage` 跟踪，不再作为时间轴免费段落盘。
+> `DURATION_GLOBAL` 产出为全局收费汇总桶：同质收费分钟会聚合到一个 `DurationSegment`，`beginTime` / `endTime` 为 `null`，免费分钟和免费时段通过 `PromotionUsage` 跟踪，不再作为时间轴免费段落盘。
 
 ### 9.4 PromotionUsage
 
@@ -605,7 +606,10 @@ RelativeTimeConfig config = new RelativeTimeConfig()
 ### 10.3 compositeTime（混合时间计费）
 
 最灵活的规则：组合相对时段和自然时段价格，支持时段独立封顶。自然时段边界统一切断，
-不再配置 `crossPeriodMode`；不足单元通过 `incompleteUnitChargeMode` 控制。
+不再配置 `crossPeriodMode`；不足单元推荐通过 `IncompleteUnitChargeSpec` 控制，旧
+`incompleteUnitChargeMode` 字段仍兼容。
+时长模式的 `DurationSegment.periodLabel` 同时包含外层相对时段与内部自然时段，例如
+`r:0-1440|n:480-1200`。
 
 ```java
 import cn.shang.charging.charge.rules.compositetime.*;
@@ -876,7 +880,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `CONTINUOUS` | 连续时间计费（边界驱动循环，段内直接产出 compact） | `BillingUnit`（含 compact） |
 | `UNIT_BASED` | 固定单元对齐计费 | `BillingUnit` |
 | `DURATION_PERIOD` | 周期内时长计费，周期封顶+时段封顶 | `DurationSegment` |
-| `DURATION_GLOBAL` | 全局时长计费；`dayNight` 按同质收费桶汇总并使用尾周期封顶 | `DurationSegment` |
+| `DURATION_GLOBAL` | 全局时长计费；按同质收费桶汇总，并对完整周期与尾周期分别应用封顶 | `DurationSegment` |
 
 ### 规则族支持矩阵
 
@@ -890,7 +894,7 @@ BillingResult result = billingTemplate.calculate(request);
 
 ### 不足单元 / 余数处理（IncompleteUnitChargeMode）
 
-当计费时间不是 `unitMinutes` 的整数倍时，不足一个 `unitMinutes` 的部分如何收费，由 `RuleConfig` 公共默认方法描述（默认 `FULL_CHARGE`）；DayNight/RelativeTime/NaturalTime/CompositeTime 等具体规则 Config 可通过 `incompleteUnitChargeMode`、`thresholdMinutes`、`thresholdRatio` 字段覆盖默认值：
+当计费时间不是 `unitMinutes` 的整数倍时，不足一个 `unitMinutes` 的部分如何收费，由 `RuleConfig` 公共默认方法描述（默认 `FULL_CHARGE`）。推荐通过 `IncompleteUnitChargeSpec` 统一配置 `mode`、`thresholdMinutes`、`thresholdRatio`；旧的 `incompleteUnitChargeMode`、`thresholdMinutes`、`thresholdRatio` 散字段仍兼容，内置规则优先读取 `IncompleteUnitChargeSpec`。
 
 | 模式 | CONTINUOUS / UNIT_BASED（截断单元） | DURATION_PERIOD / DURATION_GLOBAL（余数部分） |
 |------|-------------------------------------|----------------------------------------------|
@@ -901,14 +905,26 @@ BillingResult result = billingTemplate.calculate(request);
 | `THRESHOLD_RATIO` | 不足单元超阈值比例收全额，否则按比例 | 余数超阈值比例收全额，否则按比例 |
 
 - **CONTINUOUS / UNIT_BASED**：作用于「截断单元」（`isTruncated=true` 的末段，`segMinutes < unitMinutes`）
-- **DURATION_PERIOD / DURATION_GLOBAL**：作用于时长计费中「不足 `unitMinutes` 的余数部分」。`DURATION_PERIOD` 按同质段计算；`dayNight` 的 `DURATION_GLOBAL` 先按同质收费桶汇总分钟，再对汇总桶计算余数。整除部分（`fullUnits × unitPrice`）始终照收，余数按上表模式处理。`PROPORTIONAL` 与原按比例行为一致；`FULL_CHARGE` 实现"不满一小时按一小时算"
+- **DURATION_PERIOD / DURATION_GLOBAL**：作用于时长计费中「不足 `unitMinutes` 的余数部分」。`DURATION_PERIOD` 按同质段计算；`DURATION_GLOBAL` 先按同质收费桶汇总分钟，再对汇总桶计算余数。整除部分（`fullUnits × unitPrice`）始终照收，余数按上表模式处理。`PROPORTIONAL` 与原按比例行为一致；`FULL_CHARGE` 实现"不满一小时按一小时算"
 
-配置示例（时长模式按比例收费）：
+推荐配置示例（时长模式按比例收费）：
 
 ```java
 new DayNightConfig()
         .setUnitMinutes(60)
-        .setIncompleteUnitChargeMode(BConstants.IncompleteUnitChargeMode.PROPORTIONAL)
+        .setIncompleteUnitChargeSpec(IncompleteUnitChargeSpec.builder()
+                .mode(BConstants.IncompleteUnitChargeMode.PROPORTIONAL)
+                .build())
+        ...
+```
+
+兼容配置示例（旧散字段仍可用）：
+
+```java
+new DayNightConfig()
+        .setUnitMinutes(60)
+        .setIncompleteUnitChargeMode(BConstants.IncompleteUnitChargeMode.THRESHOLD_MINUTES)
+        .setThresholdMinutes(30)
         ...
 ```
 
