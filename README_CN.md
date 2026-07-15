@@ -4,6 +4,14 @@
 
 一个可扩展、可追溯的时间计费引擎，适用于停车收费、场地租赁、设备租赁等按时间计费场景。
 
+仓库地址：
+
+- Gitee：https://gitee.com/shtx/charge
+- GitHub：https://github.com/ShangTX/billing-engine
+
+自定义计费规则扩展可参考 Gitee 仓库中的实现示例：
+https://gitee.com/shtx/charge/tree/master/bill-test/src/main/java/cn/shang/charging/examples
+
 ## 核心特性
 
 - 可扩展计费规则，新增规则无需修改核心引擎
@@ -29,7 +37,7 @@
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 
@@ -40,14 +48,14 @@
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 

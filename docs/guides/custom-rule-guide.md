@@ -2,6 +2,11 @@
 
 本文说明如何在当前四层架构下编写自定义计费规则。本指南先采用路径 A：
 
+Gitee 仓库地址：https://gitee.com/shtx/charge
+
+自定义扩展可直接参考 Gitee 仓库中的实现示例：
+https://gitee.com/shtx/charge/tree/master/bill-test/src/main/java/cn/shang/charging/examples
+
 > 直接实现 `BillingRule`，按需复用轻量公共原语，例如 `BoundaryDrivenLoop`。
 
 这适合第一版自定义规则示例：不新增公共 API，不引入新的基类，也不要求规则作者理解完整的

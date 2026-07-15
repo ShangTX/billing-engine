@@ -4,6 +4,14 @@
 
 An extensible and traceable time-based billing engine for parking fees, venue rental, equipment rental, and other time charging scenarios.
 
+Repository mirrors:
+
+- Gitee: https://gitee.com/shtx/charge
+- GitHub: https://github.com/ShangTX/billing-engine
+
+For custom billing-rule extensions, see the implementation examples in the Gitee repository:
+https://gitee.com/shtx/charge/tree/master/bill-test/src/main/java/cn/shang/charging/examples
+
 ## What It Provides
 
 - Extensible billing rules without changing the core engine
@@ -29,7 +37,7 @@ An extensible and traceable time-based billing engine for parking fees, venue re
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 
@@ -40,14 +48,14 @@ An extensible and traceable time-based billing engine for parking fees, venue re
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 

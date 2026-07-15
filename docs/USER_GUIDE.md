@@ -147,7 +147,7 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 
@@ -158,14 +158,14 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 
@@ -179,7 +179,7 @@ Starter 自动注册 `dayNight`、`compositeTime`、`relativeTime` 计费规则�
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-core</artifactId>
-    <version>2.1.2</version>
+    <version>3.0.0</version>
 </dependency>
 ```
 
@@ -936,6 +936,8 @@ new DayNightConfig()
 
 自定义计费规则当前推荐先走**路径 A**：直接实现 `BillingRule`，按需复用轻量公共原语。
 完整示例见 [自定义计费规则开发指南](guides/custom-rule-guide.md)。
+也可以直接参考 Gitee 仓库中的实现示例：
+https://gitee.com/shtx/charge/tree/master/bill-test/src/main/java/cn/shang/charging/examples。
 
 路径 A 适合规则作者先把业务规则接入引擎，而不引入新的公共 API 或重型继承基类。
 如果规则后续需要完整支持 `DURATION_PERIOD` / `DURATION_GLOBAL`，再评估基于
