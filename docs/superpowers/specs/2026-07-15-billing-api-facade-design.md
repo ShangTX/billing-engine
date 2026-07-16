@@ -32,4 +32,4 @@
 - 现有 `new BillingTemplate(billingService, configResolver)` 仍可用。
 - 现有 `calculate(request)` / `calculate(request, mode)` 仍可用，但不再修改原始 request。
 - `calculatePromotionSavings` 不再保留；旧估算器不是权威等效金额语义。
-- `TimeRoundingMode` 保留作为兼容字段；当前归一化仍统一向下截断秒数，mode 参数不改变归一化策略。
+- `TimeRoundingMode` 保留作为兼容字段；`BillingTemplate` 默认使用 `TRUNCATE_BOTH`，显式 `CEIL_BEGIN_TRUNCATE_END` 时对计费时间收窄、对外部 `FREE_RANGE` 优惠时间段放宽。其他旧枚举值按 `TRUNCATE_BOTH` 处理。

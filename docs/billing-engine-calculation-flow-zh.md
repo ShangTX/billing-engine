@@ -105,6 +105,8 @@ flowchart TD
 | `disableSimplification` | 是否禁用简化计算 |
 | `context` | 传给配置解析器的调用方上下文 |
 
+`timeRoundingMode` 由 `billing-api` 的 `BillingTemplate` 在调用 core 前处理：默认 `TRUNCATE_BOTH` 全部向下取整；`CEIL_BEGIN_TRUNCATE_END` 对计费时间收窄、对外部 `FREE_RANGE` 优惠时间段放宽。直接调用 `BillingService` 时不执行该接入层归一化。
+
 ---
 
 ## 3. 分段：`SegmentBuilder`

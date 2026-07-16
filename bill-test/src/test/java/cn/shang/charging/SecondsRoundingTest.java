@@ -32,13 +32,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 秒数取整测试：引擎对所有时间统一向下取整（秒数置0）。
+ * 秒数取整测试：BillingTemplate 在调用 core 前执行接入层时间归一化。
  * <p>
  * 原则：
  * <ul>
- *   <li>引擎内部统一向下取整（truncate），忽略 {@code TimeRoundingMode}（保留字段向后兼容）</li>
- *   <li>外部业务策略（如 beginTime 向上取整）通过 {@link TimeRounding} 自行预处理后再传入</li>
- *   <li>向下取整不会产生 begin &gt; end 倒置（最多相等 → 计费 0），无需守卫</li>
+ *   <li>默认 {@code TRUNCATE_BOTH} 保持统一向下取整</li>
+ *   <li>{@code CEIL_BEGIN_TRUNCATE_END} 收窄计费时间，并放宽外部 FREE_RANGE 优惠时间段</li>
+ *   <li>同一分钟内的 begin/end 会统一向下取整，避免 begin &gt; end 倒置</li>
  * </ul>
  */
 class SecondsRoundingTest {
@@ -90,6 +90,48 @@ class SecondsRoundingTest {
         assertEquals(LocalDateTime.of(2026, 7, 7, 12, 0, 0), usage.getUsedTo());
     }
 
+    /** CEIL_BEGIN_TRUNCATE_END 会把外部 FREE_RANGE 的结束时间向上取整。 */
+    @Test
+    void ceilBeginTruncateEnd_widensExternalPromotionDuringCalculate() {
+        BillingTemplate template = createTemplate(BConstants.CalculationMode.CONTINUOUS);
+
+        BillingRequest req = request(
+                LocalDateTime.of(2026, 7, 7, 9, 0, 0),
+                LocalDateTime.of(2026, 7, 7, 12, 1, 0));
+        req.setTimeRoundingMode(TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+        req.setExternalPromotions(List.of(PromotionGrant.builder()
+                .id("free-lunch-wide")
+                .type(BConstants.PromotionType.FREE_RANGE)
+                .source(BConstants.PromotionSource.COUPON)
+                .priority(1)
+                .beginTime(LocalDateTime.of(2026, 7, 7, 11, 0, 15))
+                .endTime(LocalDateTime.of(2026, 7, 7, 12, 0, 20))
+                .build()));
+
+        BillingResult result = template.calculate(req);
+
+        assertEquals(0, new BigDecimal("4.00").compareTo(result.getFinalAmount()));
+        var usage = result.getPromotionUsages().stream()
+                .filter(u -> "free-lunch-wide".equals(u.getPromotionId()))
+                .findFirst().orElseThrow();
+        assertEquals(LocalDateTime.of(2026, 7, 7, 11, 0, 0), usage.getUsedFrom());
+        assertEquals(LocalDateTime.of(2026, 7, 7, 12, 1, 0), usage.getUsedTo());
+    }
+
+    @Test
+    void ceilBeginTruncateEnd_sameMinute_zeroCharge() {
+        BillingTemplate template = createTemplate(BConstants.CalculationMode.CONTINUOUS);
+
+        BillingRequest req = request(
+                LocalDateTime.of(2026, 7, 7, 10, 30, 30),
+                LocalDateTime.of(2026, 7, 7, 10, 30, 50));
+        req.setTimeRoundingMode(TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+
+        BillingResult result = template.calculate(req);
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(result.getFinalAmount()));
+    }
+
     /** begin/endTime 在同一分钟内：向下取整后相等，计费 0。 */
     @Test
     void sameMinute_zeroCharge() {
@@ -104,7 +146,7 @@ class SecondsRoundingTest {
         assertEquals(0, BigDecimal.ZERO.compareTo(result.getFinalAmount()));
     }
 
-    /** KEEP_SECONDS 被引擎忽略：带秒数时间仍被向下取整。 */
+    /** KEEP_SECONDS 是兼容旧值，BillingTemplate 当前按 TRUNCATE_BOTH 处理。 */
     @Test
     void keepSeconds_ignored_stillTruncated() {
         BillingTemplate template = createTemplate(BConstants.CalculationMode.CONTINUOUS);
@@ -124,7 +166,7 @@ class SecondsRoundingTest {
 
         BillingResult result = template.calculate(req);
 
-        // 优惠时间被向下取整（KEEP_SECONDS 被忽略）
+        // 优惠时间被向下取整（KEEP_SECONDS 按 TRUNCATE_BOTH 处理）
         var usage = result.getPromotionUsages().stream()
                 .filter(u -> "free-seconds".equals(u.getPromotionId()))
                 .findFirst().orElseThrow();
@@ -132,7 +174,7 @@ class SecondsRoundingTest {
         assertEquals(LocalDateTime.of(2026, 7, 7, 11, 0, 0), usage.getUsedTo());
     }
 
-    /** 外部预处理链路：外部 ceil(begin) 后传入，引擎向下取整不改变外部意图。 */
+    /** 外部预处理链路：外部 ceil(begin) 后传入，默认归一化不改变外部意图。 */
     @Test
     void externalPreprocess_ceilThenEngineTruncate_unchanged() {
         BillingTemplate template = createTemplate(BConstants.CalculationMode.CONTINUOUS);
@@ -141,10 +183,10 @@ class SecondsRoundingTest {
         LocalDateTime rawBegin = LocalDateTime.of(2026, 7, 7, 9, 0, 30);
         LocalDateTime preprocessedBegin = TimeRounding.ceil(rawBegin);  // → 09:01
         BillingRequest req = request(preprocessedBegin,
-                LocalDateTime.of(2026, 7, 7, 10, 30, 45));  // 引擎向下 → 10:30
+                LocalDateTime.of(2026, 7, 7, 10, 30, 45));  // 默认归一化 → 10:30
         BillingResult result = template.calculate(req);
 
-        // 引擎向下取整 preprocessedBegin（已对齐到分钟，不变）→ 窗口 [09:01, 10:30] = 89min
+        // 默认归一化不会改变 preprocessedBegin（已对齐到分钟）→ 窗口 [09:01, 10:30] = 89min
         // 60min 单元 + 29min 截断（FULL_CHARGE）→ 2 + 2 = 4 元
         assertEquals(0, new BigDecimal("4.00").compareTo(result.getFinalAmount()));
         // 第一个单元从 09:01 开始（外部 ceil 意图保留）

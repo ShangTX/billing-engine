@@ -48,7 +48,7 @@ The `core` module performs pure calculation. The `billing-api` module adds conve
 - Multi-scheme calculation through `schemeChanges`.
 - External promotions through `externalPromotions` (cross-segment shared pool, used once per parking, not duplicated across segments).
 - Partial calculation through `calcEndTime`.
-- Legacy `timeRoundingMode` field for compatibility; explicit request normalization is handled by billing-api `TimeRounding` / `BillingTemplate`.
+- Legacy `timeRoundingMode` field for compatibility; `BillingTemplate` defaults to `TRUNCATE_BOTH` minute truncation and also supports `CEIL_BEGIN_TRUNCATE_END`, which narrows billing time while widening external `FREE_RANGE` promotion ranges.
 - Caller-defined context through `context`.
 - Exact-query fallback control through `disableSimplification`.
 

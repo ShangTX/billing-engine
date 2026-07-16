@@ -48,7 +48,7 @@ BillingRequest
 - 通过 `schemeChanges` 进行多方案切换计费。
 - 通过 `externalPromotions` 传入外部优惠（跨段共享可用量池，整笔停车享一次，多分段不重复）。
 - 通过 `calcEndTime` 控制局部计算终点。
-- `timeRoundingMode` 字段保留兼容；显式请求归一化由 billing-api 的 `TimeRounding` / `BillingTemplate` 处理。
+- `timeRoundingMode` 字段保留兼容；`BillingTemplate` 默认按 `TRUNCATE_BOTH` 向下取整，也支持 `CEIL_BEGIN_TRUNCATE_END` 对计费时间收窄、对外部 `FREE_RANGE` 优惠时间段放宽。
 - 通过 `context` 传递调用方上下文。
 - 通过 `disableSimplification` 控制是否禁用简化计算。
 

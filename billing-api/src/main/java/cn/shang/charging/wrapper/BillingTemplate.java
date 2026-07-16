@@ -25,6 +25,7 @@ import cn.shang.charging.promotion.rules.startfree.StartFreePromotionRule;
 import cn.shang.charging.settlement.ResultAssembler;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -69,15 +70,15 @@ public class BillingTemplate {
      * The original request object is not mutated.
      */
     public BillingResult calculate(BillingRequest request) {
-        return calculate(request, TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+        return calculate(request, TimeRoundingMode.TRUNCATE_BOTH);
     }
 
     /**
      * Calculates with a normalized copy of the request.
      * <p>
-     * {@code roundingMode} is retained for source compatibility. Current facade
-     * normalization always truncates seconds; business-specific rounding should
-     * be applied by callers through {@link TimeRounding} before building the request.
+     * {@link TimeRoundingMode#TRUNCATE_BOTH} keeps the current deterministic
+     * behavior. {@link TimeRoundingMode#CEIL_BEGIN_TRUNCATE_END} narrows billing
+     * time and widens external FREE_RANGE promotion time.
      */
     public BillingResult calculate(BillingRequest request, TimeRoundingMode roundingMode) {
         return billingService.calculate(normalize(request, roundingMode));
@@ -94,20 +95,38 @@ public class BillingTemplate {
      * Returns a normalized copy of the request.
      */
     public BillingRequest normalize(BillingRequest request) {
-        return normalize(request, TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+        return normalize(request, TimeRoundingMode.TRUNCATE_BOTH);
     }
 
     /**
      * Returns a normalized copy of the request.
      * <p>
-     * {@code roundingMode} is retained for source compatibility; all timestamps
-     * are currently truncated to minute precision.
+     * Request-level {@code timeRoundingMode} wins over the method argument when
+     * both are present.
      */
     public BillingRequest normalize(BillingRequest request, TimeRoundingMode roundingMode) {
         if (request == null) {
             throw new IllegalArgumentException("request must not be null");
         }
         BillingRequest normalized = copyRequest(request);
+        TimeRoundingMode mode = resolveRoundingMode(request, roundingMode);
+        roundBillingTimes(normalized, mode);
+        roundExternalPromotions(normalized, mode);
+        return normalized;
+    }
+
+    private TimeRoundingMode resolveRoundingMode(BillingRequest request, TimeRoundingMode fallback) {
+        if (request.getTimeRoundingMode() != null) {
+            return request.getTimeRoundingMode();
+        }
+        return fallback == null ? TimeRoundingMode.TRUNCATE_BOTH : fallback;
+    }
+
+    private void roundBillingTimes(BillingRequest normalized, TimeRoundingMode mode) {
+        if (mode == TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END) {
+            roundBillingTimesNarrow(normalized);
+            return;
+        }
         if (normalized.getBeginTime() != null) {
             normalized.setBeginTime(TimeRounding.truncate(normalized.getBeginTime()));
         }
@@ -117,14 +136,34 @@ public class BillingTemplate {
         if (normalized.getCalcEndTime() != null) {
             normalized.setCalcEndTime(TimeRounding.truncate(normalized.getCalcEndTime()));
         }
-        roundExternalPromotions(normalized);
-        return normalized;
+    }
+
+    private void roundBillingTimesNarrow(BillingRequest normalized) {
+        if (normalized.getBeginTime() != null && normalized.getEndTime() != null
+                && sameMinute(normalized.getBeginTime(), normalized.getEndTime())) {
+            normalized.setBeginTime(TimeRounding.truncate(normalized.getBeginTime()));
+            normalized.setEndTime(TimeRounding.truncate(normalized.getEndTime()));
+        } else {
+            if (normalized.getBeginTime() != null) {
+                normalized.setBeginTime(TimeRounding.ceil(normalized.getBeginTime()));
+            }
+            if (normalized.getEndTime() != null) {
+                normalized.setEndTime(TimeRounding.truncate(normalized.getEndTime()));
+            }
+        }
+        if (normalized.getCalcEndTime() != null) {
+            normalized.setCalcEndTime(TimeRounding.truncate(normalized.getCalcEndTime()));
+        }
+    }
+
+    private boolean sameMinute(LocalDateTime left, LocalDateTime right) {
+        return TimeRounding.truncate(left).equals(TimeRounding.truncate(right));
     }
 
     /**
      * Rounds external FREE_RANGE promotion timestamps.
      */
-    private void roundExternalPromotions(BillingRequest request) {
+    private void roundExternalPromotions(BillingRequest request, TimeRoundingMode mode) {
         if (request.getExternalPromotions() == null) {
             return;
         }
@@ -136,7 +175,11 @@ public class BillingTemplate {
                 grant.setBeginTime(TimeRounding.truncate(grant.getBeginTime()));
             }
             if (grant.getEndTime() != null) {
-                grant.setEndTime(TimeRounding.truncate(grant.getEndTime()));
+                if (mode == TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END) {
+                    grant.setEndTime(TimeRounding.ceil(grant.getEndTime()));
+                } else {
+                    grant.setEndTime(TimeRounding.truncate(grant.getEndTime()));
+                }
             }
         }
     }

@@ -146,7 +146,7 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>3.0.0</version>
+    <version>3.0.1</version>
 </dependency>
 ```
 
@@ -157,14 +157,14 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>3.0.0</version>
+    <version>3.0.1</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>3.0.0</version>
+    <version>3.0.1</version>
 </dependency>
 ```
 
@@ -178,7 +178,7 @@ Starter 自动注册内置计费规则（`dayNight`、`relativeTime`、`naturalT
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-core</artifactId>
-    <version>3.0.0</version>
+    <version>3.0.1</version>
 </dependency>
 ```
 
@@ -476,7 +476,7 @@ BillingResult result = billingTemplate.calculate(request);
 | `schemeChanges` | `List<SchemeChange>` | 条件 | 方案切换时间轴，与 `schemeId` 二选一 |
 | `segmentCalculationMode` | `BConstants.SegmentCalculationMode` | **是** | 分段计算方式：`SINGLE`（单段）/ `SEGMENT_LOCAL`（分段独立起算） |
 | `externalPromotions` | `List<PromotionGrant>` | 否 | 外部优惠列表（跨分段共享，整笔计费享一次） |
-| `timeRoundingMode` | `TimeRoundingMode` | 否 | 时间取整模式（默认 `CEIL_BEGIN_TRUNCATE_END`） |
+| `timeRoundingMode` | `TimeRoundingMode` | 否 | 时间取整模式（默认 `TRUNCATE_BOTH`） |
 | `context` | `Map<String, Object>` | 否 | 传递给 `BillingConfigResolver` 的自定义上下文参数 |
 | `disableSimplification` | `Boolean` | 否 | 精确查询时设为 true，禁用简化计算以保证完整明细 |
 | `equivalentAmountSpec` | `EquivalentAmountSpec` | 否 | 等效金额计算规格（详见[第14节](#14-优惠等效金额)） |
@@ -799,16 +799,41 @@ request.setSegmentCalculationMode(BConstants.SegmentCalculationMode.SEGMENT_LOCA
 
 > `BillingTemplate` 会复制 `BillingRequest` 并归一化副本，不会修改调用方传入的原始对象。core 内部按分钟精度计算时对秒数的截断只作为保护处理；推荐入口语义由 billing-api 的 `TimeRounding` / `BillingTemplate` 负责。
 
-引擎按**分钟精度**计费，所有时间通过 `BillingTemplate` 入口时**统一向下取整**（秒数置0）。这是一条确定性规则，不区分计费时间与优惠时间、不带业务策略：
+引擎按**分钟精度**计费。通过 `BillingTemplate` 入口时，billing-api 会先复制 `BillingRequest`，再对副本执行接入层时间归一化。
 
-- `BillingRequest.beginTime` / `endTime` / `calcEndTime` → 向下取整
-- `externalPromotions` 中 `FREE_RANGE` 的 `beginTime` / `endTime` → 向下取整
+`BillingTemplate` 当前支持两种有效模式：
 
-向下取整不会产生 `beginTime > endTime` 的倒置（最多相等 → 计费 0），无需守卫。取整后所有时间对齐到分钟，`Duration.toMinutes()` 不损失精度，不产生 0 分钟段。
+| 模式 | 计费时间 | 外部 `FREE_RANGE` 优惠时间段 |
+|------|----------|------------------------------|
+| `TRUNCATE_BOTH`（默认） | `beginTime` / `endTime` / `calcEndTime` 均向下取整 | `beginTime` / `endTime` 均向下取整 |
+| `CEIL_BEGIN_TRUNCATE_END` | `beginTime` 向上取整，`endTime` / `calcEndTime` 向下取整 | 优惠按长取：`beginTime` 向下取整，`endTime` 向上取整 |
 
-### 13.1 业务策略由调用方预处理
+当计费 `beginTime` 和 `endTime` 落在同一分钟内时，即使使用 `CEIL_BEGIN_TRUNCATE_END`，二者也都会向下取整，避免出现 `beginTime > endTime` 或负时长；结果最多是 0 分钟计费。
 
-引擎不再提供向上取整模式（原 `TimeRoundingMode` 枚举保留向后兼容，但引擎忽略，统一向下）。调用方若有「进场多算」（beginTime 向上）、「优惠尽量长」（endTime 向上）等业务需求，应在构造 `BillingRequest` 前通过 `TimeRounding` 工具自行预处理：
+### 13.1 选择取整模式
+
+默认入口保持向下取整：
+
+```java
+BillingResult result = billingTemplate.calculate(request);
+```
+
+如需「进场多算、出场不多算」并让优惠时间段尽量长，可使用 `CEIL_BEGIN_TRUNCATE_END`：
+
+```java
+BillingResult result = billingTemplate.calculate(
+        request,
+        TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+```
+
+也可以在请求对象上设置模式；请求对象上的 `timeRoundingMode` 优先于方法参数：
+
+```java
+request.setTimeRoundingMode(TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+BillingResult result = billingTemplate.calculate(request);
+```
+
+调用方仍可在构造 `BillingRequest` 前使用 `TimeRounding` 工具自行预处理特殊时间：
 
 ```java
 import cn.shang.charging.wrapper.TimeRounding;
@@ -828,18 +853,18 @@ BillingResult result = billingTemplate.calculate(request);
 
 | 方法 | 说明 |
 |------|------|
-| `TimeRounding.truncate(time)` | 向下取整（秒数置0）。billing-api 默认归一化使用 |
-| `TimeRounding.ceil(time)` | 向上取整（秒数>0 则 +1 分钟）。仅供外部预处理 |
+| `TimeRounding.truncate(time)` | 向下取整（秒数置0） |
+| `TimeRounding.ceil(time)` | 向上取整（秒数>0 则 +1 分钟） |
 
 ### 13.2 `TimeRoundingMode` 字段说明
 
-`BillingRequest.timeRoundingMode` 和 `BillingTemplate.calculate(request, mode)` 保留向后兼容，但 `BillingTemplate` 当前忽略 `mode`，始终统一向下取整。现有调用方无需移除该字段，但建议逐步迁移到外部预处理方式。
+`BillingRequest.timeRoundingMode` 和 `BillingTemplate.calculate(request, mode)` 都会影响 `BillingTemplate` 的归一化策略。为兼容旧枚举值，`KEEP_SECONDS` 和 `TRUNCATE_BEGIN_CEIL_END` 当前按 `TRUNCATE_BOTH` 处理；推荐新接入只使用 `TRUNCATE_BOTH` 或 `CEIL_BEGIN_TRUNCATE_END`。
 
 ### 13.3 直接使用 `BillingService`
 
 `BillingService` 不做接入层取整，直接使用时应自行保证时间对齐到分钟（或接受 core 内部 `toMinutes()` 的防御性秒数截断）。推荐通过 `BillingTemplate` 入口，由 billing-api 统一归一化。
 
-> 注：引擎内部计算（边界驱动循环、免费分钟分配等）均按分钟精度。统一向下取整后秒数为0，`toMinutes()` 精确，无 0 分钟段与精度损失问题。
+> 注：引擎内部计算（边界驱动循环、免费分钟分配等）均按分钟精度。通过 `BillingTemplate` 归一化后秒数为0，`toMinutes()` 精确，无精度损失问题。
 
 ---
 
@@ -1104,10 +1129,10 @@ Spring Boot starter 当前可通过自定义 `BillingRuleRegistry` bean 注册�
 
 | 值 | 说明 |
 |------|------|
-| `KEEP_SECONDS` | 保留秒数 |
-| `TRUNCATE_BOTH` | 起止时间均去秒 |
-| `CEIL_BEGIN_TRUNCATE_END` | 开始向上取整，结束去秒（默认） |
-| `TRUNCATE_BEGIN_CEIL_END` | 开始去秒，结束向上取整 |
+| `KEEP_SECONDS` | 兼容旧值，`BillingTemplate` 当前按 `TRUNCATE_BOTH` 处理 |
+| `TRUNCATE_BOTH` | 默认：计费时间和外部 `FREE_RANGE` 优惠时间均向下取整 |
+| `CEIL_BEGIN_TRUNCATE_END` | 计费开始向上、计费结束向下；外部 `FREE_RANGE` 开始向下、结束向上 |
+| `TRUNCATE_BEGIN_CEIL_END` | 兼容旧值，`BillingTemplate` 当前按 `TRUNCATE_BOTH` 处理 |
 
 ### FreeTimeRangeType
 

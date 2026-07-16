@@ -47,7 +47,7 @@ public class BillingRequest {
     /**
      * 时间取整模式（可选）
      * 用于处理开始/结束时间中的秒数
-     * 不设置时，在 BillingTemplate.calculate 中默认使用 CEIL_BEGIN_TRUNCATE_END
+     * 不设置时，在 BillingTemplate.calculate 中默认使用 TRUNCATE_BOTH
      */
     private TimeRoundingMode timeRoundingMode;
 

@@ -34,7 +34,7 @@ class BillingTemplateFacadeTest {
                 LocalDateTime.of(2026, 7, 15, 10, 30, 20));
         request.setExternalPromotions(List.of(grant));
 
-        BillingRequest normalized = template.normalize(request, TimeRoundingMode.KEEP_SECONDS);
+        BillingRequest normalized = template.normalize(request, TimeRoundingMode.TRUNCATE_BOTH);
 
         assertNotSame(request, normalized);
         assertNotSame(request.getExternalPromotions().get(0), normalized.getExternalPromotions().get(0));
@@ -45,6 +45,51 @@ class BillingTemplateFacadeTest {
 
         assertEquals(LocalDateTime.of(2026, 7, 15, 9, 0, 30), request.getBeginTime());
         assertEquals(LocalDateTime.of(2026, 7, 15, 10, 0, 15), request.getExternalPromotions().get(0).getBeginTime());
+    }
+
+    @Test
+    void normalize_ceilBeginTruncateEnd_narrowsBillingAndWidensFreeRange() {
+        BillingTemplate template = BillingTemplate.create(resolver(List.of()));
+        BillingRequest request = request(
+                LocalDateTime.of(2026, 7, 15, 9, 0, 30),
+                LocalDateTime.of(2026, 7, 15, 11, 0, 45));
+        request.setExternalPromotions(List.of(freeRange(
+                LocalDateTime.of(2026, 7, 15, 10, 0, 15),
+                LocalDateTime.of(2026, 7, 15, 10, 30, 20))));
+
+        BillingRequest normalized = template.normalize(request, TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+
+        assertEquals(LocalDateTime.of(2026, 7, 15, 9, 1), normalized.getBeginTime());
+        assertEquals(LocalDateTime.of(2026, 7, 15, 11, 0), normalized.getEndTime());
+        assertEquals(LocalDateTime.of(2026, 7, 15, 10, 0), normalized.getExternalPromotions().get(0).getBeginTime());
+        assertEquals(LocalDateTime.of(2026, 7, 15, 10, 31), normalized.getExternalPromotions().get(0).getEndTime());
+    }
+
+    @Test
+    void normalize_requestModeOverridesMethodMode() {
+        BillingTemplate template = BillingTemplate.create(resolver(List.of()));
+        BillingRequest request = request(
+                LocalDateTime.of(2026, 7, 15, 9, 0, 30),
+                LocalDateTime.of(2026, 7, 15, 11, 0, 45));
+        request.setTimeRoundingMode(TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+
+        BillingRequest normalized = template.normalize(request, TimeRoundingMode.TRUNCATE_BOTH);
+
+        assertEquals(LocalDateTime.of(2026, 7, 15, 9, 1), normalized.getBeginTime());
+        assertEquals(LocalDateTime.of(2026, 7, 15, 11, 0), normalized.getEndTime());
+    }
+
+    @Test
+    void normalize_ceilBeginTruncateEnd_sameMinuteFallsBackToTruncateBoth() {
+        BillingTemplate template = BillingTemplate.create(resolver(List.of()));
+        BillingRequest request = request(
+                LocalDateTime.of(2026, 7, 15, 10, 30, 30),
+                LocalDateTime.of(2026, 7, 15, 10, 30, 50));
+
+        BillingRequest normalized = template.normalize(request, TimeRoundingMode.CEIL_BEGIN_TRUNCATE_END);
+
+        assertEquals(LocalDateTime.of(2026, 7, 15, 10, 30), normalized.getBeginTime());
+        assertEquals(LocalDateTime.of(2026, 7, 15, 10, 30), normalized.getEndTime());
     }
 
     @Test
