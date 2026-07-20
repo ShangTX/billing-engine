@@ -146,7 +146,7 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-api</artifactId>
-    <version>3.0.1</version>
+    <version>3.0.2</version>
 </dependency>
 ```
 
@@ -157,14 +157,14 @@ README 只作为项目入口；完整接入方式、API 契约和字段语义以
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v3-spring-boot-starter</artifactId>
-    <version>3.0.1</version>
+    <version>3.0.2</version>
 </dependency>
 
 <!-- Spring Boot 3.5.x - 4.x -->
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-v4-spring-boot-starter</artifactId>
-    <version>3.0.1</version>
+    <version>3.0.2</version>
 </dependency>
 ```
 
@@ -178,7 +178,7 @@ Starter 自动注册内置计费规则（`dayNight`、`relativeTime`、`naturalT
 <dependency>
     <groupId>io.github.shangtx</groupId>
     <artifactId>billing-core</artifactId>
-    <version>3.0.1</version>
+    <version>3.0.2</version>
 </dependency>
 ```
 
