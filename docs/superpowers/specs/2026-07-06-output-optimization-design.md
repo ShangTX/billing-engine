@@ -39,7 +39,7 @@
 |--------|------------|
 | `PromotionAggregateUtil.buildFreeRangeUsages`（FREE_RANGE） | `FreeTimeRange.source` |
 | `FreeMinuteAllocator`（FREE_MINUTES） | `FreeMinutes.source` |
-| `DurationGlobalStrategy.allocateSmartFreeMinutes`（SMART_FREE_MINUTES） | `FreeMinutes.source` |
+| `DurationGlobalStrategy` 价格感知 FREE_MINUTES 分配 | `FreeMinutes.source` |
 
 `FreeMinutes` 加 `private BConstants.PromotionSource source;`，`PromotionEngine.convertMinutesFromRule` 透传 `grant.getSource()`。
 

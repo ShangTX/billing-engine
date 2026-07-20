@@ -17,7 +17,7 @@ import java.util.Set;
  *   <li>{@code promotionIds == null}：不限优惠 id（所有优惠参与）</li>
  *   <li>{@code promotionIds != null}：仅指定 id 的优惠参与</li>
  *   <li>{@code types == null}：不限优惠类型</li>
- *   <li>{@code types != null}：仅指定类型的优惠参与（如 FREE_RANGE / FREE_MINUTES / SMART_FREE_MINUTES）</li>
+ *   <li>{@code types != null}：仅指定类型的优惠参与（如 FREE_RANGE / FREE_MINUTES）</li>
  * </ul>
  * 两个维度取交集。
  */

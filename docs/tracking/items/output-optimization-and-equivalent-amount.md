@@ -24,7 +24,7 @@ completed_git: 87e5ef9
 
 ## 目标
 
-- `PromotionUsage` 透传 `source`（RULE/COUPON），从 `FreeTimeRange.source` / `FreeMinutes.source` / SMART 来源透传。
+- `PromotionUsage` 透传 `source`（RULE/COUPON），从 `FreeTimeRange.source` / `FreeMinutes.source` 透传。
 - `BillingResult.promotionUsages[i].equivalentAmount` 在请求指定等效金额计算时回填消去法结果（覆盖策略侧的"原价之和"近似值）。
 - 等效金额多段 + 外部优惠修复：`calculateWithContexts` 重新 `PromotionEngine.evaluate`（externalPool reset + 重新聚合），`cloneAndExclude` 改在源层（externalPromotions / promotionRules 按 id 排除）排除。
 - 废弃 `GLOBAL_ORIGIN`：删枚举值、`clipBegin/clipEnd`、工厂分支、`validateGlobalOrigin`、`GlobalOriginGuardTest`；保留 `SEGMENT_LOCAL` 作为扩展点；`segmentCalculationMode` 字段保留。
@@ -35,7 +35,7 @@ completed_git: 87e5ef9
 
 ### 包含
 
-- `PromotionUsage` 加 `source` 字段 + 三处 usage 产出点透传（FREE_RANGE / FREE_MINUTES / SMART_FREE_MINUTES）。
+- `PromotionUsage` 加 `source` 字段 + usage 产出点透传（FREE_RANGE / FREE_MINUTES）。
 - `FreeMinutes` 加 `source` 字段（透传 RULE / COUPON）。
 - `PromotionEngine.convertMinutesFromRule` 透传 `source`。
 - `EquivalentAmountSpec` 新建 POJO + `BillingRequest.equivalentAmountSpec` 字段。

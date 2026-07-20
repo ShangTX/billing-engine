@@ -16,9 +16,9 @@ import java.util.Set;
  * <p>
  * 由 {@code PromotionEngine.evaluate()} 产出，是免费时段、免费分钟数的组合快照。
  * 引擎以本对象为输入，策略侧按需消费（CONTINUOUS/UNIT_BASED 时段化 FREE_MINUTES，
- * DURATION_GLOBAL 优先高价分配 SMART_FREE_MINUTES）。
+ * DURATION_GLOBAL 额外支持价格感知的 FREE_MINUTES 分配模式）。
  * <p>
- * 本对象为规范中间形式：FREE_RANGE 已合并，FREE_MINUTES/SMART_FREE_MINUTES 未时段化（策略侧负责）。
+ * 本对象为规范中间形式：FREE_RANGE 已合并，FREE_MINUTES 未时段化（策略侧负责）。
  * <p>
  * AMOUNT/DISCOUNT（金额减免/折扣）已移出引擎，由业务系统在最终金额上自行结算。
  */
@@ -30,12 +30,10 @@ public class PromotionAggregate {
 
     /** 已合并的免费时间段列表（仅 FREE_RANGE，FREE_MINUTES 不在此处时段化） */
     List<FreeTimeRange> freeTimeRanges;
-    /** 总免费分钟数（= freeMinutesList 求和，供简化计算快速判定用，SMART_FREE_MINUTES 不计入） */
+    /** 总免费分钟数（= freeMinutesList 求和，供简化计算快速判定用） */
     long freeMinutes;
     /** 未时段化的 FREE_MINUTES 列表（策略侧调用 FreeMinuteAllocator 时段化） */
     List<FreeMinutes> freeMinutesList;
-    /** 未时段化的 SMART_FREE_MINUTES 列表（标量透传，仅 DurationGlobalStrategy 按优先高价消费） */
-    List<FreeMinutes> smartFreeMinutesList;
 
     /** 等效金额（仅统计，不参与计费计算；可由策略侧按需设置） */
     BigDecimal equivalentAmount;
@@ -48,8 +46,7 @@ public class PromotionAggregate {
     public boolean isEmpty() {
         return (freeTimeRanges == null || freeTimeRanges.isEmpty())
                 && freeMinutes <= 0
-                && (freeMinutesList == null || freeMinutesList.isEmpty())
-                && (smartFreeMinutesList == null || smartFreeMinutesList.isEmpty());
+                && (freeMinutesList == null || freeMinutesList.isEmpty());
     }
 
     /**
@@ -66,9 +63,6 @@ public class PromotionAggregate {
         }
         if (freeMinutes > 0) {
             types.add(BConstants.PromotionType.FREE_MINUTES);
-        }
-        if (smartFreeMinutesList != null && !smartFreeMinutesList.isEmpty()) {
-            types.add(BConstants.PromotionType.SMART_FREE_MINUTES);
         }
         return types.size() > 1;
     }
@@ -90,9 +84,6 @@ public class PromotionAggregate {
         }
         if (freeMinutes > 0) {
             types.add(BConstants.PromotionType.FREE_MINUTES);
-        }
-        if (smartFreeMinutesList != null && !smartFreeMinutesList.isEmpty()) {
-            types.add(BConstants.PromotionType.SMART_FREE_MINUTES);
         }
         return types.size() == 1;
     }

@@ -18,7 +18,7 @@ https://gitee.com/shtx/charge/tree/master/bill-test/src/main/java/cn/shang/charg
 - 5 built-in rule types: `dayNight`, `relativeTime`, `naturalTime`, `compositeTime`, `flatFree`
 - 4 calculation modes: `CONTINUOUS`, `UNIT_BASED`, `DURATION_PERIOD`, `DURATION_GLOBAL`
 - Incomplete-unit charging via unified `IncompleteUnitChargeSpec`
-- Promotions: free time ranges, free minutes, smart free minutes, and conditional activation for duration modes
+- Promotions: free time ranges, free minutes with allocation modes, and conditional activation for duration modes
 - Detailed billing units for audit and debugging
 - Scheme switching over time (multi-segment billing)
 - Query-time equivalent amount calculation via elimination method

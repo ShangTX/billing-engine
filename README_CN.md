@@ -18,7 +18,7 @@ https://gitee.com/shtx/charge/tree/master/bill-test/src/main/java/cn/shang/charg
 - 5 种内置规则：`dayNight`、`relativeTime`、`naturalTime`、`compositeTime`、`flatFree`
 - 4 种计算模式：`CONTINUOUS`、`UNIT_BASED`、`DURATION_PERIOD`、`DURATION_GLOBAL`
 - 通过统一的 `IncompleteUnitChargeSpec` 配置不足单元计费
-- 优惠系统：免费时段、免费分钟数、智能免费分钟，以及时长模式下的条件生效
+- 优惠系统：免费时段、免费分钟数分配策略，以及时长模式下的条件生效
 - 完整计费明细，支持审计和调试
 - 方案切换（多段计费）
 - 优惠等效金额计算（消去法）

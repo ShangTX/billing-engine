@@ -17,7 +17,7 @@
 - [ ] `FreeTimeRangeMerger.preprocessRanges` + 各处构造保留 `source`（processedRange / discarded）
 - [ ] `PromotionAggregateUtil.buildFreeRangeUsages` 透传 `range.getSource()` 到 usage
 - [ ] `FreeMinuteAllocator` FREE_MINUTES usage 透传 `currentFreeMinutes.getSource()`
-- [ ] `DurationGlobalStrategy.allocateSmartFreeMinutes` SMART usage 透传 `smart.getSource()`
+- [ ] `DurationGlobalStrategy` 价格感知 FREE_MINUTES usage 透传 `minutes.getSource()`
 
 ## 阶段 3: 废弃 GLOBAL_ORIGIN
 

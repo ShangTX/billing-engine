@@ -89,7 +89,7 @@
 - 支持继续计算（从已有结果继续）
 - 支持计费分段（规则可随时间变化）
 - 支持 4 种计算模式（CONTINUOUS/UNIT_BASED/DURATION_PERIOD/DURATION_GLOBAL），4 规则族按 `supportedCalculationModes` 声明即支持
-- 支持可组合规则和多种优惠类型（FREE_RANGE、FREE_MINUTES、SMART_FREE_MINUTES）
+- 支持可组合规则和优惠能力（FREE_RANGE、FREE_MINUTES 及分钟分配模式）
 
 ---
 
@@ -130,7 +130,7 @@ BillingService.calculate()
 - `BillingContext` - 计算上下文
 - `IncompleteUnitChargeSpec` - 不足单元计费配置对象（mode + thresholdMinutes + thresholdRatio），内置规则 Config 优先读取，旧散字段兼容
 - `BillingRule` / `PromotionRule` - 规则接口（新增规则时实现）；`BillingRule.supportedCalculationModes()` 声明支持的模式
-- `PromotionAggregate` - 聚合免费时段与免费分钟（含 `smartFreeMinutesList` 标量透传）
+- `PromotionAggregate` - 聚合免费时段与免费分钟（`FREE_MINUTES` 通过 `allocationMode` 控制分配策略）
 - `RuleSemantics` - 层 0，规则族语义接口（周期/时段/单元边界 provider + 价格函数 + 封顶配置 + 周期切换判定）；各规则族实现自己的 `*Semantics`
 - `BoundaryDrivenLoop` - 层 1，纯调度原语（`run` 入口），CONTINUOUS 与时长策略共享；UNIT_BASED 不走该层
 - `ContinuousStrategy` / `DurationPeriodStrategy` / `DurationGlobalStrategy` - 层 2 ModeStrategy（共享静态工具，接收 `RuleSemantics`）；`DayNightUnitBasedStrategy` 承载 UNIT_BASED
@@ -212,7 +212,7 @@ BillingService.calculate()
 | `CONTINUOUS` | 边界驱动循环为唯一计算路径：找最近边界跳过去，每次迭代产出一个同质段，compact 单元为自然产物 |
 | `UNIT_BASED` | 固定单元对齐 + 完整覆盖才免费，不走边界驱动公共循环；当前仅 `dayNight` 门面下 `DayNightUnitBasedStrategy` 承载 |
 | `DURATION_PERIOD` | 周期内时长计费，周期封顶 + 时段封顶，产出 `DurationSegment` |
-| `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘，产出 `DurationSegment`；唯一消费 `SMART_FREE_MINUTES` 的模式 |
+| `DURATION_GLOBAL` | 全局时长计费，封顶按周期数倍乘，产出 `DurationSegment`；支持价格感知的 `FREE_MINUTES` 分配模式 |
 
 4 个规则族通过 `BillingRule.supportedCalculationModes()` 声明支持的模式：
 
@@ -232,7 +232,7 @@ BillingService.calculate()
 |------|------|
 | `FREE_RANGE` | 免费时间段（如 01:00-04:00 免费） |
 | `FREE_MINUTES` | 免费分钟数（在时间窗口起点附近分配，前置时段化） |
-| `SMART_FREE_MINUTES` | 智能免费分钟数，仅 `DURATION_GLOBAL` 模式消费，规则侧按单价降序优先高价分配；非 GLOBAL 模式报错；与 `FREE_MINUTES` 共用 `freeMinutes` 字段，按 `priority` 排序各自分配 |
+| `FREE_MINUTES` | 免费分钟数；默认 `allocationMode=FROM_START` 从窗口起点附近分配；`DURATION_GLOBAL` 额外支持 `CHARGED_TIME`（按时间顺序填充单价大于 0 的收费时段）和 `HIGHEST_PRICE`（高价优先）；多个免费分钟按 `priority` 排序逐条分配 |
 
 ---
 

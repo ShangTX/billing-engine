@@ -32,7 +32,7 @@ public class FreeTimeRange {
     /** 优先级（数字越小优先级越高，高优先级覆盖低优先级） */
     private int priority;
 
-    /** 优惠类型（FREE_RANGE / FREE_MINUTES / SMART_FREE_MINUTES） */
+    /** 优惠类型（FREE_RANGE / FREE_MINUTES） */
     private BConstants.PromotionType promotionType;
 
     /**

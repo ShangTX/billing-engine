@@ -13,19 +13,16 @@ import java.util.List;
 /**
  * 优惠计算engine
  * <p>
- * 支持三种免费类优惠类型：
+ * 支持两种免费类优惠类型：
  * - FREE_RANGE: 免费时间段
- * - FREE_MINUTES: 免费分钟数（从窗口起点顺序分配）
- * - SMART_FREE_MINUTES: 智能免费分钟数（仅 DURATION_GLOBAL 消费，按单价降序优先高价分配）
+ * - FREE_MINUTES: 免费分钟数（通过 allocationMode 控制分配策略）
  * <p>
  * AMOUNT/DISCOUNT（金额减免/折扣）已移出引擎，由业务系统在最终金额上自行结算。
  * <p>
  * TODO-20260702-004：FREE_MINUTES 时段化下放到策略侧。本引擎只产出规范中间形式
- * （合并后的 FREE_RANGE 时段 + 未时段化的 FREE_MINUTES / SMART_FREE_MINUTES 列表），
- * 不再集中时段化。CONTINUOUS/UNIT_BASED/PERIOD 策略自行时段化 FREE_MINUTES，
- * DurationGlobalStrategy 按优先高价分配 SMART_FREE_MINUTES，其余模式遇 SMART_FREE_MINUTES 报错。
+ * （合并后的 FREE_RANGE 时段 + 未时段化的 FREE_MINUTES 列表），
+ * 不再集中时段化，策略侧按 allocationMode 消费 FREE_MINUTES。
  * PromotionUsage 与 PromotionCarryOver 由策略侧产出。
- * TODO-20260706-002 阶段5：SMART_FREE_MINUTES 标量透传。
  */
 @AllArgsConstructor
 public class PromotionEngine {
@@ -39,7 +36,6 @@ public class PromotionEngine {
         CalculationWindow window = context.getWindow();
         List<FreeTimeRange> timeRangePromotions = new ArrayList<>();
         List<FreeMinutes> freeMinutesPromotions = new ArrayList<>();
-        List<FreeMinutes> smartFreeMinutesPromotions = new ArrayList<>();
 
         // 2.1 来自优惠规则（按方案 + 时间段）
         for (PromotionRuleConfig ruleConfig : context.getPromotionRules()) {
@@ -50,9 +46,6 @@ public class PromotionEngine {
                 }
                 if (grant.getType() == BConstants.PromotionType.FREE_MINUTES) {
                     freeMinutesPromotions.add(convertMinutesFromRule(grant));
-                }
-                if (grant.getType() == BConstants.PromotionType.SMART_FREE_MINUTES) {
-                    smartFreeMinutesPromotions.add(convertMinutesFromRule(grant));
                 }
             });
         }
@@ -66,32 +59,26 @@ public class PromotionEngine {
                 if (externalPromotion.getType() == BConstants.PromotionType.FREE_MINUTES) {
                     freeMinutesPromotions.add(convertMinutesFromRule(externalPromotion));
                 }
-                if (externalPromotion.getType() == BConstants.PromotionType.SMART_FREE_MINUTES) {
-                    smartFreeMinutesPromotions.add(convertMinutesFromRule(externalPromotion));
-                }
             }
         }
 
-        // 3️⃣ 合并显式免费时间段（FREE_RANGE；FREE_MINUTES / SMART_FREE_MINUTES 不在此处时段化）
+        // 3️⃣ 合并显式免费时间段（FREE_RANGE；FREE_MINUTES 不在此处时段化）
         TimeRangeMergeResult rangeMergeResult = freeTimeRangeMerger.merge(
                 timeRangePromotions,
                 context.getBeginTime(),
                 context.getEndTime());
         List<FreeTimeRange> explicitFreeRanges = rangeMergeResult.getMergedRanges();
 
-        // 计算总免费分钟数（用于简化计算判断；SMART_FREE_MINUTES 不计入，仅标量透传）
         long totalFreeMinutes = freeMinutesPromotions.stream()
                 .mapToLong(fm -> fm.getMinutes())
                 .sum();
 
-        // 产出规范中间形式：FREE_RANGE 时段 + 未时段化 FREE_MINUTES / SMART_FREE_MINUTES 列表。
-        // FREE_MINUTES 时段化、SMART_FREE_MINUTES 优先高价分配、PromotionUsage 由策略侧产出。
-        // TODO-20260706-002 阶段5：SMART_FREE_MINUTES 标量透传，仅 DurationGlobalStrategy 消费。
+        // 产出规范中间形式：FREE_RANGE 时段 + 未时段化 FREE_MINUTES 列表。
+        // FREE_MINUTES 分配和 PromotionUsage 由策略侧产出。
         return PromotionAggregate.builder()
                 .freeTimeRanges(explicitFreeRanges)
                 .freeMinutes(totalFreeMinutes)
                 .freeMinutesList(freeMinutesPromotions)
-                .smartFreeMinutesList(smartFreeMinutesPromotions)
                 .build();
     }
 
@@ -141,6 +128,7 @@ public class PromotionEngine {
         return FreeMinutes.builder()
                 .id(grant.getId())
                 .minutes(grant.getFreeMinutes())
+                .allocationMode(grant.getAllocationMode())
                 .priority(grant.getPriority())
                 .source(grant.getSource())
                 .activationMode(grant.getActivationMode())

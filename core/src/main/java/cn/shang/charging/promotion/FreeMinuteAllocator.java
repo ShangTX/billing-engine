@@ -16,9 +16,12 @@ import java.util.stream.Stream;
 /**
  * FREE_MINUTES 时段化工具（TODO-20260702-004：从 PromotionEngine 下放到策略侧）。
  * <p>
- * 把 FREE_MINUTES（分钟数标量）分配到计算窗口内非 FREE_RANGE 的空隙，转为具体时间段。
- * 策略侧（CONTINUOUS/UNIT_BASED/PERIOD）调用 {@link #allocateAndMerge} 获得最终免费段与 usage；
- * GLOBAL 策略不时段化，按分钟扣减 chargedMinutes。
+ * 把 FROM_START 模式的 FREE_MINUTES（分钟数标量）分配到计算窗口内非 FREE_RANGE 的空隙，
+ * 转为具体时间段。策略侧（CONTINUOUS/UNIT_BASED/DURATION_PERIOD）调用
+ * {@link #allocateAndMerge} 获得最终免费段与 usage。
+ * <p>
+ * DURATION_GLOBAL 需要支持 CHARGED_TIME / HIGHEST_PRICE 等价格感知分配，因此在
+ * {@code DurationGlobalStrategy} 内使用规则私有价格语义独立分配。
  */
 public class FreeMinuteAllocator {
 

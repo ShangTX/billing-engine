@@ -35,8 +35,6 @@ import java.util.Set;
  */
 final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConfig> {
 
-    private static final int MINUTES_PER_CYCLE = 1440; // 24小时
-
     private final NaturalTimePeriodResolver periodResolver = new NaturalTimePeriodResolver();
     private final NaturalTimeCrossPeriodPriceResolver priceResolver = new NaturalTimeCrossPeriodPriceResolver();
     private final NaturalTimeSemantics naturalTimeSemantics = new NaturalTimeSemantics();
@@ -138,32 +136,7 @@ final class NaturalTimeContinuousStrategy implements BillingRule<NaturalTimeConf
             throw new IllegalArgumentException("unitMinutes 必须大于 0");
         }
 
-        validatePeriodsCoverage(config.getPeriods());
-    }
-
-    private void validatePeriodsCoverage(List<NaturalPeriod> periods) {
-        int totalCovered = 0;
-        int prevEnd = 0;
-
-        for (int i = 0; i < periods.size(); i++) {
-            NaturalPeriod period = periods.get(i);
-
-            if (i > 0 && period.getBeginMinute() != prevEnd) {
-                throw new IllegalArgumentException("时段不连续");
-            }
-
-            if (period.getBeginMinute() < period.getEndMinute()) {
-                totalCovered += period.getEndMinute() - period.getBeginMinute();
-            } else {
-                totalCovered += (MINUTES_PER_CYCLE - period.getBeginMinute()) + period.getEndMinute();
-            }
-
-            prevEnd = period.getEndMinute();
-        }
-
-        if (totalCovered != MINUTES_PER_CYCLE) {
-            throw new IllegalArgumentException("时段未覆盖全天");
-        }
+        NaturalPeriodSupport.validateFullDayCoverage(config.getPeriods());
     }
 
     /**

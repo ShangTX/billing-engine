@@ -23,7 +23,7 @@ https://gitee.com/shtx/charge/tree/master/bill-test/src/main/java/cn/shang/charg
 路径 A 不适合：
 
 - 希望一个规则族天然支持 `DURATION_PERIOD` / `DURATION_GLOBAL`。
-- 希望复用周期封顶、时段封顶、SMART_FREE_MINUTES 等完整公共语义。
+- 希望复用周期封顶、时段封顶、价格感知 FREE_MINUTES 分配等完整公共语义。
 - 规则本质是新的通用时间规则族。此类规则后续应评估 `RuleSemantics` 路径。
 
 ## 示例规则：高峰/平峰按比例计费
@@ -359,7 +359,7 @@ public RuleConfig resolveChargingRule(String schemeId,
 ## 后续方向
 
 如果一个自定义规则只是普通的时间规则族，并希望复用通用周期封顶、时段封顶、
-`SMART_FREE_MINUTES` 等能力，应评估 `RuleSemantics` 路径，让时长模式复用
+价格感知 `FREE_MINUTES` 分配等能力，应评估 `RuleSemantics` 路径，让时长模式复用
 `DurationPeriodStrategy` 和 `DurationGlobalStrategy`。
 
 如果规则像 `progressiveDailyCap` 一样带有强业务私有语义，例如非线性的累计总封顶曲线，

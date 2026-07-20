@@ -55,7 +55,9 @@
 
 **spec 3.3 范畴错误**:从"封顶不需时间位置"正确推出"金额不需时段化",却错误推广到"明细也不需时段化"。封顶确实不需时间位置(GLOBAL 全局倍乘),但明细产出需要(保证段同质)。
 
-**2026-07-15 修订**:GLOBAL 仍需先把 `FREE_MINUTES` / `SMART_FREE_MINUTES` 物化为免费时段,用于边界驱动切割、优惠用量追踪和收费分钟扣除;但最终 `DurationSegment` 不再按时间轴落免费段,而是只输出收费汇总桶。免费原因与使用分钟统一通过 `PromotionUsage` 表达。
+**2026-07-15 修订**:GLOBAL 仍需先把 `FREE_MINUTES` 物化为免费时段,用于边界驱动切割、优惠用量追踪和收费分钟扣除;但最终 `DurationSegment` 不再按时间轴落免费段,而是只输出收费汇总桶。免费原因与使用分钟统一通过 `PromotionUsage` 表达。
+
+**2026-07-17 修订**:取消独立的价格感知免费分钟类型,统一改为 `FREE_MINUTES + allocationMode`。默认 `FROM_START` 保持原“前 N 分钟免费”语义；`CHARGED_TIME` 按时间顺序填充未被免费占用且单价大于 0 的收费时段；`HIGHEST_PRICE` 显式开启高价优先。价格感知分配仅在 `DURATION_GLOBAL` 支持。
 
 ### 3.2 FREE_MINUTES 处理的分层
 
@@ -70,14 +72,17 @@
 
 **关键约束**:CONTINUOUS 模式的"边界驱动切断"语义要求免费段参与边界驱动(前置),后置会退化为 UNIT_BASED 的"完整覆盖"语义。因此 FREE_MINUTES 处理必须**前置**(所有模式统一前置),不支持后置两阶段。
 
-### 3.3 优先高价(智能免费)的实现
+### 3.3 FREE_MINUTES 分配模式与高价优先开关
 
-"优先覆盖高费用时段"需要价格信息(规则私有)。两种实现方式:
+免费分钟统一使用 `PromotionType.FREE_MINUTES` 表达，分配差异由 `allocationMode` 承载：
 
-- **priceFunction 注入公共 allocator**:违反 spec 3.3"聚合层不预知规则"原则,把规则价格语义拉进优惠分配层
-- **SMART_FREE_MINUTES 类型 + 规则侧分配**(采用):优惠层只透传标量,规则侧消费时用自己的 config 价格信息分配,完全符合分层
+- `FROM_START`:默认值，按窗口起点向后填充未被免费占用的空隙，对应“前 N 分钟免费”
+- `CHARGED_TIME`:自动填充非免费且单价大于 0 的收费时段，按时间顺序消费
+- `HIGHEST_PRICE`:自动填充非免费且单价大于 0 的收费时段，按单价降序消费
 
-采用后者。优先高价仅 GLOBAL 模式实现(GLOBAL 后置可控、封顶全局倍乘不与分配交互,复杂度低;其余模式需处理单元截断/周期封顶交互,复杂度超主功能比例)。
+"优先覆盖高费用时段"仍是一个可选增强能力,它需要价格信息(规则私有)。价格感知分配不放入公共 `FreeMinuteAllocator`，而是由 `DURATION_GLOBAL` 策略在规则侧使用 `RuleSemantics.priceAt` 实现，避免把规则价格语义拉进优惠聚合层。
+
+`CHARGED_TIME` / `HIGHEST_PRICE` 仅在 `DURATION_GLOBAL` 支持。其余模式若接收到价格感知分配模式，统一报错；普通 `FROM_START` 免费分钟仍走前置时段化。
 
 ## 4. 设计目标
 
@@ -121,7 +126,7 @@ interface RuleSemantics<C extends RuleConfig> {
     BoundaryProvider periodBoundaryProvider(C config);
     BoundaryProvider unitAlignmentProvider(C config);
 
-    // 价格函数(段构造 + SMART_FREE_MINUTES 分配用)
+    // 价格函数(段构造 + 价格感知 FREE_MINUTES 分配用)
     BigDecimal priceAt(LocalDateTime time, C config);
 
     // 时段标签与封顶
@@ -151,7 +156,7 @@ interface RuleSemantics<C extends RuleConfig> {
 | ContinuousStrategy | BillingUnit | 边界驱动切断 + compact + 简化 + 不足单元 | 前置时段化(起点) |
 | UnitBasedStrategy | BillingUnit | 固定单元对齐 + 完整覆盖才免费 | 前置时段化(起点) |
 | DurationPeriodStrategy | DurationSegment | 周期边界 + 周期内累计封顶 | 前置时段化(起点) |
-| DurationGlobalStrategy | DurationSegment | 同质收费桶汇总 + 完整周期/尾周期分别封顶 + SMART_FREE_MINUTES | 前置时段化(起点)+ SMART_FREE_MINUTES 规则侧分配 |
+| DurationGlobalStrategy | DurationSegment | 同质收费桶汇总 + 完整周期/尾周期分别封顶 + 价格感知 FREE_MINUTES | FROM_START + 价格感知 FREE_MINUTES 规则侧分配 |
 
 `ContinuousStrategy` 持有**唯一一份** `applyCapAndAccumulate`(通用),周期切换通过 `RuleSemantics.isCycleBoundary` 注入,periodCap 通过 `periodLabeler` 注入(CompositeTime 提供,其余返回 null)。4 份重复消除为 1 份。
 
@@ -171,23 +176,23 @@ enum CalculationMode {
 
 影响:`resolveBillingMode` + `resolveDurationMode` → `resolveCalculationMode`(一次解析);`supportedModes` + `supportedDurationModes` → `supportedCalculationModes`(一个声明);门面 `calculate` 一个 `switch(mode)`;`BillingService` 消除"白解析"。
 
-### 5.5 SMART_FREE_MINUTES(决策 D)
+### 5.5 FREE_MINUTES allocationMode(决策 D 修订)
 
-新增优惠类型 `SMART_FREE_MINUTES`,与 `FREE_MINUTES` 并列:
+不新增优惠类型，所有免费分钟统一保留为 `FREE_MINUTES`，通过 `allocationMode` 控制分配:
 
-- **聚合层**:`SMART_FREE_MINUTES` 作为标量透传,不时段化
-- **FreeMinuteAllocator**:只处理 `FREE_MINUTES`(从窗口起点),零改动
-- **DurationGlobalStrategy 消费**:用 `RuleSemantics.priceAt` 知各时段单价,按优先高价分配 `SMART_FREE_MINUTES` 到高价时段,产出免费段
-- **非 GLOBAL 模式**:遇到 `SMART_FREE_MINUTES` 报错(与 `BillingCalculator` 现有"不支持即抛异常"语义一致)
-- **同时存在**:普通 `FREE_MINUTES` + `SMART_FREE_MINUTES` 按 `priority` 排序,各自分配,跳过已占用时段
+- **聚合层**:`FREE_MINUTES` 作为标量透传；`allocationMode` 原样保留
+- **FreeMinuteAllocator**:只处理默认 `FROM_START`，用于 CONTINUOUS / UNIT_BASED / DURATION_PERIOD
+- **DurationGlobalStrategy 消费**:统一处理所有 `FREE_MINUTES`；`FROM_START` 按窗口起点填充，`CHARGED_TIME` 按时间顺序填充正价收费时段，`HIGHEST_PRICE` 按单价降序填充正价收费时段
+- **非 GLOBAL 模式**:遇到 `CHARGED_TIME` / `HIGHEST_PRICE` 报错(与 `BillingCalculator` 现有"不支持即抛异常"语义一致)
+- **同时存在**:多条 `FREE_MINUTES` 按 `priority` 排序,各自分配,跳过已占用时段
 
-`SMART_FREE_MINUTES` 的分配逻辑(在 `DurationGlobalStrategy` 内):
+价格感知 `FREE_MINUTES` 的分配逻辑(在 `DurationGlobalStrategy` 内):
 
 ```
 1. 用 periodBoundaryProvider + priceAt 把窗口切成同价时段
-2. 按单价降序排序时段
-3. 从高价时段消费 SMART_FREE_MINUTES,产出免费段(从时段起点切)
-4. 与普通免费段(FREE_RANGE + FREE_MINUTES 时段化)合并,参与边界驱动
+2. `CHARGED_TIME` 按时间顺序消费时段;`HIGHEST_PRICE` 按单价降序排序时段
+3. 从目标时段消费 FREE_MINUTES,产出免费段(从时段内首个未占用点切)
+4. 与显式免费段(FREE_RANGE)和其他免费分钟生成段合并,参与边界驱动
 ```
 
 复杂度锁定在 GLOBAL 模式内,符合"增强功能复杂度不超过主功能比例"原则。
@@ -240,8 +245,8 @@ SegmentContext resolveSegmentContext(
 | 产出结构 | BillingUnit | BillingUnit | DurationSegment | DurationSegment |
 | 切分模型 | 边界驱动切断 | 固定单元对齐 | 边界驱动分钟流 | 边界驱动分钟流 |
 | 公共调度层 | 用 | 不用 | 用 | 用 |
-| FREE_MINUTES 处理 | 前置时段化(起点) | 前置时段化(起点) | 前置时段化(起点) | 前置时段化(起点)+ SMART_FREE_MINUTES |
-| SMART_FREE_MINUTES | 报错 | 报错 | 报错 | 规则侧优先高价分配 |
+| FREE_MINUTES 处理 | FROM_START 前置时段化 | FROM_START 前置时段化 | FROM_START 前置时段化 | FROM_START + CHARGED_TIME/HIGHEST_PRICE 规则侧分配 |
+| 价格感知 FREE_MINUTES | 报错 | 报错 | 报错 | CHARGED_TIME 顺序填充正价收费时段;HIGHEST_PRICE 显式高价优先 |
 | compact 合并 | 有 | 无 | 无 | 无 |
 | 简化计算 | 全局空隙 | 无 | 无 | 无 |
 | 封顶基准 | 逐周期封顶 | 每日封顶 | 周期内封顶 | 完整周期封顶 + 尾周期实际费用封顶 |
@@ -276,10 +281,11 @@ SegmentContext resolveSegmentContext(
 - `DurationGlobalStrategy` 输出同质收费汇总桶,并按完整周期与尾周期分别处理时段封顶/周期封顶
 - dayNight 私有部分(`dayNightBoundary` + day/night 标签)归 `DayNightSemantics`
 
-**阶段 5:SMART_FREE_MINUTES(决策 D)**
-- 新增 `SMART_FREE_MINUTES` 类型
-- `DurationGlobalStrategy` 实现优先高价分配(用 `RuleSemantics.priceAt`)
-- 非 GLOBAL 报错
+**阶段 5:FREE_MINUTES allocationMode(决策 D 修订)**
+- 不新增独立优惠类型，统一使用 `FREE_MINUTES`
+- 新增 `FreeMinutesAllocationMode`: `FROM_START` / `CHARGED_TIME` / `HIGHEST_PRICE`
+- `DurationGlobalStrategy` 统一消费所有 `FREE_MINUTES`，并支持价格感知分配(用 `RuleSemantics.priceAt`)
+- 非 GLOBAL 遇到价格感知 allocationMode 报错
 
 **阶段 6:共享解析逻辑(决策 E)**
 - 抽 `resolveSegmentContext`,`calculate` / `prepareContexts` 共用

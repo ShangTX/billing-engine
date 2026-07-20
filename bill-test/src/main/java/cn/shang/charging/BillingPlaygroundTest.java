@@ -6,8 +6,10 @@ import cn.shang.charging.charge.rules.BillingRuleRegistry;
 import cn.shang.charging.charge.rules.compositetime.*;
 import cn.shang.charging.charge.rules.daynight.DayNightConfig;
 import cn.shang.charging.charge.rules.flatfree.FlatFreeRule;
+import cn.shang.charging.charge.rules.naturaltime.NaturalTimeConfig;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
 import cn.shang.charging.promotion.PromotionEngine;
+import cn.shang.charging.promotion.pojo.PromotionActivationMode;
 import cn.shang.charging.promotion.pojo.PromotionGrant;
 import cn.shang.charging.promotion.pojo.PromotionUsage;
 import cn.shang.charging.promotion.rules.PromotionRuleRegistry;
@@ -61,14 +63,14 @@ public class BillingPlaygroundTest {
         // ▼▼▼ 在这里选择/修改要运行的场景 ▼▼▼
 //        run(scenario1_dayNight_continuous());        // 日夜分时段 + 连续计费 + 免费时段
 //        run(scenario2_dayNight_durationGlobal());   // 日夜 + 全局时长计费 + 智能免费分钟
-        run(scenario3_compositeTime_period());      // 混合时段 + 周期时长计费 + 免费分钟
+//        run(scenario3_compositeTime_period());      // 混合时段 + 周期时长计费 + 免费分钟
 //        run(scenario_composite_continuous_crossNaturalPeriods()); // CompositeTime：跨自然时段边界截断
 //        run(scenario_composite_continuous_periodAndCycleCap());   // CompositeTime：相对时段封顶 + 周期封顶
-        run(scenario_composite_durationGlobal_smartFreeMinutes()); // CompositeTime：GLOBAL + 智能免费分钟
+//        run(scenario_composite_durationGlobal_highPriceFreeMinutes()); // CompositeTime：GLOBAL + 高价优先免费分钟
 //        run(scenario4_schemeSwitch());              // 方案切换（多段计费）
 //        run(scenario5_withEquivalentAmount());      // 等效金额计算
 //        run(scenario6_startFree());                   // 前N分钟免费（START_FREE）
-//        run(scenario_cust());                         // 常规金额计算
+        run(scenario_cust());                         // 常规金额计算
 
         // Snap测试场景
         System.out.println("\n" + "=".repeat(72));
@@ -129,13 +131,13 @@ public class BillingPlaygroundTest {
     }
 
     /**
-     * 场景2：日夜分时段 + DURATION_GLOBAL 模式 + 智能免费分钟。
+     * 场景2：日夜分时段 + DURATION_GLOBAL 模式 + 高价优先免费分钟。
      * <p>
-     * SMART_FREE_MINUTES 仅在 DURATION_GLOBAL 模式下消费，按单价降序优先覆盖高价时段。
+     * FREE_MINUTES 设置 HIGHEST_PRICE 后，按单价降序优先覆盖高价时段。
      */
     static Scenario scenario2_dayNight_durationGlobal() {
         return Scenario.builder()
-                .name("日夜分时段 + DURATION_GLOBAL + 智能免费分钟")
+                .name("日夜分时段 + DURATION_GLOBAL + 高价优先免费分钟")
                 .beginTime(LocalDateTime.of(2026, 7, 7, 8, 0))
                 .endTime(LocalDateTime.of(2026, 7, 8, 8, 0))  // 跨天 24 小时
                 .calculationMode(BConstants.CalculationMode.DURATION_GLOBAL)
@@ -150,10 +152,11 @@ public class BillingPlaygroundTest {
                         .setBlockWeight(new BigDecimal("0.5")))
                 .externalPromotions(List.of(
                         PromotionGrant.builder()
-                                .id("smart-60")
-                                .type(BConstants.PromotionType.SMART_FREE_MINUTES)
+                                .id("high-price-60")
+                                .type(BConstants.PromotionType.FREE_MINUTES)
                                 .source(BConstants.PromotionSource.COUPON)
                                 .freeMinutes(60)
+                                .allocationMode(BConstants.FreeMinutesAllocationMode.HIGHEST_PRICE)
                                 .priority(1)
                                 .build()))
                 .build();
@@ -261,24 +264,25 @@ public class BillingPlaygroundTest {
     }
 
     /**
-     * CompositeTime 专项3：DURATION_GLOBAL + SMART_FREE_MINUTES。
+     * CompositeTime 专项3：DURATION_GLOBAL + 高价优先 FREE_MINUTES。
      * <p>
-     * 用两天一夜场景观察 GLOBAL 模式下，智能免费分钟是否优先覆盖高价时段。
+     * 用两天一夜场景观察 GLOBAL 模式下，免费分钟是否优先覆盖高价时段。
      */
-    static Scenario scenario_composite_durationGlobal_smartFreeMinutes() {
+    static Scenario scenario_composite_durationGlobal_highPriceFreeMinutes() {
         return Scenario.builder()
-                .name("CompositeTime - DURATION_GLOBAL 智能免费分钟")
+                .name("CompositeTime - DURATION_GLOBAL 高价优先免费分钟")
                 .beginTime(LocalDateTime.of(2026, 7, 18, 15, 0))
                 .endTime(LocalDateTime.of(2026, 7, 20, 10, 30))
                 .calculationMode(BConstants.CalculationMode.DURATION_GLOBAL)
-                .ruleConfig(compositeBusinessDistrictConfig("comp-global-smart",
+                .ruleConfig(compositeBusinessDistrictConfig("comp-global-high-price",
                         new BigDecimal("110.00"), new BigDecimal("20.00")))
                 .externalPromotions(List.of(
                         PromotionGrant.builder()
-                                .id("vip-smart-120")
-                                .type(BConstants.PromotionType.SMART_FREE_MINUTES)
+                                .id("vip-high-price-120")
+                                .type(BConstants.PromotionType.FREE_MINUTES)
                                 .source(BConstants.PromotionSource.COUPON)
                                 .freeMinutes(120)
+                                .allocationMode(BConstants.FreeMinutesAllocationMode.HIGHEST_PRICE)
                                 .priority(1)
                                 .build()))
                 .build();
@@ -429,22 +433,42 @@ public class BillingPlaygroundTest {
                 .name("常规金额计算")
                 .beginTime(LocalDateTime.of(2026, 7, 7, 5, 13))
                 .endTime(LocalDateTime.of(2026, 7, 7, 21, 36))
-                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
-                .ruleConfig(new DayNightConfig()
-                        .setId("dn-eq")
-                        .setDayBeginMinute(8 * 60).setDayEndMinute(20 * 60)
-                        .setDayUnitPrice(new BigDecimal("2")).setNightUnitPrice(new BigDecimal("1"))
+                .calculationMode(BConstants.CalculationMode.DURATION_GLOBAL)
+                .ruleConfig(new NaturalTimeConfig()
+                        .setId("natural-eq")
                         .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
-                        .setBlockWeight(new BigDecimal("0.5"))
-                        .setSplitDayNightBoundary(false))
+                        .setSimplifiedSupported(true)
+                        .setIncompleteUnitChargeSpec(IncompleteUnitChargeSpec.builder()
+                                .mode(BConstants.IncompleteUnitChargeMode.PROPORTIONAL)
+                                .thresholdMinutes(5).build())
+                        .setPeriods(List.of(
+                                NaturalPeriod.builder()
+                                        .beginMinute(7*60).endMinute(16 * 60).unitPrice(new BigDecimal("2"))
+                                        .build(),
+
+                                NaturalPeriod.builder()
+                                        .beginMinute(16*60).endMinute(22 * 60).unitPrice(new BigDecimal("0"))
+                                        .build(),
+
+                                NaturalPeriod.builder()
+                                        .beginMinute(22*60).endMinute(7 * 60).unitPrice(new BigDecimal("1"))
+                                        .build()
+                        )))
                 .externalPromotions(List.of(
                         PromotionGrant.builder()
-                                .id("free-range-2h")
+                                .id("free-range-1h")
                                 .type(BConstants.PromotionType.FREE_RANGE)
                                 .source(BConstants.PromotionSource.COUPON)
                                 .priority(1)
-                                .beginTime(LocalDateTime.of(2026, 7, 7, 11, 0))
-                                .endTime(LocalDateTime.of(2026, 7, 7, 13, 0))
+                                .beginTime(LocalDateTime.of(2026, 7, 7, 11, 1))
+                                .endTime(LocalDateTime.of(2026, 7, 7, 12, 2))
+                                .build(),
+                        PromotionGrant.builder()
+                                .id("high-price-minutes")
+                                .activationMode(PromotionActivationMode.ALWAYS)
+                                .type(BConstants.PromotionType.FREE_MINUTES)
+                                .freeMinutes(30)
+                                .allocationMode(BConstants.FreeMinutesAllocationMode.HIGHEST_PRICE)
                                 .build()))
                 .promotionRuleConfigs(List.of(
                         StartFreePromotionConfig.builder()

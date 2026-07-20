@@ -71,7 +71,7 @@ public class PromotionAggregateUtil {
 
     /**
      * 从聚合结果中排除指定优惠（等效金额消去法用）。
-     * 过滤 FREE_RANGE 时段 + 未时段化 FREE_MINUTES / SMART_FREE_MINUTES 列表，重算总免费分钟数。
+     * 过滤 FREE_RANGE 时段 + 未时段化 FREE_MINUTES 列表，重算总免费分钟数。
      *
      * @param original    原始聚合结果
      * @param excludedIds 要排除的优惠ID
@@ -96,14 +96,7 @@ public class PromotionAggregateUtil {
                 .filter(fm -> fm.getId() != null && !excludedIds.contains(fm.getId()))
                 .toList();
 
-        // 3. 过滤未时段化的 SMART_FREE_MINUTES 列表（TODO-20260706-002 阶段5）
-        List<FreeMinutes> filteredSmartFreeMinutesList = original.getSmartFreeMinutesList() == null
-            ? List.of()
-            : original.getSmartFreeMinutesList().stream()
-                .filter(fm -> fm.getId() != null && !excludedIds.contains(fm.getId()))
-                .toList();
-
-        // 4. 重算总免费分钟数（以 freeMinutesList 为准，SMART_FREE_MINUTES 不计入简化判定）
+        // 3. 重算总免费分钟数
         long filteredFreeMinutes = filteredFreeMinutesList.stream()
             .filter(fm -> fm.getMinutes() != null)
             .mapToLong(FreeMinutes::getMinutes)
@@ -113,7 +106,6 @@ public class PromotionAggregateUtil {
             .freeTimeRanges(filteredRanges)
             .freeMinutes(filteredFreeMinutes)
             .freeMinutesList(filteredFreeMinutesList)
-            .smartFreeMinutesList(filteredSmartFreeMinutesList)
             .build();
     }
 }

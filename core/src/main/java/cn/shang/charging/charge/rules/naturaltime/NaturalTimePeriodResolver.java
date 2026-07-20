@@ -28,16 +28,7 @@ final class NaturalTimePeriodResolver {
      * 判断是否在时段内
      */
     boolean isInPeriod(int minute, NaturalPeriod period) {
-        int begin = period.getBeginMinute();
-        int end = period.getEndMinute();
-
-        if (begin < end) {
-            // 不跨天的时段
-            return minute >= begin && minute < end;
-        } else {
-            // 跨天时段（begin > end，如 22:00 到次日 06:00）
-            return minute >= begin || minute < end;
-        }
+        return NaturalPeriodSupport.containsMinute(minute, period);
     }
 
     /**
@@ -45,7 +36,7 @@ final class NaturalTimePeriodResolver {
      */
     int findNextPeriodBoundary(int currentMinute, List<NaturalPeriod> periods) {
         NaturalPeriod current = findPeriodByMinute(currentMinute, periods);
-        return current.getEndMinute();
+        return NaturalPeriodSupport.boundaryEndMinute(current);
     }
 
     /**

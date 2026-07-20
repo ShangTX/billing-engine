@@ -30,11 +30,11 @@ BillingRequest
 
 ```mermaid
 flowchart TD
-    Req["BillingRequest<br/>beginTime/endTime<br/>schemeChanges<br/>externalPromotions (FREE_MINUTES/SMART_FREE_MINUTES/FREE_RANGE)"]
+    Req["BillingRequest<br/>beginTime/endTime<br/>schemeChanges<br/>externalPromotions (FREE_MINUTES/FREE_RANGE)"]
 
     Req --> SB["SegmentBuilder.buildSegments<br/>按 schemeChanges 切分段"]
 
-    SB --> Pool["外部优惠全局可用量池<br/>FREE_MINUTES/SMART_FREE_MINUTES/FREE_RANGE: 跨段共享剩余量"]
+    SB --> Pool["外部优惠全局可用量池<br/>FREE_MINUTES/FREE_RANGE: 跨段共享剩余量"]
 
     Pool --> Loop{"遍历每个 BillingSegment"}
 
@@ -42,9 +42,9 @@ flowchart TD
 
     CWF --> Cfg["BillingConfigResolver<br/>resolveChargingRule → RuleConfig.type<br/>resolvePromotionRules (本段方案内优惠)<br/>resolveCalculationMode (单一枚举四值)<br/>外部优惠可能被方案内优惠覆盖而未使用"]
 
-    Cfg --> PE["PromotionEngine.evaluate<br/>入参: 剩余外部优惠 + 本段方案内优惠规则<br/>产出规范中间形式<br/>FREE_RANGE(时段) + FREE_MINUTES(分钟数) + SMART_FREE_MINUTES(标量透传)"]
+    Cfg --> PE["PromotionEngine.evaluate<br/>入参: 剩余外部优惠 + 本段方案内优惠规则<br/>产出规范中间形式<br/>FREE_RANGE(时段) + FREE_MINUTES(分钟数 + allocationMode)"]
 
-    PE --> BC["BillingCalculator.calculate<br/>按 type 取门面规则<br/>校验 supportedCalculationModes<br/>SMART_FREE_MINUTES 仅 DURATION_GLOBAL 允许，否则抛异常"]
+    PE --> BC["BillingCalculator.calculate<br/>按 type 取门面规则<br/>校验 supportedCalculationModes<br/>价格感知 FREE_MINUTES 仅 DURATION_GLOBAL 允许，否则抛异常"]
 
     BC --> Type{"RuleConfig.type"}
 
@@ -55,7 +55,7 @@ flowchart TD
     Mode -->|CONTINUOUS| S1["DayNightContinuousStrategy (implements BillingRule)<br/>委托通用 ContinuousStrategy<br/>RuleSupport.materializeFreeMinutes 时段化 FREE_MINUTES<br/>调 BoundaryDrivenLoop<br/>产出 BillingUnit"]
     Mode -->|UNIT_BASED| S2["DayNightUnitBasedStrategy<br/>固定单元对齐<br/>materializeFreeMinutes 时段化 FREE_MINUTES<br/>产出 BillingUnit<br/>仅支持 SEGMENT_LOCAL"]
     Mode -->|DURATION_PERIOD| S3["DurationPeriodStrategy (静态工具, 接收 DayNightSemantics)<br/>调 BoundaryDrivenLoop + DurationSupport.buildPeriodMode<br/>周期内时长 + 周期/时段封顶<br/>materializeFreeMinutes 时段化 FREE_MINUTES<br/>产出 DurationSegment"]
-    Mode -->|DURATION_GLOBAL| S4["DurationGlobalStrategy (静态工具, 接收 DayNightSemantics)<br/>调 BoundaryDrivenLoop 识别日夜/免费边界<br/>同质收费桶汇总 + 尾周期封顶<br/>materializeFreeMinutes + SMART_FREE_MINUTES 优先高价分配<br/>产出 begin/end 为空的收费汇总 DurationSegment"]
+    Mode -->|DURATION_GLOBAL| S4["DurationGlobalStrategy (静态工具, 接收 DayNightSemantics)<br/>调 BoundaryDrivenLoop 识别日夜/免费边界<br/>同质收费桶汇总 + 尾周期封顶<br/>FREE_MINUTES 按 allocationMode 分配<br/>产出 begin/end 为空的收费汇总 DurationSegment"]
 
     S1 --> Shared["层1 公共调度层<br/>BoundaryProvider / BoundaryProviders<br/>HomogeneousSegment / BoundaryDrivenLoop.run<br/>纯调度，零计费语义"]
     S3 --> Shared
@@ -84,7 +84,7 @@ flowchart TD
 - **公共调度层共享**：CONTINUOUS 策略和时长策略都调用 `BoundaryDrivenLoop.run`，该层只含边界调度原语，零计费语义。UNIT_BASED 策略不走该层。
 - **解析逻辑共享**：`calculate` 与 `prepareContexts` 共用 `resolveSegmentContext`（解析 calculationMode + externalPool 等），消除不同步，保证 `PromotionEquivalentCalculator` 等效金额与 `calculate` 一致。
 - **外部优惠全局一致**：分段前建立外部优惠可用量池，跨段共享剩余量；每段 evaluate 时剩余外部优惠与本段方案内优惠按优先级聚合，外部优惠可能被方案内优惠覆盖而未使用。按优惠来源从本段结果分辨实际使用量，回写扣减池，下段拿到正确的剩余外部优惠。
-- **FREE_MINUTES / SMART_FREE_MINUTES 处理**：聚合产出规范中间形式（FREE_RANGE 为时段、FREE_MINUTES 为分钟数、SMART_FREE_MINUTES 为标量透传），不集中时段化。各策略经 `RuleSupport.materializeFreeMinutes` 自行时段化 FREE_MINUTES；DURATION_GLOBAL 额外消费 SMART_FREE_MINUTES（按 `RuleSemantics.priceAt` 切同价时段，按单价降序优先高价分配，与普通免费段按 `priority` 排序各自分配）。
+- **FREE_MINUTES 处理**：聚合产出规范中间形式（FREE_RANGE 为时段、FREE_MINUTES 为分钟数 + allocationMode），不集中时段化。CONTINUOUS/UNIT_BASED/DURATION_PERIOD 经 `RuleSupport.materializeFreeMinutes` 只处理 `FROM_START`；DURATION_GLOBAL 按 `priority` 逐条处理 `FROM_START`、`CHARGED_TIME` 和 `HIGHEST_PRICE`，其中价格感知模式使用 `RuleSemantics.priceAt` 切同价时段。
 
 分段每段独立计算，不传规则/优惠/累计状态。
 
@@ -182,9 +182,9 @@ schemeChanges -> multiple BillingSegment
 2. 加入请求中的外部 grant。
 3. 合并显式 `FREE_RANGE`。
 
-产出规范中间形式：`freeTimeRanges`（仅 FREE_RANGE，已合并）、`freeMinutesList`（未时段化 FREE_MINUTES）、`smartFreeMinutesList`（SMART_FREE_MINUTES 标量透传，不时段化、不计入简化判定）、`freeMinutes`（标量，简化判定用，不含 SMART）。
+产出规范中间形式：`freeTimeRanges`（仅 FREE_RANGE，已合并）、`freeMinutesList`（未时段化 FREE_MINUTES，含 allocationMode）、`freeMinutes`（标量，简化判定用）。
 
-时段化是策略侧职责：CONTINUOUS/UNIT_BASED/DURATION_PERIOD 策略经 `RuleSupport.materializeFreeMinutes` 时段化 FREE_MINUTES；DURATION_GLOBAL 同样时段化 FREE_MINUTES，并额外消费 `SMART_FREE_MINUTES`（按 `RuleSemantics.priceAt` 切同价时段，按单价降序优先高价分配）。`activationMode=END_WITHIN_RANGE` 的条件优惠只在 DURATION_PERIOD/DURATION_GLOBAL 中支持，时长策略在合并/分配后按整笔计费结束时间过滤最终免费段和 `PromotionUsage`，不重排其他优惠。非 GLOBAL 模式遇 `SMART_FREE_MINUTES` 由 `BillingCalculator` 抛异常；非时长模式遇条件生效优惠也由 `BillingCalculator` 抛异常。
+时段化是策略侧职责：CONTINUOUS/UNIT_BASED/DURATION_PERIOD 策略经 `RuleSupport.materializeFreeMinutes` 时段化 `allocationMode=FROM_START` 的 FREE_MINUTES；DURATION_GLOBAL 按同一份 `freeMinutesList` 的 `priority` 逐条分配，支持 `FROM_START`、`CHARGED_TIME`（按时间顺序填充单价大于 0 的收费时段）和 `HIGHEST_PRICE`（按 `RuleSemantics.priceAt` 切同价时段并按单价降序高价优先）。`activationMode=END_WITHIN_RANGE` 的条件优惠只在 DURATION_PERIOD/DURATION_GLOBAL 中支持，时长策略在合并/分配后按整笔计费结束时间过滤最终免费段和 `PromotionUsage`，不重排其他优惠。非 GLOBAL 模式遇价格感知 `FREE_MINUTES` 分配模式由 `BillingCalculator` 抛异常；非时长模式遇条件生效优惠也由 `BillingCalculator` 抛异常。
 
 ---
 
@@ -193,7 +193,7 @@ schemeChanges -> multiple BillingSegment
 `BillingCalculator.calculate(context, promotionAggregate)` 做三件事：
 
 1. 根据 `RuleConfig.type` 从 `BillingRuleRegistry` 获取门面规则实现。
-2. 校验规则是否支持当前 `CalculationMode`（`supportedCalculationModes()`）；非 `DURATION_GLOBAL` 模式遇 `SMART_FREE_MINUTES` 抛异常；非时长模式遇 `activationMode=END_WITHIN_RANGE` 抛异常。
+2. 校验规则是否支持当前 `CalculationMode`（`supportedCalculationModes()`）；非 `DURATION_GLOBAL` 模式遇 `CHARGED_TIME` / `HIGHEST_PRICE` 免费分钟分配模式抛异常；非时长模式遇 `activationMode=END_WITHIN_RANGE` 抛异常。
 3. 校验配置类型后调用 `BillingRule.calculate()`，门面按请求 `CalculationMode` 分派到 `ModeStrategy`。
 
 每个计费规则族一个 type、一个门面规则、一个共享 config。门面声明 `supportedCalculationModes()`（管 CONTINUOUS/UNIT_BASED/DURATION_PERIOD/DURATION_GLOBAL），按请求模式分派到独立策略实现。规则族包括 `dayNight`、`relativeTime`、`naturalTime`、`compositeTime` 和 `flatFree`，各规则族按需声明支持的模式。
@@ -202,7 +202,7 @@ schemeChanges -> multiple BillingSegment
 - CONTINUOUS 策略：各规则族的 `*ContinuousStrategy`（`implements BillingRule`）委托通用 `ContinuousStrategy`，经 `BoundaryDrivenLoop.run` 公共循环切割时间轴，每次迭代产出同质段（`HomogeneousSegment`），再由 `applyCapAndAccumulate` 转换为 `BillingUnit`（含封顶、累计金额、compact 合并、截断标记）。周期切换通过 `RuleSemantics.isCycleBoundary` 注入，periodCap 通过 `RuleSemantics.periodLabeler` 注入。
 - UNIT_BASED 策略：固定单元对齐 + 完整覆盖才免费，不走边界驱动公共循环。
 
-**时长计费类**（产 `DurationSegment`）：复用边界驱动循环。`DurationPeriodStrategy`（周期内时长计费 + 周期封顶，`DurationSupport.buildPeriodMode`）；通用 `DurationGlobalStrategy`（全局时长计费，`DurationSupport.buildGlobalMode`）按同质收费桶汇总，并对完整周期与尾周期分别应用时段封顶和周期封顶；同时消费 `SMART_FREE_MINUTES` 优先高价分配。
+**时长计费类**（产 `DurationSegment`）：复用边界驱动循环。`DurationPeriodStrategy`（周期内时长计费 + 周期封顶，`DurationSupport.buildPeriodMode`）；通用 `DurationGlobalStrategy`（全局时长计费，`DurationSupport.buildGlobalMode`）按同质收费桶汇总，并对完整周期与尾周期分别应用时段封顶和周期封顶；同时按 `allocationMode` 分配 `FREE_MINUTES`，价格感知模式仅 GLOBAL 支持。
 
 边界驱动循环（`BoundaryDrivenLoop.run` + `BoundaryProviders` + `HomogeneousSegment`）是纯调度层，零计费语义，CONTINUOUS 策略和时长策略共享；UNIT_BASED 策略不走该层。
 

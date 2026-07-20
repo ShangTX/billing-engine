@@ -8,7 +8,6 @@ import cn.shang.charging.billing.pojo.DurationSegment;
 import cn.shang.charging.billing.pojo.RuleConfig;
 import cn.shang.charging.promotion.PromotionAggregateUtil;
 import cn.shang.charging.promotion.FreeTimeRangeMerger;
-import cn.shang.charging.promotion.pojo.FreeMinuteAllocationResult;
 import cn.shang.charging.promotion.pojo.FreeMinutes;
 import cn.shang.charging.promotion.pojo.FreeTimeRange;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
@@ -20,6 +19,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * DURATION_GLOBAL 模式通用策略（层 2）：全局时长计费。
@@ -32,10 +32,10 @@ import java.util.List;
  * FREE_MINUTES 时段化（TODO-20260706-001）：免费段参与边界驱动与收费分钟扣除；
  * 最终仅输出收费汇总桶，免费信息通过 PromotionUsage 追踪。
  * <p>
- * SMART_FREE_MINUTES（TODO-20260706-002 阶段5）：本策略独享消费。用 {@link RuleSemantics#priceAt}
- * + {@link RuleSemantics#periodBoundaryProvider} 把窗口切成同价时段，按单价降序消费
- * SMART_FREE_MINUTES（从时段起点切），产出免费段与普通免费段（FREE_RANGE + FREE_MINUTES 时段化）
- * 合并参与边界驱动。优先高价分配用规则私有价格语义，不泄漏到聚合层。
+ * FREE_MINUTES 在本策略中按每条优惠的 allocationMode 分配。默认 FROM_START 从窗口起点附近填充；
+ * CHARGED_TIME / HIGHEST_PRICE 会用 {@link RuleSemantics#priceAt} + {@link RuleSemantics#periodBoundaryProvider}
+ * 把窗口切成同价时段，并只填充单价大于 0 的收费时段。高价分配用规则私有价格语义，
+ * 不泄漏到聚合层。
  * <p>
  * TODO-20260706-002 阶段4：从 DayNightDurationStrategy 拆出通用 GLOBAL 策略。
  */
@@ -49,7 +49,7 @@ public final class DurationGlobalStrategy {
      * <p>
      * 边界来源：时段边界 + 免费段起止 + calcEnd（不含周期边界，segment 跨周期合并）。
      * 段构造：免费段判定 + {@link RuleSemantics#priceAt}。
-     * 产出：DurationSegment 列表 + FREE_RANGE/FREE_MINUTES/SMART_FREE_MINUTES PromotionUsage。
+     * 产出：DurationSegment 列表 + FREE_RANGE/FREE_MINUTES PromotionUsage。
      */
     public static <C extends RuleConfig> BillingSegmentResult calculate(
             RuleSemantics<C> semantics,
@@ -63,18 +63,16 @@ public final class DurationGlobalStrategy {
         LocalDateTime cycleOrigin = semantics.cycleOrigin(context);
         BigDecimal cycleCap = semantics.cycleCap(config);
 
-        // FREE_MINUTES 时段化：免费段参与边界驱动，GLOBAL 最终只输出收费汇总桶。
-        FreeMinuteAllocationResult materialized = RuleSupport.materializeFreeMinutes(promotionAggregate, window);
-        List<FreeTimeRange> regularFreeRanges = materialized.getFinalFreeRanges() != null
-                ? materialized.getFinalFreeRanges() : List.of();
+        List<FreeTimeRange> explicitFreeRanges = promotionAggregate != null
+                && promotionAggregate.getFreeTimeRanges() != null
+                ? promotionAggregate.getFreeTimeRanges() : List.of();
 
-        // SMART_FREE_MINUTES 优先高价分配（TODO-20260706-002 阶段5）
-        SmartFreeMinutesAllocation smartAllocation = allocateSmartFreeMinutes(
-                semantics, config, cycleOrigin, promotionAggregate, calcBegin, calcEnd, regularFreeRanges);
+        // FREE_MINUTES 分配：免费段参与边界驱动，GLOBAL 最终只输出收费汇总桶。
+        GlobalFreeMinutesAllocation minuteAllocation = allocateFreeMinutes(
+                semantics, config, cycleOrigin, promotionAggregate, calcBegin, calcEnd, explicitFreeRanges);
 
-        // 合并常规免费段 + SMART 免费段，统一参与边界驱动
         List<FreeTimeRange> freeTimeRanges = RuleSupport.filterActiveFreeRanges(
-                smartAllocation.mergedFreeRanges, context.getEndTime());
+                minuteAllocation.mergedFreeRanges, context.getEndTime());
 
         // 边界来源：时段边界 + 免费段起止 + calcEnd（无周期边界，segment 跨周期合并）
         List<BoundaryProvider> providers = new ArrayList<>();
@@ -102,19 +100,13 @@ public final class DurationGlobalStrategy {
                 DurationSupport.buildGlobalMode(segments, totalMinutes, cycleCap, semantics, config, cycleOrigin);
 
         // 产出 FREE_RANGE 的 PromotionUsage（equivalentAmount 由 PromotionEquivalentCalculator 消去法按需回填）
-        List<FreeTimeRange> activeRegularFreeRanges = RuleSupport.filterActiveFreeRanges(
-                regularFreeRanges, context.getEndTime());
         List<PromotionUsage> freeRangeUsages = PromotionAggregateUtil.buildFreeRangeUsages(
-                activeRegularFreeRanges, calcBegin, calcEnd);
+                freeTimeRanges, calcBegin, calcEnd);
         List<PromotionUsage> allUsages = new ArrayList<>(freeRangeUsages);
-        // FREE_MINUTES usage：PERIOD/GLOBAL 统一来自时段化
-        List<PromotionUsage> freeMinutesUsages = materialized != null && materialized.getPromotionUsages() != null
-                ? materialized.getPromotionUsages() : List.of();
+        List<PromotionUsage> freeMinutesUsages = minuteAllocation.promotionUsages != null
+                ? minuteAllocation.promotionUsages : List.of();
         allUsages.addAll(RuleSupport.filterActivePromotionUsages(
-                freeMinutesUsages, regularFreeRanges, activeRegularFreeRanges));
-        // SMART_FREE_MINUTES usage：来自优先高价分配
-        allUsages.addAll(RuleSupport.filterActivePromotionUsages(
-                smartAllocation.promotionUsages, smartAllocation.mergedFreeRanges, freeTimeRanges));
+                freeMinutesUsages, minuteAllocation.mergedFreeRanges, freeTimeRanges));
 
         return BillingSegmentResult.builder()
                 .segmentId(context.getSegment().getId())
@@ -132,25 +124,25 @@ public final class DurationGlobalStrategy {
                 .build();
     }
 
-    // ==================== SMART_FREE_MINUTES 优先高价分配（TODO-20260706-002 阶段5） ====================
+    // ==================== FREE_MINUTES 分配 ====================
 
     /**
-     * SMART_FREE_MINUTES 分配结果：合并后的免费段 + SMART usage。
+     * GLOBAL 免费分钟分配结果：合并后的免费段 + FREE_MINUTES usage。
      */
-    private static final class SmartFreeMinutesAllocation {
-        /** 常规免费段 + SMART 免费段合并后的最终免费段（已排序，参与边界驱动）。 */
+    private static final class GlobalFreeMinutesAllocation {
+        /** FREE_RANGE + FREE_MINUTES 生成段合并后的最终免费段（已排序，参与边界驱动）。 */
         final List<FreeTimeRange> mergedFreeRanges;
-        /** SMART_FREE_MINUTES 的 PromotionUsage（含 granted/used minutes、usedFrom/usedTo）。 */
+        /** FREE_MINUTES 的 PromotionUsage（含 granted/used minutes、usedFrom/usedTo）。 */
         final List<PromotionUsage> promotionUsages;
 
-        SmartFreeMinutesAllocation(List<FreeTimeRange> mergedFreeRanges, List<PromotionUsage> promotionUsages) {
+        GlobalFreeMinutesAllocation(List<FreeTimeRange> mergedFreeRanges, List<PromotionUsage> promotionUsages) {
             this.mergedFreeRanges = mergedFreeRanges;
             this.promotionUsages = promotionUsages;
         }
     }
 
     /**
-     * 同价子窗口：[begin, end) 区间内单价一致，用于按单价降序消费 SMART_FREE_MINUTES。
+     * 同价子窗口：[begin, end) 区间内单价一致，用于价格感知 FREE_MINUTES。
      */
     private static final class PriceSubWindow {
         final LocalDateTime begin;
@@ -169,57 +161,50 @@ public final class DurationGlobalStrategy {
     }
 
     /**
-     * SMART_FREE_MINUTES 优先高价分配。
+     * GLOBAL 模式 FREE_MINUTES 分配。
      * <p>
-     * 步骤（spec 5.5）：
+     * 步骤：
      * <ol>
-     *   <li>用 periodBoundaryProvider + priceAt 把窗口切成同价子窗口</li>
-     *   <li>按单价降序排序子窗口（价格相同按时间顺序，稳定）</li>
-     *   <li>从高价子窗口消费 SMART_FREE_MINUTES，跳过已被常规免费段（FREE_RANGE + FREE_MINUTES 时段化）
-     *       占用的部分，从子窗口起点切（实际从子窗口内首个未占用点切）</li>
-     *   <li>SMART 免费段与常规免费段合并，参与边界驱动</li>
+     *   <li>按 priority 对所有 FREE_MINUTES 排序</li>
+     *   <li>FROM_START 从窗口起点顺序消费未占用空隙</li>
+     *   <li>CHARGED_TIME / HIGHEST_PRICE 用 periodBoundaryProvider + priceAt 切同价子窗口，
+     *       只消费单价大于 0 的未占用空隙</li>
+     *   <li>FREE_MINUTES 生成段与 FREE_RANGE 合并，参与边界驱动</li>
      * </ol>
-     * 同时存在多种 SMART_FREE_MINUTES 时，按 priority 排序（数字小优先），各自分配，跳过已占用时段
-     * （含常规免费段 + 已分配的 SMART 段）。
      *
-     * @param regularFreeRanges 常规免费段（FREE_RANGE + 时段化 FREE_MINUTES，已合并）
+     * @param explicitFreeRanges 显式免费段（FREE_RANGE，已合并）
      */
-    private static <C extends RuleConfig> SmartFreeMinutesAllocation allocateSmartFreeMinutes(
+    private static <C extends RuleConfig> GlobalFreeMinutesAllocation allocateFreeMinutes(
             RuleSemantics<C> semantics,
             C config,
             LocalDateTime cycleOrigin,
             PromotionAggregate promotionAggregate,
             LocalDateTime calcBegin,
             LocalDateTime calcEnd,
-            List<FreeTimeRange> regularFreeRanges) {
+            List<FreeTimeRange> explicitFreeRanges) {
 
-        List<FreeMinutes> smartList = promotionAggregate != null && promotionAggregate.getSmartFreeMinutesList() != null
-                ? promotionAggregate.getSmartFreeMinutesList() : List.of();
-        if (smartList.isEmpty()) {
-            return new SmartFreeMinutesAllocation(regularFreeRanges, List.of());
+        List<FreeMinutes> minutesList = promotionAggregate != null && promotionAggregate.getFreeMinutesList() != null
+                ? promotionAggregate.getFreeMinutesList() : List.of();
+        if (minutesList.isEmpty()) {
+            return new GlobalFreeMinutesAllocation(explicitFreeRanges, List.of());
         }
 
-        // 1. 切同价子窗口（仅用 periodBoundaryProvider + calcEnd，不含免费段边界）
-        List<PriceSubWindow> subWindows = buildPriceSubWindows(semantics, config, cycleOrigin, calcBegin, calcEnd);
+        boolean hasPriceAware = minutesList.stream().anyMatch(minutes -> !RuleSupport.isFromStartAllocation(minutes));
+        List<PriceSubWindow> subWindows = hasPriceAware
+                ? buildPriceSubWindows(semantics, config, cycleOrigin, calcBegin, calcEnd)
+                : List.of();
 
-        // 2. 按单价降序排序（价格相同保持时间顺序，稳定排序）
-        List<PriceSubWindow> sortedByPriceDesc = new ArrayList<>(subWindows);
-        sortedByPriceDesc.sort(Comparator
-                .comparing((PriceSubWindow w) -> w.price, Comparator.reverseOrder())
-                .thenComparing(w -> w.begin));
+        // 占用集合：显式 FREE_RANGE + 已分配的 FREE_MINUTES 段（逐个加入）。
+        List<FreeTimeRange> occupied = new ArrayList<>(explicitFreeRanges);
+        List<FreeTimeRange> generatedMinuteRanges = new ArrayList<>();
+        List<PromotionUsage> minuteUsages = new ArrayList<>();
 
-        // 3. 占用集合：常规免费段（已合并排序）+ 已分配的 SMART 段（逐个加入）
-        List<FreeTimeRange> occupied = new ArrayList<>(regularFreeRanges);
-        List<FreeTimeRange> smartRanges = new ArrayList<>();
-        List<PromotionUsage> smartUsages = new ArrayList<>();
-
-        // SMART_FREE_MINUTES 按 priority 排序（数字小优先），各自分配
-        List<FreeMinutes> sortedSmart = new ArrayList<>(smartList);
-        sortedSmart.sort(Comparator.comparing(FreeMinutes::getPriority,
+        List<FreeMinutes> sortedMinutes = new ArrayList<>(minutesList);
+        sortedMinutes.sort(Comparator.comparing(FreeMinutes::getPriority,
                 Comparator.nullsLast(Comparator.naturalOrder())));
 
-        for (FreeMinutes smart : sortedSmart) {
-            int granted = smart.getMinutes() != null ? smart.getMinutes() : 0;
+        for (FreeMinutes minutes : sortedMinutes) {
+            int granted = minutes.getMinutes() != null ? minutes.getMinutes() : 0;
             if (granted <= 0) {
                 continue;
             }
@@ -228,8 +213,9 @@ public final class DurationGlobalStrategy {
             LocalDateTime usedTo = null;
             long usedMinutes = 0;
 
-            // 按价格降序遍历子窗口，消费 SMART 分钟
-            for (PriceSubWindow sw : sortedByPriceDesc) {
+            BConstants.FreeMinutesAllocationMode mode = RuleSupport.freeMinutesAllocationMode(minutes);
+            List<PriceSubWindow> orderedSubWindows = allocationWindows(subWindows, calcBegin, calcEnd, mode);
+            for (PriceSubWindow sw : orderedSubWindows) {
                 if (remaining <= 0) break;
                 // 计算子窗口内的未占用区间
                 List<LocalDateTime[]> freeGaps = computeFreeGaps(sw.begin, sw.end, occupied);
@@ -240,16 +226,16 @@ public final class DurationGlobalStrategy {
                     int consume = (int) Math.min(remaining, gapMinutes);
                     LocalDateTime segBegin = gap[0];
                     LocalDateTime segEnd = gap[0].plusMinutes(consume);
-                    FreeTimeRange smartRange = new FreeTimeRange()
-                            .setId(smart.getId())
+                    FreeTimeRange minuteRange = new FreeTimeRange()
+                            .setId(minutes.getId())
                             .setBeginTime(segBegin)
                             .setEndTime(segEnd)
-                            .setPriority(smart.getPriority() != null ? smart.getPriority() : 0)
-                            .setSource(smart.getSource())
-                            .setActivationMode(smart.getActivationMode())
-                            .setPromotionType(BConstants.PromotionType.SMART_FREE_MINUTES);
-                    smartRanges.add(smartRange);
-                    occupied.add(smartRange);
+                            .setPriority(minutes.getPriority() != null ? minutes.getPriority() : 0)
+                            .setSource(minutes.getSource())
+                            .setActivationMode(minutes.getActivationMode())
+                            .setPromotionType(BConstants.PromotionType.FREE_MINUTES);
+                    generatedMinuteRanges.add(minuteRange);
+                    occupied.add(minuteRange);
                     if (usedFrom == null) {
                         usedFrom = segBegin;
                     }
@@ -259,10 +245,10 @@ public final class DurationGlobalStrategy {
                 }
             }
 
-            smartUsages.add(PromotionUsage.builder()
-                    .promotionId(smart.getId())
-                    .type(BConstants.PromotionType.SMART_FREE_MINUTES)
-                    .source(smart.getSource())
+            minuteUsages.add(PromotionUsage.builder()
+                    .promotionId(minutes.getId())
+                    .type(BConstants.PromotionType.FREE_MINUTES)
+                    .source(minutes.getSource())
                     .grantedMinutes(granted)
                     .usedMinutes(usedMinutes)
                     .usedFrom(usedFrom)
@@ -270,13 +256,37 @@ public final class DurationGlobalStrategy {
                     .build());
         }
 
-        // 4. 合并常规免费段 + SMART 免费段（用 FreeTimeRangeMerger 处理优先级覆盖，再合并相邻）
-        List<FreeTimeRange> allRanges = new ArrayList<>(regularFreeRanges);
-        allRanges.addAll(smartRanges);
+        List<FreeTimeRange> allRanges = new ArrayList<>(explicitFreeRanges);
+        allRanges.addAll(generatedMinuteRanges);
         List<FreeTimeRange> merged = new FreeTimeRangeMerger().merge(
                 allRanges, calcBegin, calcEnd).getMergedRanges();
 
-        return new SmartFreeMinutesAllocation(merged, smartUsages);
+        return new GlobalFreeMinutesAllocation(merged, minuteUsages);
+    }
+
+    private static List<PriceSubWindow> allocationWindows(
+            List<PriceSubWindow> subWindows,
+            LocalDateTime calcBegin,
+            LocalDateTime calcEnd,
+            BConstants.FreeMinutesAllocationMode mode) {
+        if (mode == BConstants.FreeMinutesAllocationMode.FROM_START) {
+            return List.of(new PriceSubWindow(calcBegin, calcEnd, BigDecimal.ZERO));
+        }
+        List<PriceSubWindow> ordered = subWindows.stream()
+                .filter(DurationGlobalStrategy::isChargeable)
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (mode == BConstants.FreeMinutesAllocationMode.HIGHEST_PRICE) {
+            ordered.sort(Comparator
+                    .comparing((PriceSubWindow w) -> w.price, Comparator.reverseOrder())
+                    .thenComparing(w -> w.begin));
+        } else {
+            ordered.sort(Comparator.comparing(w -> w.begin));
+        }
+        return ordered;
+    }
+
+    private static boolean isChargeable(PriceSubWindow window) {
+        return window.price != null && window.price.signum() > 0;
     }
 
     /**

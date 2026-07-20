@@ -42,7 +42,7 @@ GLOBAL 模式改走前置时段化(复用 `materializeFreeMinutes`),删 `deductF
 ### 不包含
 
 - 主体规则抽象重构(见 [rule-abstraction-refactor.md](rule-abstraction-refactor.md))
-- SMART_FREE_MINUTES(决策 D,主体重构阶段 5)
+- FREE_MINUTES allocationMode(决策 D 修订,主体重构阶段 5)
 - 其他规则族的 DurationMode 接入(主体重构阶段 4)
 
 ## 验收标准

@@ -12,6 +12,7 @@ import java.math.BigDecimal;
  * <p>
  * 表示一天内的自然时间段，支持跨天表示
  * 例如：beginMinute=1200(20:00), endMinute=480(08:00) 表示 20:00 到次日 08:00
+ * naturalTime 规则中 beginMinute=0, endMinute=0 表示全天，按 0-1440 处理。
  */
 @Data
 @Builder
@@ -20,7 +21,7 @@ import java.math.BigDecimal;
 public class NaturalPeriod {
 
     /**
-     * 自然时段开始分钟（一天内的分钟数，0-1440）
+     * 自然时段开始分钟（一天内的分钟数，推荐 0-1439）
      * 小于 endMinute 时表示不跨天
      * 大于 endMinute 时表示跨天
      */
@@ -29,6 +30,7 @@ public class NaturalPeriod {
     /**
      * 自然时段结束分钟
      * 小于 beginMinute 表示跨天
+     * 兼容 1440 表示次日 00:00；新接入推荐用 0 表示 00:00
      */
     private int endMinute;
 

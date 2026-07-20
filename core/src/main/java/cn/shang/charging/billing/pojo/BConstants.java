@@ -27,8 +27,16 @@ public class BConstants {
      */
     public enum PromotionType {
         FREE_RANGE, // 免费时间段
-        FREE_MINUTES, // 免费分钟数（从窗口起点顺序分配）
-        SMART_FREE_MINUTES, // 智能免费分钟数（仅 DURATION_GLOBAL 消费，按单价降序优先高价分配；TODO-20260706-002 阶段5）
+        FREE_MINUTES, // 免费分钟数（通过 allocationMode 控制分配策略）
+    }
+
+    /**
+     * FREE_MINUTES 分配模式。
+     */
+    public enum FreeMinutesAllocationMode {
+        FROM_START,    // 默认：从窗口起点开始填充未被免费占用的时间
+        CHARGED_TIME,  // 仅 DURATION_GLOBAL：按时间顺序填充未被免费占用且单价大于0的收费时段
+        HIGHEST_PRICE  // 仅 DURATION_GLOBAL：按单价降序优先填充高价时段
     }
 
     /**

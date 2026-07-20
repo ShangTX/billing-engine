@@ -156,7 +156,7 @@ DayNight CONTINUOUS 模式 `splitDayNightBoundary=false` 需要重新设计边�
 ### 已验证命令
 
 - `mvn -pl bill-test -am "-Dtest=DayNightContinuousCrossPeriodTest,ContinuousSimplificationTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`
-- `mvn -pl bill-test -am "-Dtest=DayNightParkingParityTest,DurationBillingModeTest,SmartFreeMinutesTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`
+- `mvn -pl bill-test -am "-Dtest=DayNightParkingParityTest,DurationBillingModeTest,FreeMinutesAllocationModeTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`
 - `mvn test`
 
 验证结果：2026-07-15 全量 `mvn test` 通过，129 tests, 0 failures。

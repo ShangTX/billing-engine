@@ -532,7 +532,7 @@ BillingResult result = billingTemplate.calculate(request);
 |------|------|------|
 | `beginTime` | `LocalDateTime` | 段起点 |
 | `endTime` | `LocalDateTime` | 段终点 |
-| `periodLabel` | `String` | 时段标签（"day"/"night"/"period-1"，规则自定义；`compositeTime` 为 `r:x-y|n:a-b`，同时表达外层相对时段和内部自然时段） |
+| `periodLabel` | `String` | 时段标签（"day"/"night"/"period-1"，规则自定义；`naturalTime` 为 `a-b`，`00:00-00:00` 归一输出 `0-1440`；`compositeTime` 为 `r:x-y|n:a-b`，同时表达外层相对时段和内部自然时段） |
 | `chargedMinutes` | `int` | 收费分钟数（免费段=0） |
 | `unitPrice` | `BigDecimal` | 单价 |
 | `chargedAmount` | `BigDecimal` | 应收金额（时段封顶后，周期封顶前） |
@@ -614,7 +614,58 @@ RelativeTimeConfig config = new RelativeTimeConfig()
         ));
 ```
 
-### 10.3 compositeTime（混合时间计费）
+### 10.3 naturalTime（自然时段计费）
+
+按一天内的自然时间点划分时段，每个时段有独立单价，所有时段共用同一个 `unitMinutes`。
+
+`NaturalPeriod` 采用环形 24 小时时间轴：
+
+- `beginMinute` / `endMinute` 都是从 `00:00` 起算的分钟点。
+- `endMinute > beginMinute`：同日时段，例如 `07:00-21:00`。
+- `endMinute < beginMinute`：跨到次日，例如 `21:00-07:00`。
+- `beginMinute = 0` 且 `endMinute = 0`：表示全天，规则内部按 `0-1440` 处理。
+- 兼容旧配置 `endMinute = 1440`，但新接入推荐用 `0` 表示 `00:00`，更适合时间选择器。
+
+```java
+import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
+import cn.shang.charging.charge.rules.naturaltime.NaturalTimeConfig;
+
+NaturalTimeConfig config = NaturalTimeConfig.builder()
+        .id("natural-1")
+        .unitMinutes(60)
+        .maxChargeOneDay(new BigDecimal("80"))
+        .periods(List.of(
+                NaturalPeriod.builder()
+                        .beginMinute(7 * 60)       // 07:00
+                        .endMinute(21 * 60)        // 21:00
+                        .unitPrice(new BigDecimal("5"))
+                        .build(),
+                NaturalPeriod.builder()
+                        .beginMinute(21 * 60)      // 21:00
+                        .endMinute(7 * 60)         // 次日 07:00
+                        .unitPrice(new BigDecimal("2"))
+                        .build()
+        ))
+        .build();
+```
+
+全天单价可以写成 `00:00-00:00`：
+
+```java
+NaturalTimeConfig fullDay = NaturalTimeConfig.builder()
+        .id("natural-full-day")
+        .unitMinutes(60)
+        .periods(List.of(
+                NaturalPeriod.builder()
+                        .beginMinute(0)
+                        .endMinute(0)              // 00:00-00:00 => 0-1440
+                        .unitPrice(new BigDecimal("3"))
+                        .build()
+        ))
+        .build();
+```
+
+### 10.4 compositeTime（混合时间计费）
 
 最灵活的规则：组合相对时段和自然时段价格，支持时段独立封顶。自然时段边界统一切断，
 不再配置 `crossPeriodMode`；不足单元推荐通过 `IncompleteUnitChargeSpec` 控制，旧
@@ -642,7 +693,7 @@ CompositeTimeConfig config = new CompositeTimeConfig()
         ));
 ```
 
-### 10.4 flatFree（统一免费计费）
+### 10.5 flatFree（统一免费计费）
 
 全部免费，常用于调试或特殊场景。
 
@@ -663,8 +714,7 @@ FlatFreeConfig config = FlatFreeConfig.builder()
 | 类型 | 枚举值 | 说明 |
 |------|--------|------|
 | 免费时间段 | `FREE_RANGE` | 指定时间段内免费（如 12:00-14:00 免费） |
-| 免费分钟数 | `FREE_MINUTES` | 从窗口起点顺序分配 N 分钟免费 |
-| 智能免费分钟 | `SMART_FREE_MINUTES` | 仅 DURATION_GLOBAL 模式，按单价降序优先覆盖高价时段 |
+| 免费分钟数 | `FREE_MINUTES` | 分配 N 分钟免费；通过 `allocationMode` 控制从起点、收费时段或高价优先 |
 
 > 金额减免（AMOUNT）/折扣（DISCOUNT）已移出引擎，由业务系统在最终金额上自行结算。
 
@@ -702,7 +752,7 @@ PromotionGrant freeRange = PromotionGrant.builder()
 
 ### 11.4 条件生效优惠
 
-`FREE_RANGE`、`FREE_MINUTES`、`SMART_FREE_MINUTES` 以及方案内 `freeMinutes` / `startFree` 规则均支持 `activationMode`：
+`FREE_RANGE`、`FREE_MINUTES` 以及方案内 `freeMinutes` / `startFree` 规则均支持 `activationMode`：
 
 | 值 | 说明 |
 |------|------|
@@ -741,25 +791,34 @@ PromotionGrant bubbleRange = PromotionGrant.builder()
 - `NORMAL`：普通免费时段，不影响周期边界
 - `BUBBLE`：气泡型，延长周期边界，后续时间段边界整体后移
 
-### 11.6 智能免费分钟数
+### 11.6 免费分钟分配模式
 
 ```java
-PromotionGrant smartFreeMinutes = PromotionGrant.builder()
-        .id("smart-30min")
-        .type(BConstants.PromotionType.SMART_FREE_MINUTES)
+PromotionGrant highPriceFreeMinutes = PromotionGrant.builder()
+        .id("high-price-30min")
+        .type(BConstants.PromotionType.FREE_MINUTES)
         .source(BConstants.PromotionSource.COUPON)
         .freeMinutes(30)
+        .allocationMode(BConstants.FreeMinutesAllocationMode.HIGHEST_PRICE)
         .priority(1)
         .build();
 ```
 
-**限制**：`SMART_FREE_MINUTES` 仅在 `DURATION_GLOBAL` 模式下消费。其他模式遇到此类型会抛出 `IllegalStateException`。
+`FREE_MINUTES.allocationMode` 支持：
+
+| 值 | 说明 |
+|------|------|
+| `FROM_START` | 默认值。从窗口起点开始，跳过已被显式免费时段占用的空隙，按时间顺序分配 |
+| `CHARGED_TIME` | 仅 `DURATION_GLOBAL`。按时间顺序填充非免费且单价大于 0 的收费时段 |
+| `HIGHEST_PRICE` | 仅 `DURATION_GLOBAL`。按单价降序优先填充高价时段，价格相同再按时间顺序 |
+
+`CHARGED_TIME` / `HIGHEST_PRICE` 依赖规则价格语义，目前只支持 `DURATION_GLOBAL`。其他模式使用这两个分配模式会抛出 `IllegalStateException`。
 
 ### 11.7 优惠叠加规则
 
 - `FREE_RANGE` 和 `FREE_MINUTES` 可同时存在，由引擎合并处理
-- `FREE_MINUTES` 与 `SMART_FREE_MINUTES` 共用 `freeMinutes` 字段，按 `priority` 排序各自分配
-- 条件生效优惠失效时不会重新分配其他 `FREE_MINUTES` / `SMART_FREE_MINUTES` 的占用空间，调用方可通过 `priority` 控制优惠占用顺序
+- 多个 `FREE_MINUTES` 按 `priority` 排序逐条分配，前一条占用后后一条继续找空隙
+- 条件生效优惠失效时不会重新分配其他 `FREE_MINUTES` 的占用空间，调用方可通过 `priority` 控制优惠占用顺序
 
 ---
 
@@ -1065,15 +1124,22 @@ Spring Boot starter 当前可通过自定义 `BillingRuleRegistry` bean 注册�
 | `CONTINUOUS` | 连续时间计费（边界驱动切断） |
 | `UNIT_BASED` | 固定单元对齐计费 |
 | `DURATION_PERIOD` | 周期内时长计费 |
-| `DURATION_GLOBAL` | 全局时长计费（唯一消费 SMART_FREE_MINUTES 的模式） |
+| `DURATION_GLOBAL` | 全局时长计费（支持价格感知的 FREE_MINUTES 分配模式） |
 
 ### BConstants.PromotionType
 
 | 值 | 说明 |
 |------|------|
 | `FREE_RANGE` | 免费时间段 |
-| `FREE_MINUTES` | 免费分钟数（在窗口起点附近分配） |
-| `SMART_FREE_MINUTES` | 智能免费分钟数（仅 DURATION_GLOBAL，按单价降序优先高价分配） |
+| `FREE_MINUTES` | 免费分钟数（通过 `allocationMode` 控制分配策略） |
+
+### BConstants.FreeMinutesAllocationMode
+
+| 值 | 说明 |
+|------|------|
+| `FROM_START` | 默认，从窗口起点附近分配 |
+| `CHARGED_TIME` | 仅 DURATION_GLOBAL，按时间顺序填充单价大于 0 的收费时段 |
+| `HIGHEST_PRICE` | 仅 DURATION_GLOBAL，优先填充高价时段 |
 
 ### BConstants.PromotionSource
 

@@ -37,10 +37,11 @@ public class NaturalTimeConfig implements RuleConfig {
     /**
      * 自然时段列表
      * 必须满足：
-     * - 按 beginMinute 升序排列
-     * - 相邻时段首尾相连
-     * - 首时段 beginMinute = 0
-     * - 末时段 endMinute = 1440（全天覆盖）
+     * - beginMinute / endMinute 为一天内分钟点
+     * - endMinute 小于 beginMinute 表示跨到次日
+     * - 00:00-00:00（0-0）表示全天，规则内部按 0-1440 处理
+     * - 相邻时段按配置顺序首尾相连，并在环形 24 小时时间轴上刚好覆盖全天
+     * - 兼容旧配置 endMinute = 1440，但新接入推荐用 0 表示 00:00
      */
     private List<NaturalPeriod> periods;
 

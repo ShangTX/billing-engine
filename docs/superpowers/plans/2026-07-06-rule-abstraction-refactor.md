@@ -71,21 +71,21 @@
 - 删除 `DayNightDurationGlobalStrategy`，避免 dayNight 保留一套特殊汇总语义。
 
 **验证**:
-`mvn -pl bill-test -am "-Dtest=DurationBillingModeTest,DurationModeThreeFamiliesTest,SmartFreeMinutesTest,FreeMinutesMaterializationTest,BubbleFreeRangeTest,ConditionalPromotionActivationTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`
+`mvn -pl bill-test -am "-Dtest=DurationBillingModeTest,DurationModeThreeFamiliesTest,FreeMinutesAllocationModeTest,FreeMinutesMaterializationTest,BubbleFreeRangeTest,ConditionalPromotionActivationTest" "-Dsurefire.failIfNoSpecifiedTests=false" test`
 
-### 阶段 5:SMART_FREE_MINUTES(决策 D)
+### 阶段 5:FREE_MINUTES allocationMode(决策 D 修订)
 
-- `BConstants.PromotionType` 加 `SMART_FREE_MINUTES`
-- `FreeMinutes` / `PromotionAggregate` 支持 `SMART_FREE_MINUTES` 透传(不时段化)
-- `DurationGlobalStrategy` 实现优先高价分配:
+- 不再新增独立优惠类型，统一使用 `PromotionType.FREE_MINUTES`
+- `FreeMinutes` / `PromotionGrant` 支持 `allocationMode`，旧的智能免费字段删除
+- `DurationGlobalStrategy` 统一处理所有 `FREE_MINUTES`，并保留显式高价优先:
   - 用 `RuleSemantics.priceAt` + `periodBoundaryProvider` 切同价时段
-  - 按单价降序消费 `SMART_FREE_MINUTES`,产出免费段(从时段起点切)
-  - 与普通免费段(`FREE_RANGE` + `FREE_MINUTES` 时段化)合并,参与边界驱动
-- `BillingCalculator`:非 GLOBAL 模式遇到 `SMART_FREE_MINUTES` 报错
-- 同时存在普通 `FREE_MINUTES` + `SMART_FREE_MINUTES`:按 `priority` 排序,各自分配,跳过已占用时段
-- `PromotionUsage.type` 区分 `FREE_MINUTES` / `SMART_FREE_MINUTES`,各自记录用量/来源
+  - `FROM_START` 按窗口起点分配；`CHARGED_TIME` 按时间顺序消费正价收费时段；`HIGHEST_PRICE` 按单价降序消费正价收费时段
+  - 与显式免费段(`FREE_RANGE`)和其他免费分钟生成段合并,参与边界驱动
+- `BillingCalculator`:非 GLOBAL 模式遇到 `CHARGED_TIME` / `HIGHEST_PRICE` 报错
+- 多条 `FREE_MINUTES`:按 `priority` 排序,各自分配,跳过已占用时段
+- `PromotionUsage.type` 统一为 `FREE_MINUTES`,通过 promotionId/source 追踪来源
 
-**验证**:新增 `SMART_FREE_MINUTES` 测试(GLOBAL 优先高价分配金额/明细、非 GLOBAL 报错、同时存在两种免费分钟);`PromotionEquivalentCalculator` 对 `SMART_FREE_MINUTES` 等效金额正确。
+**验证**:新增 `FreeMinutesAllocationModeTest`(FROM_START、CHARGED_TIME、高价优先开关、非 GLOBAL 报错、多条免费分钟并存);`PromotionEquivalentCalculator` 对各分配模式等效金额正确。
 
 ### 阶段 6:共享解析逻辑(决策 E)
 
@@ -110,9 +110,9 @@
 
 - spec:标记状态(按完成度更新为已实现)
 - TODO → DONE:TODO-20260706-002 迁移
-- `README` / `README_CN`:更新能力说明(`CalculationMode`、`SMART_FREE_MINUTES`)
-- `USER_GUIDE`:更新模式说明、`SMART_FREE_MINUTES` 用法
-- 能力文档(中英):更新模式矩阵、`SMART_FREE_MINUTES`、简化路径
+- `README` / `README_CN`:更新能力说明(`CalculationMode`、`FREE_MINUTES allocationMode`)
+- `USER_GUIDE`:更新模式说明、`FREE_MINUTES allocationMode` 用法
+- 能力文档(中英):更新模式矩阵、`FREE_MINUTES allocationMode`、简化路径
 - 流程文档:更新四层架构、迁移后流程
 - `AGENTS.md`:更新架构(四层、`RuleSemantics`、`ModeStrategy`)、关键类列表
 
@@ -124,7 +124,7 @@
 
 - 每阶段:`mvn -pl bill-test -am test` 全绿
 - 阶段 4 后:4 规则族时长模式冒烟测试
-- 阶段 5 后:`SMART_FREE_MINUTES` 专项测试
+- 阶段 5 后:`FREE_MINUTES allocationMode` 专项测试
 - 阶段 6 后:`PromotionEquivalentCalculator` 对齐验证
 - 阶段 7 后:无旧模型残留(grep 确认)
 
@@ -136,7 +136,7 @@
 2. `[claude-code|opus-4-8|superpowers] refactor: 3 规则族门面化(TODO-20260706-002 阶段2)`
 3. `[claude-code|opus-4-8|superpowers] refactor: ContinuousStrategy 通用骨架 + 简化全局空隙(TODO-20260706-002 阶段3)`
 4. `[claude-code|opus-4-8|superpowers] refactor: 拆 DurationPeriod/GlobalStrategy + DurationSupport(TODO-20260706-002 阶段4)`
-5. `[claude-code|opus-4-8|superpowers] feat: SMART_FREE_MINUTES 优先高价分配(TODO-20260706-002 阶段5)`
+5. `[claude-code|opus-4-8|superpowers] feat: FREE_MINUTES allocationMode 价格感知分配(TODO-20260706-002 阶段5)`
 6. `[claude-code|opus-4-8|superpowers] refactor: 共享 resolveSegmentContext(TODO-20260706-002 阶段6)`
 7. `[claude-code|opus-4-8|superpowers] refactor: 废弃 AbstractTimeBasedRule 与旧切段模型(TODO-20260706-002 阶段7)`
 8. `[claude-code|opus-4-8|superpowers] docs: 规则抽象重构文档同步(TODO-20260706-002 阶段8)`
@@ -149,6 +149,6 @@ trailer:`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
 - **阶段 2(门面化)**:3 规则族同时改,改动面大。缓解:每规则族独立提交(2a/2b/2c),各自验证。
 - **阶段 3(通用骨架)**:周期切换抽象不当导致金额偏差。缓解:用现有 parity 测试逐规则族验证;`isCycleBoundary` 语义明确(各规则族原有的周期切换判定)。
 - **阶段 4(时长策略通用化)**:边界 provider 抽象遗漏。缓解:`DurationBillingModeTest` + 3 规则族冒烟;`RuleSemantics` 的 boundary provider 契约清晰。
-- **阶段 5(SMART_FREE_MINUTES)**:同时存在两种免费分钟的分配顺序。缓解:`priority` 排序 + 专项测试;消费跳过已占用时段的边界条件。
+- **阶段 5(FREE_MINUTES allocationMode)**:多条免费分钟及不同分配模式的分配顺序。缓解:`priority` 排序 + 专项测试;消费跳过已占用时段的边界条件。
 - **阶段 6(externalPool 分步)**:状态重置语义。缓解:`PromotionEquivalentCalculatorTest` 逐场景验证;pool 重置点明确(prepareContexts 一次,calculateWithContexts 每次重算前重置)。
 - **回退**:每阶段独立提交,失败可 `git revert` 单阶段。

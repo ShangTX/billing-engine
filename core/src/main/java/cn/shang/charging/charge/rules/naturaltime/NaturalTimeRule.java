@@ -6,11 +6,9 @@ import cn.shang.charging.billing.pojo.BillingSegmentResult;
 import cn.shang.charging.charge.rules.BillingRule;
 import cn.shang.charging.charge.rules.DurationGlobalStrategy;
 import cn.shang.charging.charge.rules.DurationPeriodStrategy;
-import cn.shang.charging.charge.rules.compositetime.NaturalPeriod;
 import cn.shang.charging.promotion.pojo.PromotionAggregate;
 
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -34,8 +32,6 @@ import java.util.Set;
  * TODO-20260706-002 阶段4：声明支持时长模式，规则族语义由 {@link NaturalTimeSemantics} 注入。
  */
 public class NaturalTimeRule implements BillingRule<NaturalTimeConfig> {
-
-    private static final int MINUTES_PER_CYCLE = 1440;
 
     private final NaturalTimeContinuousStrategy continuousStrategy = new NaturalTimeContinuousStrategy();
     private final NaturalTimeSemantics naturalTimeSemantics = new NaturalTimeSemantics();
@@ -80,26 +76,6 @@ public class NaturalTimeRule implements BillingRule<NaturalTimeConfig> {
         if (config.getUnitMinutes() <= 0) {
             throw new IllegalArgumentException("unitMinutes 必须大于 0");
         }
-        validatePeriodsCoverage(config.getPeriods());
-    }
-
-    private void validatePeriodsCoverage(List<NaturalPeriod> periods) {
-        int totalCovered = 0;
-        int prevEnd = 0;
-        for (int i = 0; i < periods.size(); i++) {
-            NaturalPeriod period = periods.get(i);
-            if (i > 0 && period.getBeginMinute() != prevEnd) {
-                throw new IllegalArgumentException("时段不连续");
-            }
-            if (period.getBeginMinute() < period.getEndMinute()) {
-                totalCovered += period.getEndMinute() - period.getBeginMinute();
-            } else {
-                totalCovered += (MINUTES_PER_CYCLE - period.getBeginMinute()) + period.getEndMinute();
-            }
-            prevEnd = period.getEndMinute();
-        }
-        if (totalCovered != MINUTES_PER_CYCLE) {
-            throw new IllegalArgumentException("时段未覆盖全天");
-        }
+        NaturalPeriodSupport.validateFullDayCoverage(config.getPeriods());
     }
 }

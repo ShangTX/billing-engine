@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -165,6 +166,53 @@ class DurationModeThreeFamiliesTest {
         assertEquals(0, new BigDecimal("6.00").compareTo(result.getChargedAmount()));
         List<DurationSegment> segs = result.getDurationSegments();
         assertTrue(segs.size() >= 2, "应至少 2 段（日/夜）");
+    }
+
+    /** PERIOD：00:00-00:00 表示全天，并在输出标签中归一为 0-1440。 */
+    @Test
+    void naturalTime_period_zeroToZeroMeansFullDay() {
+        NaturalTimeConfig config = NaturalTimeConfig.builder()
+                .id("nat-full-day")
+                .maxChargeOneDay(new BigDecimal("100.00"))
+                .unitMinutes(60)
+                .periods(List.of(NaturalPeriod.builder()
+                        .beginMinute(0)
+                        .endMinute(0)
+                        .unitPrice(new BigDecimal("2.00"))
+                        .build()))
+                .build();
+
+        BillingSegmentResult result = new NaturalTimeRule().calculate(
+                ctx(LocalDateTime.of(2026, 1, 1, 9, 0),
+                    LocalDateTime.of(2026, 1, 1, 11, 0),
+                    BConstants.CalculationMode.DURATION_PERIOD),
+                config, PromotionAggregate.builder().build());
+
+        assertEquals(0, new BigDecimal("4.00").compareTo(result.getChargedAmount()));
+        assertEquals(1, result.getDurationSegments().size());
+        DurationSegment segment = result.getDurationSegments().get(0);
+        assertEquals("0-1440", segment.periodLabel());
+        assertEquals(120, segment.chargedMinutes());
+    }
+
+    @Test
+    void naturalTime_period_sameNonZeroBeginEndRejected() {
+        NaturalTimeConfig config = NaturalTimeConfig.builder()
+                .id("nat-invalid-same")
+                .maxChargeOneDay(new BigDecimal("100.00"))
+                .unitMinutes(60)
+                .periods(List.of(NaturalPeriod.builder()
+                        .beginMinute(7 * 60)
+                        .endMinute(7 * 60)
+                        .unitPrice(new BigDecimal("2.00"))
+                        .build()))
+                .build();
+
+        assertThrows(IllegalArgumentException.class, () -> new NaturalTimeRule().calculate(
+                ctx(LocalDateTime.of(2026, 1, 1, 9, 0),
+                    LocalDateTime.of(2026, 1, 1, 11, 0),
+                    BConstants.CalculationMode.DURATION_PERIOD),
+                config, PromotionAggregate.builder().build()));
     }
 
     /** GLOBAL：naturalTime 同价桶跨免费段汇总，输出桶不带 begin/end。 */

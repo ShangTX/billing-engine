@@ -26,7 +26,7 @@ public class PromotionGrant {
     /** 优惠ID（唯一标识，用于追踪） */
     String id;
 
-    /** 优惠类型：FREE_RANGE / FREE_MINUTES / SMART_FREE_MINUTES */
+    /** 优惠类型：FREE_RANGE / FREE_MINUTES */
     BConstants.PromotionType type;
 
     /** 优惠来源：RULE（方案内规则）/ COUPON（外部优惠券） */
@@ -38,8 +38,11 @@ public class PromotionGrant {
     /** 优惠时间段终点（FREE_RANGE/外部优惠券适用） */
     LocalDateTime endTime;
 
-    /** 免费分钟数（FREE_MINUTES/SMART_FREE_MINUTES 适用） */
+    /** 免费分钟数（FREE_MINUTES 适用） */
     Integer freeMinutes;
+
+    /** FREE_MINUTES 分配模式；为空时默认 FROM_START。 */
+    BConstants.FreeMinutesAllocationMode allocationMode;
 
     /** 优先级（数字越小优先级越高，控制多优惠叠加时的处理顺序） */
     Integer priority;

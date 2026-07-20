@@ -64,7 +64,7 @@ final class NaturalTimeSemantics implements RuleSemantics<NaturalTimeConfig> {
     @Override
     public String periodKey(LocalDateTime time, NaturalTimeConfig config, LocalDateTime cycleOrigin) {
         NaturalPeriod period = resolvePeriod(time, config);
-        return period.getBeginMinute() + "-" + period.getEndMinute();
+        return NaturalPeriodSupport.periodLabel(period);
     }
 
     @Override

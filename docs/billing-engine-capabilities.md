@@ -72,7 +72,7 @@ Segment calculation modes:
 | `CONTINUOUS` | The boundary-driven loop is the only calculation path: find the nearest boundary (free-range start/end, period end, cycle end, calcEnd) and jump to it, producing one homogeneous segment per iteration; within a segment splits into compact (full units) + truncated (remainder) by subCount + remainder. |
 | `UNIT_BASED` | Fixed unit alignment + full-coverage-free; does not use the boundary-driven loop. Currently carried only by `DayNightUnitBasedStrategy` under the `dayNight` facade. |
 | `DURATION_PERIOD` | Duration billing within a cycle, with cycle cap and period cap. Emits `DurationSegment`. |
-| `DURATION_GLOBAL` | Global duration billing. Aggregates homogeneous charged buckets and applies period/cycle caps separately to full cycles and the tail cycle. Emits `DurationSegment`. The only mode that consumes `SMART_FREE_MINUTES`. |
+| `DURATION_GLOBAL` | Global duration billing. Aggregates homogeneous charged buckets and applies period/cycle caps separately to full cycles and the tail cycle. Emits `DurationSegment`. Supports price-aware `FREE_MINUTES` allocation modes. |
 
 ### Mode feature matrix
 
@@ -81,8 +81,8 @@ Segment calculation modes:
 | Output structure | BillingUnit | BillingUnit | DurationSegment | DurationSegment |
 | Splitting model | Boundary-driven cut | Fixed unit alignment | Boundary-driven minute stream | Boundary-driven minute stream |
 | Shared scheduling layer | Yes | No | Yes | Yes |
-| FREE_MINUTES handling | Pre-materialized (from start) | Pre-materialized (from start) | Pre-materialized (from start) | Pre-materialized (from start) + SMART_FREE_MINUTES |
-| SMART_FREE_MINUTES | Error | Error | Error | Rule-side highest-price-first allocation |
+| FREE_MINUTES handling | `FROM_START` pre-materialization | `FROM_START` pre-materialization | `FROM_START` pre-materialization | Allocated grant-by-grant by `allocationMode`; supports `FROM_START`/`CHARGED_TIME`/`HIGHEST_PRICE` |
+| Price-aware FREE_MINUTES | Error | Error | Error | `CHARGED_TIME` / `HIGHEST_PRICE` |
 | compact merge | Produced in-segment | No | No | No |
 | Simplified calculation | Global-gap | None | None | None |
 | Cap basis | Per-cycle cap | Daily cap | In-cycle cap | Full-cycle cap plus the tail cycle's actual charge |
@@ -186,6 +186,7 @@ Implemented by `NaturalTimeRule`.
 Capabilities:
 
 - 24-hour natural cycle, partitioned into natural periods.
+- Natural periods are interpreted on a circular 24-hour timeline: `endMinute < beginMinute` crosses midnight; `0-0` means full day and is normalized to `0-1440` in output labels.
 - Each period has its own price with a uniform unit length.
 - Natural-period boundaries are always split; cross-period pricing modes are not exposed.
 - Daily cap through `maxChargeOneDay`.
@@ -211,8 +212,7 @@ Implemented promotion grant types:
 | Type | Meaning |
 |------|---------|
 | `FREE_RANGE` | Explicit free time range |
-| `FREE_MINUTES` | Free minutes allocated into non-free gaps (allocated near the window start, pre-materialized) |
-| `SMART_FREE_MINUTES` | Smart free minutes, consumed only in `DURATION_GLOBAL` mode; the rule side allocates them highest-price-first using `RuleSemantics.priceAt`. Non-GLOBAL modes throw. Shares the `freeMinutes` field with `FREE_MINUTES`; multiple grants allocate independently by `priority`. |
+| `FREE_MINUTES` | Free minutes; `allocationMode=FROM_START` by default, with `CHARGED_TIME` and `HIGHEST_PRICE` available in `DURATION_GLOBAL`. |
 
 Free grants also carry `activationMode`: `ALWAYS` by default, or `END_WITHIN_RANGE` to activate only when the overall billing end time falls inside the grant's time range. Conditional activation is supported only by `DURATION_PERIOD` and `DURATION_GLOBAL`; other modes throw. Conditional grants still participate in merge/allocation first, then inactive ranges/usages are filtered, so other promotions are not reallocated when a conditional grant becomes inactive.
 
@@ -244,9 +244,9 @@ Current aggregation stages:
 1. Collect grants from `PromotionRuleConfig`.
 2. Add external `PromotionGrant` entries from the request.
 3. Merge explicit `FREE_RANGE` promotions through `FreeTimeRangeMerger`.
-4. Produce a canonical intermediate form: merged `FREE_RANGE` ranges + unmaterialized `FREE_MINUTES` list (`freeMinutesList`) + `SMART_FREE_MINUTES` scalar passthrough.
+4. Produce a canonical intermediate form: merged `FREE_RANGE` ranges + unmaterialized `FREE_MINUTES` list (`freeMinutesList`, including `allocationMode`).
 
-`FREE_MINUTES` materialization is delegated to strategies (TODO-20260702-004): `PromotionEngine` no longer materializes centrally, avoiding the aggregation layer coupling to "rule + mode" to decide output form. CONTINUOUS/UNIT_BASED/DURATION_PERIOD strategies materialize via `RuleSupport.materializeFreeMinutes` (`FreeMinuteAllocator`), merged with `FREE_RANGE`; the DURATION_GLOBAL strategy also materializes FREE_MINUTES (allocated near the window start) and additionally consumes `SMART_FREE_MINUTES` (highest-price-first allocation using `RuleSemantics.priceAt` to split equal-price windows). Duration strategies apply `END_WITHIN_RANGE` after merge/allocation. `SMART_FREE_MINUTES` is passed through as a scalar (`smartFreeMinutesList`), is not materialized at the aggregate layer, and is not counted in the simplification total-free-minutes check. `PromotionUsage` (FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES) and `PromotionCarryOver` are produced strategy-side; `PromotionCarryOver` is built via `PromotionAggregateUtil.buildCarryOver` and written back to the aggregate. Non-GLOBAL modes throw on `SMART_FREE_MINUTES`; non-duration modes also throw on conditional activation (enforced by `BillingCalculator`).
+`FREE_MINUTES` materialization is delegated to strategies (TODO-20260702-004): `PromotionEngine` no longer materializes centrally, avoiding the aggregation layer coupling to "rule + mode" to decide output form. CONTINUOUS/UNIT_BASED/DURATION_PERIOD strategies support only `allocationMode=FROM_START` and materialize via `RuleSupport.materializeFreeMinutes` (`FreeMinuteAllocator`), merged with `FREE_RANGE`; the DURATION_GLOBAL strategy processes the same `freeMinutesList` grant-by-grant by `priority`, supporting `FROM_START`, `CHARGED_TIME` (chronological positive-price charged-time allocation), and `HIGHEST_PRICE` (highest-price-first allocation using `RuleSemantics.priceAt` to split equal-price windows). Duration strategies apply `END_WITHIN_RANGE` after merge/allocation. `PromotionUsage` (FREE_MINUTES/FREE_RANGE) and `PromotionCarryOver` are produced strategy-side; `PromotionCarryOver` is built via `PromotionAggregateUtil.buildCarryOver` and written back to the aggregate. Non-GLOBAL modes throw on price-aware `FREE_MINUTES` allocation modes; non-duration modes also throw on conditional activation (enforced by `BillingCalculator`).
 
 `FreeTimeRangeMerger` preserves range metadata such as priority, source, and range type.
 
@@ -305,7 +305,7 @@ Current known gaps are tracked in `docs/TODO.md` and `docs/tracking/items/`.
 Important current gaps include:
 
 - Reserved rule constants such as `times` remain unimplemented; `nrTimeMix` is deprecated and covered by `compositeTime`.
-- `SMART_FREE_MINUTES` is supported only in `DURATION_GLOBAL` mode; other modes throw on it (by design, complexity is confined to GLOBAL).
+- `FREE_MINUTES` `CHARGED_TIME` / `HIGHEST_PRICE` allocation modes are supported only in `DURATION_GLOBAL`; other modes throw on them (by design, complexity is confined to GLOBAL).
 - Materialized-index revenue estimation: the engine only provides the implementation surface (producing validMinutes/accumulatedAmount etc.); storage/indexing is up to the business layer (TODO-20260630-002).
 
 ---

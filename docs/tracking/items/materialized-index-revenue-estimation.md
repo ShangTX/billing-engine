@@ -91,7 +91,7 @@ delta = currentTotal - settledAmount
 
 - **段内投影**：`queryTime` 落在计费单元内部时，FULL_CHARGE、PROPORTIONAL、THRESHOLD 等不足单元模式会产生不同金额曲线，固定 `chargedAmount` 不够表达。
 - **conditional 免费段**：优惠是否生效依赖最终计费窗口，`queryTime` 改变会导致已物化数据失效。
-- **SMART_FREE_MINUTES**：免费分钟按高价优先分配，随着查询窗口延长，未来高价段进入窗口后可能改变免费分钟分配位置。
+- **价格感知 FREE_MINUTES**：`CHARGED_TIME` 默认按时间顺序填充非免费且单价大于 0 的收费时段，物化难度相对可控；但 `HIGHEST_PRICE` 时，随着查询窗口延长，未来高价段进入窗口后仍可能改变免费分钟分配位置。
 - **封顶**：封顶会产生平台期、部分削减单元和周期重置，要求物化的是金额函数或原子段，而不是简单单价表。
 - **compact**：compact 是结果传输压缩，不是索引结构。物化索引需要未 compact 的原子段或专门的 timeline atom。
 
@@ -122,7 +122,7 @@ ChargeTimeline
 | `ROUGH` | 粗略预估，允许一个单元或一个原子段误差 | 所有规则基本可提供 |
 | `EXACT_STEP` | 金额只在边界跳变 | FULL_CHARGE、无段内投影、无 conditional 优惠 |
 | `EXACT_LINEAR` | 金额在段内线性增长 | 时长模式、部分比例计费场景 |
-| `UNSUPPORTED` | 必须查询时重算 | conditional 优惠、动态窗口下的 SMART_FREE_MINUTES 等 |
+| `UNSUPPORTED` | 必须查询时重算 | conditional 优惠、动态窗口下的价格感知 FREE_MINUTES 等 |
 
 因此，长期愿景的重点不是“少算一次”的 continue，而是“能否把金额表达为可索引函数”的 timeline / atom 能力。
 

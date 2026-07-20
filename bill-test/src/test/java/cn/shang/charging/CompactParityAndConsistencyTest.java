@@ -116,6 +116,61 @@ class CompactParityAndConsistencyTest {
     }
 
     @Test
+    void naturalTime_uiStyleCrossMidnightPeriods_compactMatchesIndependentFormula() {
+        NaturalTimeConfig config = NaturalTimeConfig.builder()
+                .id("nat-ui-cross-midnight")
+                .unitMinutes(60)
+                .periods(List.of(
+                        NaturalPeriod.builder()
+                                .beginMinute(7 * 60)
+                                .endMinute(21 * 60)
+                                .unitPrice(new BigDecimal("5.00"))
+                                .build(),
+                        NaturalPeriod.builder()
+                                .beginMinute(21 * 60)
+                                .endMinute(7 * 60)
+                                .unitPrice(new BigDecimal("2.00"))
+                                .build()
+                ))
+                .maxChargeOneDay(new BigDecimal("1000.00"))
+                .build();
+
+        LocalDateTime begin = LocalDateTime.of(2026, 4, 20, 20, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 4, 20, 22, 0);
+        BillingResult result = naturalService(config).calculate(baseRequest(begin, end));
+
+        BigDecimal expected = new BigDecimal("7.00"); // 20:00-21:00 ×5 + 21:00-22:00 ×2
+        assertEquals(0, expected.compareTo(result.getFinalAmount()),
+                () -> "naturalTime UI-style cross-midnight amount mismatch, actual=" + result.getFinalAmount());
+
+        CompactConsistencyAssert.assertUnitsConsistent(result.getUnits());
+    }
+
+    @Test
+    void naturalTime_zeroToZeroFullDay_compactMatchesIndependentFormula() {
+        NaturalTimeConfig config = NaturalTimeConfig.builder()
+                .id("nat-zero-zero-full-day")
+                .unitMinutes(60)
+                .periods(List.of(NaturalPeriod.builder()
+                        .beginMinute(0)
+                        .endMinute(0)
+                        .unitPrice(new BigDecimal("3.00"))
+                        .build()))
+                .maxChargeOneDay(new BigDecimal("1000.00"))
+                .build();
+
+        LocalDateTime begin = LocalDateTime.of(2026, 4, 20, 9, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 4, 20, 12, 0);
+        BillingResult result = naturalService(config).calculate(baseRequest(begin, end));
+
+        BigDecimal expected = new BigDecimal("9.00"); // 3h × 3.00
+        assertEquals(0, expected.compareTo(result.getFinalAmount()),
+                () -> "naturalTime 00:00-00:00 full-day amount mismatch, actual=" + result.getFinalAmount());
+
+        CompactConsistencyAssert.assertUnitsConsistent(result.getUnits());
+    }
+
+    @Test
     void compositeTime_longWindow_compactMatchesIndependentFormula() {
         // 单 relative period 0-1440 60min，naturalPeriods 480-1200(2.00)，8:00-16:00 全在 2.00 时段
         CompositeTimeConfig config = CompositeTimeConfig.builder()

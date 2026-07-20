@@ -225,6 +225,7 @@ public class BillingTemplate {
                     .beginTime(grant.getBeginTime())
                     .endTime(grant.getEndTime())
                     .freeMinutes(grant.getFreeMinutes())
+                    .allocationMode(grant.getAllocationMode())
                     .priority(grant.getPriority())
                     .rangeType(grant.getRangeType())
                     .activationMode(grant.getActivationMode())

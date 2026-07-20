@@ -18,9 +18,9 @@ import java.util.Set;
 /**
  * 规则族共享无状态工具（层 2 旁路）：不通过继承传递的策略侧公共能力。
  * <p>
- * 当前承载 FREE_MINUTES 时段化（{@link #materializeFreeMinutes}），供 CONTINUOUS 策略族
- * （DayNight/RelativeTime/NaturalTime/CompositeTime）与时长策略
- * （{@link DurationGlobalStrategy}/{@link DurationPeriodStrategy}）共享。
+ * 当前承载 FROM_START 模式的 FREE_MINUTES 时段化（{@link #materializeFreeMinutes}），供
+ * CONTINUOUS 策略族（DayNight/RelativeTime/NaturalTime/CompositeTime）、UNIT_BASED 与
+ * DURATION_PERIOD 共享。DURATION_GLOBAL 需要同时支持价格感知分配，使用自己的分配逻辑。
  * <p>
  * TODO-20260706-002 阶段7：从 {@code AbstractTimeBasedRule} 搬出，废弃旧基类。
  */
@@ -36,10 +36,13 @@ public final class RuleSupport {
      * 把 PromotionAggregate 中的未时段化 FREE_MINUTES 时段化为时间段，与 FREE_RANGE 合并，
      * 返回最终免费段 + FREE_MINUTES usage。
      * <p>
-     * CONTINUOUS 策略（DayNight/RelativeTime/NaturalTime/CompositeTime）与时长策略在
-     * {@code calculate} 入口调用本方法获得 finalFreeRanges，替换旧路径直接读
+     * CONTINUOUS 策略（DayNight/RelativeTime/NaturalTime/CompositeTime）、UNIT_BASED 与
+     * DURATION_PERIOD 在 {@code calculate} 入口调用本方法获得 finalFreeRanges，替换旧路径直接读
      * {@code aggregate.getFreeTimeRanges()} 的行为（后者现在只含 FREE_RANGE）。
      * FREE_MINUTES 时段化已从 PromotionEngine 下放到策略侧（TODO-20260702-004）。
+     * <p>
+     * allocationMode 为空或 FROM_START 的免费分钟会在这里处理；CHARGED_TIME / HIGHEST_PRICE
+     * 依赖规则价格语义，仅由 DURATION_GLOBAL 支持。
      * <p>
      * 无 FREE_MINUTES 时返回 {@code aggregate.freeTimeRanges}（FREE_RANGE）+ 空 usages，不产生副作用。
      *
@@ -59,7 +62,15 @@ public final class RuleSupport {
                     .setFinalFreeRanges(freeRangeOnly)
                     .setPromotionUsages(List.of());
         }
-        return FREE_MINUTE_ALLOCATOR.allocateAndMerge(freeMinutesList, freeRangeOnly, window);
+        List<FreeMinutes> fromStartMinutes = freeMinutesList.stream()
+                .filter(RuleSupport::isFromStartAllocation)
+                .toList();
+        if (fromStartMinutes.isEmpty()) {
+            return new FreeMinuteAllocationResult()
+                    .setFinalFreeRanges(freeRangeOnly)
+                    .setPromotionUsages(List.of());
+        }
+        return FREE_MINUTE_ALLOCATOR.allocateAndMerge(fromStartMinutes, freeRangeOnly, window);
     }
 
     /**
@@ -91,7 +102,25 @@ public final class RuleSupport {
         if (hasConditionalMinutes(promotionAggregate.getFreeMinutesList())) {
             return true;
         }
-        return hasConditionalMinutes(promotionAggregate.getSmartFreeMinutesList());
+        return false;
+    }
+
+    public static boolean hasPriceAwareFreeMinutes(PromotionAggregate promotionAggregate) {
+        return promotionAggregate != null
+                && promotionAggregate.getFreeMinutesList() != null
+                && promotionAggregate.getFreeMinutesList().stream()
+                .anyMatch(minutes -> !isFromStartAllocation(minutes));
+    }
+
+    public static BConstants.FreeMinutesAllocationMode freeMinutesAllocationMode(FreeMinutes minutes) {
+        if (minutes == null || minutes.getAllocationMode() == null) {
+            return BConstants.FreeMinutesAllocationMode.FROM_START;
+        }
+        return minutes.getAllocationMode();
+    }
+
+    public static boolean isFromStartAllocation(FreeMinutes minutes) {
+        return freeMinutesAllocationMode(minutes) == BConstants.FreeMinutesAllocationMode.FROM_START;
     }
 
     public static void assertConditionalActivationSupported(

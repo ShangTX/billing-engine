@@ -46,7 +46,7 @@ completed_git: 02162b6
 - 阶段 2:3 规则族门面化(RelativeTime/NaturalTime/CompositeTime)
 - 阶段 3:抽 `ContinuousStrategy` 通用骨架 + 简化全局空隙(决策 C)
 - 阶段 4:抽 `DurationSupport` + 拆两个时长策略(决策 B)
-- 阶段 5:`SMART_FREE_MINUTES`(决策 D)
+- 阶段 5:`FREE_MINUTES allocationMode`(决策 D 修订)
 - 阶段 6:共享解析逻辑 `resolveSegmentContext`(决策 E)
 - 阶段 7:废弃旧模型(`AbstractTimeBasedRule` / `TimeFragment` / `splitTimeAxis` 等)
 - 阶段 8:文档同步
@@ -54,7 +54,7 @@ completed_git: 02162b6
 ### 不包含
 
 - 新增计费规则类型(仅重构现有 4 类)
-- 新增优惠类型(除 SMART_FREE_MINUTES 外)
+- 新增优惠类型(后续修订为不新增类型,统一使用 FREE_MINUTES allocationMode)
 - 对外 API 兼容(已确认不考虑,可放心大改)
 
 ## 验收标准
@@ -66,7 +66,7 @@ completed_git: 02162b6
 - 阶段 2:3 规则族门面化,不继承 `AbstractTimeBasedRule`,现有测试通过
 - 阶段 3:`applyCapAndAccumulate` 合并为 1 份,简化改全局空隙,现有测试通过
 - 阶段 4:`DurationPeriodStrategy` / `DurationGlobalStrategy` 通用化,4 规则族声明 `supportedCalculationModes` 即支持时长模式
-- 阶段 5:`SMART_FREE_MINUTES` 在 GLOBAL 下按优先高价分配,非 GLOBAL 报错
+- 阶段 5:`FREE_MINUTES` 在 GLOBAL 下支持 `CHARGED_TIME` / `HIGHEST_PRICE`,非 GLOBAL 价格感知模式报错
 - 阶段 6:`prepareContexts` 与 `calculate` 解析一致,`PromotionEquivalentCalculator` 等效金额准确
 - 阶段 7:旧模型删除,无残留引用
 - 阶段 8:文档全部同步
@@ -84,7 +84,7 @@ completed_git: 02162b6
 - A:`CalculationMode` 合并,删旧 enum
 - B:拆 `DurationPeriodStrategy` / `DurationGlobalStrategy` + 共享 `DurationSupport`
 - C:保留简化,改全局空隙实现,删旧切段模型,ruleData 保时段明细
-- D:`SMART_FREE_MINUTES` 类型,仅 GLOBAL 消费,规则侧按优先高价分配,非 GLOBAL 报错
+- D:`FREE_MINUTES allocationMode`,仅 GLOBAL 消费价格感知模式,规则侧按时间顺序或高价优先分配,非 GLOBAL 报错
 - E:`prepareContexts` 补 calculationMode + externalPool,抽共享 `resolveSegmentContext`
 
 阶段 0(GLOBAL 时段化修复)独立为 TODO-20260706-001,与本项并行先行。
@@ -96,7 +96,7 @@ completed_git: 02162b6
 - ✅ 阶段 2:3 规则族门面化(commit 4104480 起)
 - ✅ 阶段 3:`ContinuousStrategy` 通用 `applyCapAndAccumulate` + `RuleSemantics` + 简化全局空隙(commit 4104480 / 59c34e1)
 - ✅ 阶段 4:`DurationSupport` + `DurationPeriodStrategy` / `DurationGlobalStrategy`(commit 8a4ec71)
-- ✅ 阶段 5:`SMART_FREE_MINUTES` 优先高价分配(commit 657c79d)
+- ✅ 阶段 5:`FREE_MINUTES allocationMode` 价格感知分配(commit 657c79d; 后续修订移除独立价格感知类型)
 - ✅ 阶段 6:共享 `resolveSegmentContext`(commit ad94bcf)
 - ✅ 阶段 7:废弃 `AbstractTimeBasedRule` + `SimplifiedUnitMeta`(本提交)
   - `RuleSupport` 承载 `materializeFreeMinutes`(FREE_MINUTES 时段化)

@@ -21,20 +21,16 @@ import java.util.Map;
  * <p>
  * 处理范围：
  * <ul>
- *   <li>FREE_MINUTES / SMART_FREE_MINUTES：按分钟扣减剩余量</li>
+ *   <li>FREE_MINUTES：按分钟扣减剩余量，并保留 allocationMode</li>
  *   <li>FREE_RANGE：按时段扣减（已用时段从剩余时段减去，可能分裂）</li>
  * </ul>
- * <p>
- * TODO-20260706-002 阶段5：SMART_FREE_MINUTES 跨段共享，与 FREE_MINUTES 同样按分钟扣减。
  */
 public final class ExternalPromotionPool {
 
     // id -> 原始 grant（保留 priority/source/rangeType 等元数据）
     private final Map<String, PromotionGrant> originalGrants = new LinkedHashMap<>();
-    // id -> 剩余 FREE_MINUTES / SMART_FREE_MINUTES 分钟
+    // id -> 剩余 FREE_MINUTES 分钟
     private final Map<String, Long> remainingMinutes = new HashMap<>();
-    // id -> 剩余 FREE_MINUTES / SMART_FREE_MINUTES 的原始类型（回写时按类型匹配 usage）
-    private final Map<String, BConstants.PromotionType> minutesType = new HashMap<>();
     // id -> 剩余 FREE_RANGE 时段
     private final Map<String, List<FreeTimeRange>> remainingRanges = new LinkedHashMap<>();
 
@@ -51,10 +47,9 @@ public final class ExternalPromotionPool {
             }
             originalGrants.put(grant.getId(), grant);
             switch (grant.getType()) {
-                case FREE_MINUTES, SMART_FREE_MINUTES -> {
+                case FREE_MINUTES -> {
                     long mins = grant.getFreeMinutes() != null ? grant.getFreeMinutes() : 0;
                     remainingMinutes.put(grant.getId(), mins);
-                    minutesType.put(grant.getId(), grant.getType());
                 }
                 case FREE_RANGE -> {
                     FreeTimeRange range = toFreeTimeRange(grant);
@@ -74,7 +69,6 @@ public final class ExternalPromotionPool {
     public void reset(List<PromotionGrant> externalPromotions) {
         originalGrants.clear();
         remainingMinutes.clear();
-        minutesType.clear();
         remainingRanges.clear();
         init(externalPromotions);
     }
@@ -86,20 +80,19 @@ public final class ExternalPromotionPool {
      */
     public List<PromotionGrant> remaining() {
         List<PromotionGrant> result = new ArrayList<>();
-        // FREE_MINUTES / SMART_FREE_MINUTES 剩余（按原始类型透传）
+        // FREE_MINUTES 剩余（保留 allocationMode 等原始元数据）
         for (Map.Entry<String, Long> entry : remainingMinutes.entrySet()) {
             long mins = entry.getValue();
             if (mins <= 0) {
                 continue;
             }
             PromotionGrant orig = originalGrants.get(entry.getKey());
-            BConstants.PromotionType type = minutesType.getOrDefault(entry.getKey(),
-                    BConstants.PromotionType.FREE_MINUTES);
             result.add(PromotionGrant.builder()
                     .id(entry.getKey())
-                    .type(type)
+                    .type(BConstants.PromotionType.FREE_MINUTES)
                     .source(orig.getSource())
                     .freeMinutes((int) Math.min(mins, Integer.MAX_VALUE))
+                    .allocationMode(orig.getAllocationMode())
                     .priority(orig.getPriority())
                     .activationMode(orig.getActivationMode())
                     .build());
@@ -126,9 +119,7 @@ public final class ExternalPromotionPool {
             if (id == null || usage.getType() == null) {
                 continue;
             }
-            if ((usage.getType() == BConstants.PromotionType.FREE_MINUTES
-                    || usage.getType() == BConstants.PromotionType.SMART_FREE_MINUTES)
-                    && remainingMinutes.containsKey(id)) {
+            if (usage.getType() == BConstants.PromotionType.FREE_MINUTES && remainingMinutes.containsKey(id)) {
                 long rem = remainingMinutes.get(id);
                 remainingMinutes.put(id, Math.max(0, rem - usage.getUsedMinutes()));
             } else if (usage.getType() == BConstants.PromotionType.FREE_RANGE && remainingRanges.containsKey(id)) {

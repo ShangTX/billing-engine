@@ -72,7 +72,7 @@ BillingRequest
 | `CONTINUOUS` | 边界驱动循环为唯一计算路径：找到最近边界（免费时段起止、时段结束、周期结束、calcEnd）跳过去，一次迭代产出一个同质段；段内按 subCount+remainder 拆为 compact（整单元）+ truncated（余数），compact 为段内直接产物 |
 | `UNIT_BASED` | 固定单元对齐 + 完整覆盖才免费，不走边界驱动公共循环；当前仅 `dayNight` 门面下 `DayNightUnitBasedStrategy` 承载 |
 | `DURATION_PERIOD` | 周期内时长计费，周期封顶 + 时段封顶，产出 `DurationSegment` |
-| `DURATION_GLOBAL` | 全局时长计费；按同质收费桶汇总，并对完整周期与尾周期分别应用时段封顶和周期封顶，产出 `DurationSegment`；唯一消费 `SMART_FREE_MINUTES` 的模式 |
+| `DURATION_GLOBAL` | 全局时长计费；按同质收费桶汇总，并对完整周期与尾周期分别应用时段封顶和周期封顶，产出 `DurationSegment`；支持价格感知的 `FREE_MINUTES` 分配模式 |
 
 ### 模式特性矩阵
 
@@ -81,8 +81,8 @@ BillingRequest
 | 产出结构 | BillingUnit | BillingUnit | DurationSegment | DurationSegment |
 | 切分模型 | 边界驱动切断 | 固定单元对齐 | 边界驱动分钟流 | 边界驱动分钟流 |
 | 公共调度层 | 用 | 不用 | 用 | 用 |
-| FREE_MINUTES 处理 | 前置时段化(起点) | 前置时段化(起点) | 前置时段化(起点) | 前置时段化(起点) + SMART_FREE_MINUTES |
-| SMART_FREE_MINUTES | 报错 | 报错 | 报错 | 规则侧优先高价分配 |
+| FREE_MINUTES 处理 | `FROM_START` 前置时段化 | `FROM_START` 前置时段化 | `FROM_START` 前置时段化 | 按 `allocationMode` 逐条分配；支持 `FROM_START`/`CHARGED_TIME`/`HIGHEST_PRICE` |
+| 价格感知 FREE_MINUTES | 报错 | 报错 | 报错 | `CHARGED_TIME` / `HIGHEST_PRICE` |
 | compact 合并 | 段内直接产出 | 无 | 无 | 无 |
 | 简化计算 | 全局空隙 | 无 | 无 | 无 |
 | 封顶基准 | 逐周期封顶 | 每日封顶 | 周期内封顶 | 完整周期封顶 + 尾周期实际费用封顶 |
@@ -187,6 +187,7 @@ BillingRequest
 能力：
 
 - 24 小时自然周期，按自然时段划分。
+- 自然时段按环形 24 小时时间轴解释：`endMinute < beginMinute` 表示跨到次日；`0-0` 表示全天，并在输出标签中归一为 `0-1440`。
 - 每个时段有独立价格，统一单元时长。
 - 自然时段边界统一切断，不再暴露跨时段定价模式。
 - 支持每日封顶 `maxChargeOneDay`。
@@ -212,8 +213,7 @@ BillingRequest
 | 类型 | 含义 |
 |------|------|
 | `FREE_RANGE` | 明确的免费时间段 |
-| `FREE_MINUTES` | 可分配到非免费空隙中的免费分钟数（窗口起点附近分配，前置时段化） |
-| `SMART_FREE_MINUTES` | 智能免费分钟数，仅 `DURATION_GLOBAL` 模式消费，规则侧按单价降序优先高价分配；非 GLOBAL 模式报错；与 `FREE_MINUTES` 共用 `freeMinutes` 字段，按 `priority` 排序各自分配 |
+| `FREE_MINUTES` | 免费分钟数；默认 `allocationMode=FROM_START` 从窗口起点附近分配；`DURATION_GLOBAL` 额外支持 `CHARGED_TIME`（按时间顺序填充单价大于 0 的收费时段）和 `HIGHEST_PRICE`（高价优先） |
 
 免费 grant 还携带 `activationMode`：默认 `ALWAYS` 总是生效；`END_WITHIN_RANGE` 表示仅当整笔计费结束时间落在该优惠时间范围内时生效。条件生效仅支持 `DURATION_PERIOD` / `DURATION_GLOBAL`，其他模式遇到会抛异常。条件优惠会先参与合并/分配，再过滤失效的免费段和 `PromotionUsage`，因此不会因为失效而重排其他优惠。
 
@@ -245,9 +245,9 @@ BillingRequest
 1. 从 `PromotionRuleConfig` 收集优惠 grant。
 2. 加入请求中的外部 `PromotionGrant`。
 3. 通过 `FreeTimeRangeMerger` 合并显式 `FREE_RANGE`。
-4. 产出规范中间形式：合并后的 `FREE_RANGE` 时段 + 未时段化的 `FREE_MINUTES` 列表（`freeMinutesList`）+ `SMART_FREE_MINUTES` 标量透传。
+4. 产出规范中间形式：合并后的 `FREE_RANGE` 时段 + 未时段化的 `FREE_MINUTES` 列表（`freeMinutesList`，含 allocationMode）。
 
-`FREE_MINUTES` 时段化下放到策略侧（TODO-20260702-004）：`PromotionEngine` 不再集中时段化，避免聚合层按"规则+模式"决定产出形式。CONTINUOUS/UNIT_BASED/DURATION_PERIOD 策略经 `RuleSupport.materializeFreeMinutes`（`FreeMinuteAllocator`）自行时段化（与 `FREE_RANGE` 合并）；DURATION_GLOBAL 策略同样时段化（FREE_MINUTES 在窗口起点附近分配），并额外消费 `SMART_FREE_MINUTES`（按单价降序优先高价分配，规则侧用 `RuleSemantics.priceAt` 切同价时段）。时长策略在合并/分配之后应用 `END_WITHIN_RANGE` 条件过滤。`SMART_FREE_MINUTES` 由聚合层标量透传（`smartFreeMinutesList`），不参与时段化，不计入简化计算的总免费分钟数判断。`PromotionUsage`（FREE_MINUTES/FREE_RANGE/SMART_FREE_MINUTES）与 `PromotionCarryOver` 由策略侧产出，`PromotionCarryOver` 经 `PromotionAggregateUtil.buildCarryOver` 构建后写回 aggregate。非 GLOBAL 模式遇到 `SMART_FREE_MINUTES` 由 `BillingCalculator` 抛异常；非时长模式遇到条件生效优惠也由 `BillingCalculator` 抛异常。
+`FREE_MINUTES` 时段化下放到策略侧（TODO-20260702-004）：`PromotionEngine` 不再集中时段化，避免聚合层按"规则+模式"决定产出形式。CONTINUOUS/UNIT_BASED/DURATION_PERIOD 策略只支持 `allocationMode=FROM_START`，经 `RuleSupport.materializeFreeMinutes`（`FreeMinuteAllocator`）自行时段化（与 `FREE_RANGE` 合并）；DURATION_GLOBAL 策略按同一份 `freeMinutesList` 的 `priority` 逐条分配，支持 `FROM_START`、`CHARGED_TIME`（按时间顺序填充非免费且单价大于 0 的收费时段）和 `HIGHEST_PRICE`（规则侧用 `RuleSemantics.priceAt` 切同价时段并按单价降序高价优先）。时长策略在合并/分配之后应用 `END_WITHIN_RANGE` 条件过滤。`PromotionUsage`（FREE_MINUTES/FREE_RANGE）与 `PromotionCarryOver` 由策略侧产出，`PromotionCarryOver` 经 `PromotionAggregateUtil.buildCarryOver` 构建后写回 aggregate。非 GLOBAL 模式遇到价格感知 `FREE_MINUTES` 分配模式由 `BillingCalculator` 抛异常；非时长模式遇到条件生效优惠也由 `BillingCalculator` 抛异常。
 
 `FreeTimeRangeMerger` 会保留优先级、来源、range type 等元数据。
 
@@ -307,7 +307,7 @@ BillingRequest
 重要缺口包括：
 
 - `times` 仍为预留规则常量；`nrTimeMix` 已废弃并由 `compositeTime` 覆盖。
-- `SMART_FREE_MINUTES` 仅 `DURATION_GLOBAL` 模式支持；其余模式遇之报错（按设计，复杂度锁定在 GLOBAL 内）。
+- `FREE_MINUTES` 的 `CHARGED_TIME` / `HIGHEST_PRICE` 仅 `DURATION_GLOBAL` 模式支持；其余模式遇之报错（按设计，复杂度锁定在 GLOBAL 内）。
 - 物化索引预估收入能力：引擎只提供实现可能（产出 validMinutes/accumulatedAmount 等），存储/索引由业务层实现（TODO-20260630-002）。
 
 ---

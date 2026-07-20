@@ -21,7 +21,7 @@ import lombok.AllArgsConstructor;
  * <ul>
  *   <li>规则类型必须在 Registry 中注册</li>
  *   <li>计算模式必须在规则支持的范围内（{@link BillingRule#supportedCalculationModes()}）</li>
- *   <li>SMART_FREE_MINUTES 仅允许 DURATION_GLOBAL 模式</li>
+ *   <li>价格感知 FREE_MINUTES allocationMode 仅允许 DURATION_GLOBAL 模式</li>
  *   <li>RuleConfig 类型必须与规则声明的 configClass 匹配</li>
  * </ul>
  */
@@ -55,14 +55,12 @@ public class BillingCalculator {
 
         RuleSupport.assertConditionalActivationSupported(promotionAggregate, calculationMode);
 
-        // SMART_FREE_MINUTES 仅 DURATION_GLOBAL 消费（TODO-20260706-002 阶段5）：
-        // 优先高价分配依赖 RuleSemantics.priceAt，复杂度锁定在 GLOBAL 模式内，其余模式报错。
-        if (promotionAggregate != null
-                && calculationMode != BConstants.CalculationMode.DURATION_GLOBAL
-                && promotionAggregate.getSmartFreeMinutesList() != null
-                && !promotionAggregate.getSmartFreeMinutesList().isEmpty()) {
+        // 价格感知 FREE_MINUTES 分配依赖 RuleSemantics.priceAt，复杂度锁定在 GLOBAL 模式内。
+        if (calculationMode != BConstants.CalculationMode.DURATION_GLOBAL
+                && RuleSupport.hasPriceAwareFreeMinutes(promotionAggregate)) {
             throw new IllegalStateException(
-                    "SMART_FREE_MINUTES is only supported in DURATION_GLOBAL mode, but current mode is: "
+                    "FREE_MINUTES allocationMode CHARGED_TIME/HIGHEST_PRICE is only supported in "
+                            + "DURATION_GLOBAL mode, but current mode is: "
                             + calculationMode
             );
         }

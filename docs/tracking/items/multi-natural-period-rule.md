@@ -38,7 +38,8 @@ public class NaturalTimeConfig implements RuleConfig {
     String id;
     
     /**
-     * 自然时段列表，必须覆盖 0-1440 分钟
+     * 自然时段列表，按环形 24 小时时间轴覆盖全天。
+     * endMinute < beginMinute 表示跨到次日；0-0 表示全天并按 0-1440 处理。
      */
     List<NaturalPeriod> periods;
     
@@ -58,8 +59,8 @@ public class NaturalTimeConfig implements RuleConfig {
 
 ```java
 public class NaturalPeriod {
-    int beginMinute;    // 开始分钟（0-1440）
-    int endMinute;      // 结束分钟（0-1440）
+    int beginMinute;    // 开始分钟（推荐 0-1439）
+    int endMinute;      // 结束分钟（0-1440；新接入推荐用 0 表示 00:00）
     BigDecimal unitPrice;  // 单元价格
 }
 ```
@@ -131,3 +132,7 @@ naturalTime 是简化版 compositeTime，只关注自然时段场景，配置更
 2026-07-15 修订：为避免 non-dayNight 规则继续扩散跨时段归属策略，`naturalTime`
 移除 `crossPeriodMode` 配置，统一在自然时段边界切断；不足单元收费仍通过
 `incompleteUnitChargeMode` / `thresholdMinutes` / `thresholdRatio` 控制。
+
+2026-07-17 修订：`naturalTime` 的自然时段按环形 24 小时时间轴解释，允许
+`07:00-21:00` + `21:00-07:00` 这类时间选择器友好的跨午夜配置；
+`00:00-00:00` 特判为全天，输出标签按 `0-1440` 表示。

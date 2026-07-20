@@ -26,6 +26,9 @@ public class FreeMinutes {
     /** 免费分钟数 */
     private Integer minutes;
 
+    /** FREE_MINUTES 分配模式；为空时默认 FROM_START。 */
+    private BConstants.FreeMinutesAllocationMode allocationMode;
+
     /** 优先级（数字越小优先级越高，控制多免费分钟数叠加时的分配顺序） */
     private Integer priority;
 

@@ -399,9 +399,6 @@ public class ProgressiveDailyCapRule implements BillingRule<ProgressiveDailyCapR
         if (promotionAggregate.getFreeMinutesList() != null && !promotionAggregate.getFreeMinutesList().isEmpty()) {
             throw new IllegalStateException("ProgressiveDailyCapRule example only supports FREE_RANGE promotions");
         }
-        if (promotionAggregate.getSmartFreeMinutesList() != null && !promotionAggregate.getSmartFreeMinutesList().isEmpty()) {
-            throw new IllegalStateException("ProgressiveDailyCapRule example only supports FREE_RANGE promotions");
-        }
     }
 
     private void validateConfig(Config config) {
