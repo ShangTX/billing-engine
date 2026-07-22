@@ -183,6 +183,8 @@
                 <configuration>
                     <publishingServerId>central-portal</publishingServerId>
                     <deploymentName>billing-engine-${project.version}</deploymentName>
+                    <!-- 校验通过后自动发布到 Maven Central，免去 Central Portal 网页手动点 Publish -->
+                    <autoPublish>true</autoPublish>
                 </configuration>
             </plugin>
 
