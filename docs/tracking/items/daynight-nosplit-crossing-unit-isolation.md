@@ -9,7 +9,7 @@
 - **创建时间**: 2026-07-22
 - **创建提交**: 5d51764
 - **完成时间**: 2026-07-22
-- **完成提交**: （待提交，工作区；提交后回填主要实现提交 SHA）
+- **完成提交**: cd6ccf2
 - **相关测试**:
   - `DayNightContinuousNoSplitBoundaryTest`（新增回归）
   - `DayNightContinuousCrossPeriodTest`（既有，保持通过）

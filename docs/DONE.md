@@ -35,5 +35,5 @@
 | 2026-07-06 | TODO-20260706-003 | feature | 输出结果优化 + 废弃 GLOBAL_ORIGIN + 等效金额增强 | 87e5ef9 | [output-optimization-and-equivalent-amount.md](tracking/items/output-optimization-and-equivalent-amount.md) |
 | 2026-07-09 | TODO-20260708-001 | refactor | CONTINUOUS 直接产出 compact + 移除 CompactMerger | （实现提交） | [continuous-compact-refactor.md](tracking/items/continuous-compact-refactor.md) |
 | 2026-07-15 | TODO-20260710-001 | refactor | DayNight日夜边界Provider与定价架构改造 | 709ae21 | [daynight-boundary-provider-pricing-architecture.md](tracking/items/daynight-boundary-provider-pricing-architecture.md) |
-| 2026-07-22 | TODO-20260722-001 | bug | DayNight splitDayNightBoundary=false 跨日夜边界单元孤立成段（修复 12:09 错误截断） | （待提交） | [daynight-nosplit-crossing-unit-isolation.md](tracking/items/daynight-nosplit-crossing-unit-isolation.md) |
-| 2026-07-22 | TODO-20260722-002 | refactor | 移除冗余的 CrossPeriodMode.BEGIN_TIME_TRUNCATE | （待提交） | [remove-begin-time-truncate.md](tracking/items/remove-begin-time-truncate.md) |
+| 2026-07-22 | TODO-20260722-001 | bug | DayNight splitDayNightBoundary=false 跨日夜边界单元孤立成段（修复 12:09 错误截断） | cd6ccf2 | [daynight-nosplit-crossing-unit-isolation.md](tracking/items/daynight-nosplit-crossing-unit-isolation.md) |
+| 2026-07-22 | TODO-20260722-002 | refactor | 移除冗余的 CrossPeriodMode.BEGIN_TIME_TRUNCATE | cd6ccf2 | [remove-begin-time-truncate.md](tracking/items/remove-begin-time-truncate.md) |
