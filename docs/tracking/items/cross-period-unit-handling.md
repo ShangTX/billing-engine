@@ -32,11 +32,12 @@ completed_at: 2026-05-18
 - 各规则根据自身特点选择支持的模式 subset
 - 保持配置向后兼容（默认值为当前行为）
 
-## CrossPeriodMode 七种模式
+## CrossPeriodMode 模式（原七种，2026-07-22 起剩 6 种）
+
+> 2026-07-22（TODO-20260722-002）：`BEGIN_TIME_TRUNCATE` 已移除。其"截断单元"语义在现有边界驱动体系下由 `splitDayNightBoundary` 承担，定价又与 `BEGIN_TIME_PRICE` 完全相同（resolver 同分支 `getBeginTimePrice`），故冗余。下表为原始设计记录，`BEGIN_TIME_TRUNCATE` 行已删除。
 
 | 模式 | 语义 | 适用场景 |
 |------|------|----------|
-| `BEGIN_TIME_TRUNCATE` | 截断 + 开始时段价格 | 单元不跨段 |
 | `BEGIN_TIME_PRICE` | 不截断，开始时段价格 | 统一计费 |
 | `BLOCK_WEIGHT` | 开始时段价格（按比例判断） | 类似当前 dayNight |
 | `HIGHER_PRICE` | 取较高价格 | 保护用户 |

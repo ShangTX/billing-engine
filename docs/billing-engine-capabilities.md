@@ -122,7 +122,7 @@ Boundary-driven framework abstractions:
 | `HomogeneousSegmentCalculator` | Homogeneous segment → BillingUnit (with compact merge) |
 | `BoundaryDrivenLoop` | Public loop entry (`run`), pure scheduling; shared by CONTINUOUS and duration strategies; UNIT_BASED does not use it |
 
-> CONTINUOUS produces compact directly within a segment (`ContinuousStrategy.applyCapAndAccumulate` splits into compact + truncated by subCount + remainder; on cap hit splits by budget keeping `CYCLE_CAP`/`PERIOD_CAP` markers), no cross-segment merge (`ResultAssembler` flat-collects). dayNight day/night boundary snaps to unit edge + point-in-time pricing keeps each segment pure day/night.
+> CONTINUOUS produces compact directly within a segment (`ContinuousStrategy.applyCapAndAccumulate` splits into compact + truncated by subCount + remainder; on cap hit splits by budget keeping `CYCLE_CAP`/`PERIOD_CAP` markers), no cross-segment merge (`ResultAssembler` flat-collects). For dayNight, `splitDayNightBoundary=true` (default) splits units at the day/night boundary; `false` does not cut — instead the unit spanning the boundary is isolated into its own segment and priced by `buildSegmentForDayNight` via `crossPeriodMode` (default BLOCK_WEIGHT) (no more snapping to unit edges; see §5 dayNight).
 
 ---
 
@@ -138,7 +138,7 @@ Capabilities:
 - `dayBeginMinute` and `dayEndMinute` define the day period.
 - `dayUnitPrice` and `nightUnitPrice` define the two prices.
 - `blockWeight` determines the final price of a mixed day/night unit.
-- `splitDayNightBoundary` (default `true`) controls whether CONTINUOUS splits units at the day/night boundary: when `false`, a unit spanning the boundary is priced by `crossPeriodMode` (default `BLOCK_WEIGHT`) + `blockWeight` (legacy semantics).
+- `splitDayNightBoundary` (default `true`) controls whether CONTINUOUS splits units at the day/night boundary: when `false`, the boundary is not cut; instead the unit spanning the boundary is isolated into its own segment and priced by `buildSegmentForDayNight → determineUnitPriceForContinuous` via `crossPeriodMode` (default `BLOCK_WEIGHT`) + `blockWeight`. Under BLOCK_WEIGHT a single crossing unit's attribution matches the legacy snap result, but the boundary is no longer snapped, and `false` now correctly honors `crossPeriodMode` (the legacy snap always attributed by blockWeight and ignored this mode).
 - `maxChargeOneDay` applies a daily cap.
 - UNIT_BASED semantics are carried by `DayNightUnitBasedStrategy` (a strategy under the facade: fixed unit alignment + full-coverage-free).
 - `DURATION_PERIOD` and `DURATION_GLOBAL` are carried by shared duration strategies. GLOBAL aggregates same day/night price buckets, leaves bucket begin/end empty, tracks free usage through `PromotionUsage`, and caps full cycles plus the tail cycle's actual charge.

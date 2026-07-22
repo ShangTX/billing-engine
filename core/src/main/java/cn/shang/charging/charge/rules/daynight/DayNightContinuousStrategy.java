@@ -266,16 +266,20 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
      * <p>
      * 根据 splitDayNightBoundary 配置返回当前范围内最近的日夜边界：
      * <ul>
-     *   <li>splitDayNightBoundary=true（默认）：返回精确的日夜边界时间点</li>
-     *   <li>splitDayNightBoundary=false：将跨日夜单元整体归属到占优侧，并把边界 snap 到该归属段的起点或终点</li>
+     *   <li>splitDayNightBoundary=true（默认）：返回精确的日夜边界时间点，在边界处切断单元。</li>
+     *   <li>splitDayNightBoundary=false：不在日夜边界切断，而是把"跨越日夜边界的单元"孤立成独立 segment，
+     *       由 {@code buildSegmentForDayNight → determineUnitPriceForContinuous} 按 crossPeriodMode（默认 BLOCK_WEIGHT）
+     *       定价。provider 只负责吐出跨边界单元的两条单元边，不数分钟、不判归属，定价逻辑唯一落在 resolver。</li>
      * </ul>
+     * <p>
+     * split=false 的单元对齐沿用 current 网格：主路径 current 恒为单元对齐（起点 calcBegin，之后只推进到本
+     * provider 产出的单元边），故以 current 为基准取包含日夜边界的单元 {@code [unitStart, unitEnd)}。
      *
      * @param config DayNight配置
      * @return BoundaryProvider lambda，返回当前范围内最近的日夜边界
      */
     private BoundaryProvider createDayNightBoundaryProvider(DayNightConfig config) {
         return (current, end) -> {
-            // 1.首先确认日夜边界位置，day-night 和 night-day
             int dayBeginMin = config.getDayBeginMinute();
             int dayEndMin = config.getDayEndMinute();
             LocalDateTime nearestBoundary = findNearestDayNightBoundary(current, end, dayBeginMin, dayEndMin);
@@ -284,49 +288,28 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                 return null; // 范围内无边界
             }
 
-            // 判断边界类型：是 dayBegin 还是 dayEnd
-            boolean isDayBeginBoundary = isDayBeginBoundaryPoint(nearestBoundary, dayBeginMin);
-
-            // 3. 根据splitDayNightBoundary配置决定是否需要snap
+            // split=true（默认）：直接在日夜边界切断。
             if (config.getSplitDayNightBoundary() == null || config.getSplitDayNightBoundary()) {
-                // 3-1. 截断处理，直接以此日夜边界作为此次边界
                 return nearestBoundary;
-            } else {
-                // 3-2. 非截断处理snap
-                // 4.1 snap 计算从current开始对齐单元边界，找到包含nearestBoundary的单元
-                int unitMinutes = config.getUnitMinutes();
-                long minutesToBoundary = Duration.between(current, nearestBoundary).toMinutes();
-                long unitIndex = Math.floorDiv(minutesToBoundary, unitMinutes);
-
-                // 包含boundary的单元（可能跨越）
-                LocalDateTime unitStart = current.plusMinutes(unitIndex * unitMinutes);
-                LocalDateTime unitEnd = unitStart.plusMinutes(unitMinutes);
-
-                // 4.2 snap 计算最后一个边界是否跨越，如果未跨越则可以直接结束处理，使用此边界作为结果
-                if (nearestBoundary.equals(unitStart) || nearestBoundary.equals(unitEnd)) {
-                    // 边界恰好落在单元边界上，未跨越
-                    return nearestBoundary;
-                } else {
-                    // 4.2 snap 处理跨越情况，判断此单元归属于前一个日夜分段还是后一个日夜分段
-                    int dayMinutes = countDayMinutes(unitStart, unitEnd, dayBeginMin, dayEndMin);
-                    boolean belongsToDay = BigDecimal.valueOf(dayMinutes)
-                            .compareTo(config.getBlockWeight().multiply(BigDecimal.valueOf(unitMinutes))) >= 0;
-
-                    // 4.3 snap 根据边界类型和归属判断决定snap方向
-                    LocalDateTime snapped = snapDayNightBoundary(
-                            unitStart, unitEnd, isDayBeginBoundary, belongsToDay);
-                    if (snapped.isAfter(current)) {
-                        return snapped;
-                    } else {
-                        LocalDateTime nextBoundary = findNearestDayNightBoundary(nearestBoundary, end, dayBeginMin, dayEndMin);
-                        if (nextBoundary != null && nextBoundary.isAfter(current) && !nextBoundary.isAfter(end)) {
-                            return nextBoundary;
-                        }
-                    }
-                }
             }
 
-            return null;
+            // split=false：把跨越日夜边界的单元 [unitStart, unitEnd) 孤立成独立 segment，交给 buildSegment 定价。
+            int unitMinutes = config.getUnitMinutes();
+            long minutesToBoundary = Duration.between(current, nearestBoundary).toMinutes();
+            long unitIndex = Math.floorDiv(minutesToBoundary, unitMinutes);
+            LocalDateTime unitStart = current.plusMinutes(unitIndex * unitMinutes);
+            LocalDateTime unitEnd = unitStart.plusMinutes(unitMinutes);
+
+            // 日夜边界恰好落在单元边上：无单元跨越，直接在此切断（两侧单元纯 day/night）。
+            if (nearestBoundary.equals(unitStart)) {
+                return nearestBoundary;
+            }
+            // 日夜边界落在单元内部：孤立跨边界单元 [unitStart, unitEnd)。
+            // current 已推进到 unitStart → 返回 unitEnd（本段即跨边界单元）；否则先返回 unitStart（纯段在前）。
+            if (current.equals(unitStart)) {
+                return unitEnd;
+            }
+            return unitStart;
         };
     }
 
@@ -370,31 +353,6 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
         return candidates.isEmpty() ? null : candidates.stream().min(LocalDateTime::compareTo).orElse(null);
     }
 
-    private LocalDateTime snapDayNightBoundary(LocalDateTime unitStart,
-                                               LocalDateTime unitEnd,
-                                               boolean dayBeginBoundary,
-                                               boolean belongsToDay) {
-        if (belongsToDay) {
-            return dayBeginBoundary ? unitStart : unitEnd;
-        }
-        return dayBeginBoundary ? unitEnd : unitStart;
-    }
-
-    /**
-     * 计算一个时间区间内落在白天的分钟数。
-     */
-    private static int countDayMinutes(LocalDateTime begin, LocalDateTime end, int dayBeginMin, int dayEndMin) {
-        int dayMins = 0;
-        LocalDateTime cursor = begin;
-        while (cursor.isBefore(end)) {
-            if (isInDay(cursor, dayBeginMin, dayEndMin)) {
-                dayMins++;
-            }
-            cursor = cursor.plusMinutes(1);
-        }
-        return dayMins;
-    }
-
     private HomogeneousSegment buildSegmentForDayNight(LocalDateTime current,
                                                        LocalDateTime next,
                                                        DayNightConfig config,
@@ -410,25 +368,4 @@ final class DayNightContinuousStrategy implements BillingRule<DayNightConfig> {
                 false, null, null);
     }
 
-    /**
-     * {@code time} 是否在白天时段（按 dayBeginMinute/dayEndMinute 配置）。
-     */
-    private static boolean isInDay(LocalDateTime time, int dayBeginMin, int dayEndMin) {
-        // 时间的分钟数
-        int minute = time.getHour() * 60 + time.getMinute();
-        // 开始时间早于结束时间，时间应在开始结束中间才是白天
-        if (dayBeginMin < dayEndMin) {
-            return minute >= dayBeginMin && minute < dayEndMin;
-        }
-        // 开始时间晚于结束时间，说明是到次日结束时间为白天，时间应晚于开始或早于开始
-        return minute >= dayBeginMin || minute < dayEndMin;
-    }
-
-    /**
-     * 判断某个时间点是否是 dayBegin 边界（night 到 day 的切换点）。
-     */
-    private static boolean isDayBeginBoundaryPoint(LocalDateTime time, int dayBeginMin) {
-        int minute = time.getHour() * 60 + time.getMinute();
-        return minute == dayBeginMin;
-    }
 }

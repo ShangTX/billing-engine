@@ -1,5 +1,7 @@
 # DayNight 日夜边界 Provider 与定价架构改造
 
+> **已被取代（2026-07-22）**：本文描述的 snap 归属方案（把日夜边界吸附到单元边、`belongsToDay` 判定）已在 TODO-20260722-001 中移除，改为「跨日夜边界的单元孤立成独立 segment、由 `buildSegmentForDayNight` 按 `crossPeriodMode` 定价」。当前实现以 [daynight-nosplit-crossing-unit-isolation.md](daynight-nosplit-crossing-unit-isolation.md) 与能力文档为准；本文仅作历史记录。
+
 ## 元数据
 
 - **ID**: TODO-20260710-001

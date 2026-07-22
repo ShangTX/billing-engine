@@ -67,7 +67,7 @@ final class DayNightPriceResolver {
         // MIXED: 根据 crossPeriodMode 处理
         CrossPeriodMode mode = config.getCrossPeriodMode();
         return switch (mode) {
-            case BEGIN_TIME_TRUNCATE, BEGIN_TIME_PRICE, BLOCK_WEIGHT -> {
+            case BEGIN_TIME_PRICE, BLOCK_WEIGHT -> {
                 // BLOCK_WEIGHT 使用传统逻辑（根据白天分钟占比）
                 if (mode == CrossPeriodMode.BLOCK_WEIGHT) {
                     BigDecimal ratio = BigDecimal.valueOf(dayMinutes)

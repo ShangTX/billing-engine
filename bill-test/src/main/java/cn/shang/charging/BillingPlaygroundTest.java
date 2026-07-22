@@ -70,7 +70,8 @@ public class BillingPlaygroundTest {
 //        run(scenario4_schemeSwitch());              // 方案切换（多段计费）
 //        run(scenario5_withEquivalentAmount());      // 等效金额计算
 //        run(scenario6_startFree());                   // 前N分钟免费（START_FREE）
-        run(scenario_cust());                         // 常规金额计算
+//        run(scenario_cust());                         // 常规金额计算
+        run(scenario_cust2());                         // 常规金额计算
 
         // Snap测试场景
         System.out.println("\n" + "=".repeat(72));
@@ -476,6 +477,29 @@ public class BillingPlaygroundTest {
                                 .minutes(30)
                                 .priority(1)
                                 .build()))
+                .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
+                .build();
+    }
+
+    static Scenario scenario_cust2() {
+        return Scenario.builder()
+                .name("常规金额计算")
+                .beginTime(LocalDateTime.of(2026, 8, 26, 7, 50))
+                .endTime(LocalDateTime.of(2026, 8, 26, 19, 51))
+                .calculationMode(BConstants.CalculationMode.CONTINUOUS)
+                .ruleConfig(new DayNightConfig()
+                        .setId("daynight-eq")
+                        .setUnitMinutes(60).setMaxChargeOneDay(new BigDecimal("50"))
+                        .setDayBeginMinute(8*60+3).setDayEndMinute(12*60 + 9)
+                        .setDayUnitPrice(new BigDecimal("6.9")).setNightUnitPrice(new BigDecimal("7"))
+                        .setBlockWeight(new BigDecimal("0.5"))
+                        .setSimplifiedSupported(true)
+                        .setSplitDayNightBoundary(false)
+                        .setIncompleteUnitChargeSpec(IncompleteUnitChargeSpec.builder()
+                                .mode(BConstants.IncompleteUnitChargeMode.FULL_CHARGE)
+                                .thresholdMinutes(5).build()))
+                .externalPromotions(List.of())
+                .promotionRuleConfigs(List.of())
                 .equivalentAmountSpec(EquivalentAmountSpec.builder().build())
                 .build();
     }

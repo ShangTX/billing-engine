@@ -122,7 +122,7 @@ BillingRequest
 | `HomogeneousSegmentCalculator` | 同质段 → BillingUnit（含 compact 合并） |
 | `BoundaryDrivenLoop` | 公共循环入口（`run`），纯调度，CONTINUOUS 与时长策略共享；UNIT_BASED 不走该层 |
 
-> CONTINUOUS 段内直接产出 compact（`ContinuousStrategy.applyCapAndAccumulate` 按 subCount + remainder 拆为 compact + truncated，封顶时按 budget 分拆保留 `CYCLE_CAP`/`PERIOD_CAP` 标记），跨分段不合并（`ResultAssembler` 直接 flat 汇总）。dayNight 日夜边界 snap 到 unit edge + 时间点定价保证段内纯 day/night。
+> CONTINUOUS 段内直接产出 compact（`ContinuousStrategy.applyCapAndAccumulate` 按 subCount + remainder 拆为 compact + truncated，封顶时按 budget 分拆保留 `CYCLE_CAP`/`PERIOD_CAP` 标记），跨分段不合并（`ResultAssembler` 直接 flat 汇总）。dayNight 日夜边界：`splitDayNightBoundary=true`（默认）在边界处切断单元；`false` 时不切断，而是把跨越日夜边界的单元孤立成独立 segment，由 `buildSegmentForDayNight` 按 `crossPeriodMode`（默认 BLOCK_WEIGHT）定价（不再 snap 到 unit edge，见 §5 dayNight）。
 
 ---
 
@@ -138,7 +138,7 @@ BillingRequest
 - `dayBeginMinute` 和 `dayEndMinute` 定义白天时段。
 - `dayUnitPrice` 和 `nightUnitPrice` 定义日夜价格。
 - `blockWeight` 决定跨日夜混合单元的最终价格。
-- `splitDayNightBoundary`（默认 `true`）控制 CONTINUOUS 是否在日夜边界切断单元：`false` 时单元跨日夜按 `crossPeriodMode`（默认 `BLOCK_WEIGHT`）+ `blockWeight` 归属白天/夜晚价（旧版本语义）。
+- `splitDayNightBoundary`（默认 `true`）控制 CONTINUOUS 是否在日夜边界切断单元：`false` 时不在边界切断，而是把跨越日夜边界的单元孤立成独立 segment，由 `buildSegmentForDayNight → determineUnitPriceForContinuous` 按 `crossPeriodMode`（默认 `BLOCK_WEIGHT`）+ `blockWeight` 定价。BLOCK_WEIGHT 下单个跨边界单元的归属结果与旧 snap 一致，但不再吸附边界，且 `false` 时会正确尊重 `crossPeriodMode`（旧 snap 固定按 blockWeight 归属，忽略该模式）。
 - `maxChargeOneDay` 支持每日封顶。
 - `CONTINUOUS` 模式下已接入边界驱动循环，产出 compact 单元。
 - UNIT_BASED 语义由 `DayNightUnitBasedStrategy` 承载（门面下策略，固定单元对齐 + 完整覆盖才免费）。

@@ -21,8 +21,5 @@ public enum CrossPeriodMode {
     BEGIN_TIME_PRICE,
 
     /** 取结束时间所在时段的价格 */
-    END_TIME_PRICE,
-
-    /** 取开始时间价格，并用自然时段边界截断单元 */
-    BEGIN_TIME_TRUNCATE
+    END_TIME_PRICE
 }
